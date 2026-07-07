@@ -8,5 +8,5 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SOCKET="${SLOTHINGD_SOCKET:-/tmp/slothingd.sock}"
 
 exec "$REPO_DIR/engine/slothingd/build/slothingd" \
-    -m "$REPO_DIR/llm/models/lfm2.5-230m/LFM2.5-230M-Q8_0.gguf" \
+    -m "$REPO_DIR/llm/models/lfm2.5-230m-q4/LFM2.5-230M-Q4_0.gguf" \
     -s "$SOCKET"

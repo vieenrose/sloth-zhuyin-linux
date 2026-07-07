@@ -18,13 +18,14 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
 - `RESEARCH.md` — notes on how LLMs are used to improve input methods
   elsewhere, gathered before designing the reranker.
 - `MODEL_BENCHMARKS.md` — comparison of candidate reranker models; see
-  `MODEL_BENCHMARKS.md` for why **LFM2.5-230M** was picked.
+  `MODEL_BENCHMARKS.md` for why **LFM2.5-230M (Q4_0 quant)** was picked.
 
 ## Status
 
 Milestone 1 (plain fcitx5 zhuyin engine, no LLM) is done. Milestone 2
-(`slothingd` LLM reranker daemon) builds and works standalone; wiring it
-into `eim.cpp`'s commit path is in progress.
+(`slothingd` LLM reranker daemon, wired into `eim.cpp`'s commit path) is
+implemented and validated via direct socket tests; end-to-end testing via
+real typing in fcitx5 is in progress.
 
 ## Build & install the fcitx5 addon
 
@@ -47,8 +48,8 @@ git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
 cmake -B llama.cpp/build -S llama.cpp -DCMAKE_BUILD_TYPE=Release
 cmake --build llama.cpp/build -j"$(nproc)" --target llama
 
-hf download LiquidAI/LFM2.5-230M-GGUF --include "*Q8_0*" \
-  --local-dir models/lfm2.5-230m
+hf download LiquidAI/LFM2.5-230M-GGUF LFM2.5-230M-Q4_0.gguf \
+  --local-dir models/lfm2.5-230m-q4
 cd ..
 
 cmake -B engine/slothingd/build -S engine/slothingd -DCMAKE_BUILD_TYPE=Release

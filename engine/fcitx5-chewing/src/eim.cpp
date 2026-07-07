@@ -186,10 +186,12 @@ void logger(void *, int, const char *fmt, ...) {
 
 // Reranking only runs on explicit commit (Enter / focus-out), a much less
 // frequent and more latency-tolerant event than per-keystroke decoding, so
-// this can afford to be generous: observed LFM2.5-230M latency ranged from
-// ~260ms (idle machine) to ~1.6s (under heavy system load) in testing.
-// Note this is still a *blocking* wait inside keyEvent() -- see README for
-// the known follow-up to make this asynchronous instead.
+// this can afford to be generous. With LFM2.5-230M at Q4_0 (see
+// MODEL_BENCHMARKS.md), observed latency is ~200-350ms on an idle machine;
+// this timeout leaves headroom for heavier system load rather than tightly
+// chasing the typical case. Note this is still a *blocking* wait inside
+// keyEvent() -- see README for the known follow-up to make this
+// asynchronous instead.
 constexpr int kSlothingdTimeoutMs = 2000;
 
 std::string slothingdSocketPath() {
