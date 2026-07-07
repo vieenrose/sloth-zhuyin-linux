@@ -6,22 +6,24 @@
  *
  */
 #include "eim.h"
+#include "nlohmann/json.hpp"
 #include <algorithm>
 #include <cstdarg>
 #include <cstdlib>
 #include <cstring>
 #include <fcitx-utils/utf8.h>
+#include <fcitx/candidatelist.h>
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputpanel.h>
 #include <fcitx/statusarea.h>
 #include <fcitx/text.h>
 #include <fcitx/userinterfacemanager.h>
-#include <optional>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
-#include <thread>
 #include <unistd.h>
+
+using json = nlohmann::json;
 
 FCITX_DEFINE_LOG_CATEGORY(chewing_log, "chewing");
 #define CHEWING_DEBUG() FCITX_LOGC(chewing_log, Debug)
@@ -178,6 +180,25 @@ private:
     std::vector<Text> labels_;
 };
 
+// One LLM-proposed full sentence in the conversion candidate list. Selecting
+// it hands the sentence to the engine, which commits it and (optionally)
+// teaches chewing. Held in a CommonCandidateList, so paging/labels/cursor are
+// handled for us.
+class SlothingCandidateWord : public CandidateWord {
+public:
+    SlothingCandidateWord(ChewingEngine *engine, std::string sentence)
+        : CandidateWord(Text(sentence)), engine_(engine),
+          sentence_(std::move(sentence)) {}
+
+    void select(InputContext *inputContext) const override {
+        engine_->acceptConversion(inputContext, sentence_);
+    }
+
+private:
+    ChewingEngine *engine_;
+    std::string sentence_;
+};
+
 void logger(void *, int, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -185,49 +206,48 @@ void logger(void *, int, const char *fmt, ...) {
     va_end(ap);
 }
 
-// Reranking only runs on explicit commit (Enter / focus-out), a much less
-// frequent and more latency-tolerant event than per-keystroke decoding, so
-// this can afford to be generous. With LFM2.5-230M at Q4_0 (see
-// MODEL_BENCHMARKS.md), observed latency is ~200-350ms on an idle machine;
-// this timeout leaves headroom for heavier system load rather than tightly
-// chasing the typical case. Note this is still a *blocking* wait inside
-// keyEvent() -- see README for the known follow-up to make this
-// asynchronous instead.
-constexpr int kSlothingdTimeoutMs = 2000;
+// Conversion runs on an explicit key press on a background thread, so a slow
+// daemon delays only the candidate list, never a keystroke. Generous timeout:
+// LFM2.5-230M Q4_0 is ~200-350ms idle (MODEL_BENCHMARKS.md); this leaves
+// headroom under load.
+constexpr int kSlothingdTimeoutMs = 3000;
 
+// Keep this derivation identical to default_socket_path() in slothingd.cpp
+// and the shell logic in packaging/run-slothingd.sh so both ends agree.
 std::string slothingdSocketPath() {
     if (const char *env = std::getenv("SLOTHINGD_SOCKET")) {
         return env;
     }
+    if (const char *xdg = std::getenv("XDG_RUNTIME_DIR")) {
+        return std::string(xdg) + "/slothingd.sock";
+    }
     return "/tmp/slothingd.sock";
 }
 
-// Walks the already-decided phrase segmentation of the current buffer via
-// libchewing's interval API and, for each segment, non-invasively opens its
-// candidate list (chewing_cand_open/close, not a keystroke) to harvest the
-// alternatives libchewing itself considers for that segment. Cursor position
-// and the phrase-choice-rearward mode are saved and restored, so this has no
-// visible side effect on editing state. Returns an empty vector if the
-// buffer is empty or any segment yields no usable candidates (abort rather
-// than send a partial/malformed request).
+// Walks the current buffer's phrase segmentation via libchewing's interval
+// API and harvests, per segment, the phrase-length alternatives libchewing
+// considers for it (used to build the LLM's constrained choice set and to
+// teach chewing on accept). Runs only on the explicit convert key, not per
+// keystroke. Cursor and phrase-choice-rearward mode are saved and restored.
 //
-// Candidates whose length differs from the interval's span are discarded:
-// chewing_cand_open can surface shorter-than-segment candidates too, and a
-// first live test showed what happens if those leak through -- the reranker
-// rebuilt the sentence from fragments ('我再重新考慮' became '我爞考').
-// maybeRerank() additionally refuses to run unless the original sentence
-// reconstructs from what we harvested, so even a subtly wrong harvest
-// degrades to a no-op instead of corrupting the user's text.
-std::vector<std::vector<std::string>> collectCandidatePositions(ChewingContext *ctx) {
+// The cursor-advance loop carries a progress guard: with a candidate window
+// briefly open, chewing_handle_Right can page instead of moving the cursor,
+// which without a guard spins forever on the UI thread. Candidates whose
+// UTF-8 length differs from the interval span are dropped (chewing_cand_open
+// can surface shorter fragments; letting them through once turned
+// '我再重新考慮' into '我爞考'). Fills `intervals` with the [from,to) spans in
+// lockstep with the returned positions. Returns empty (and clears intervals)
+// if the buffer is empty or any segment yields no usable candidate.
+std::vector<std::vector<std::string>>
+collectCandidatePositions(ChewingContext *ctx,
+                          std::vector<std::pair<int, int>> &intervalsOut) {
+    intervalsOut.clear();
     std::vector<std::vector<std::string>> positions;
     if (chewing_buffer_Len(ctx) <= 0) {
         return positions;
     }
 
     int origCursor = chewing_cursor_Current(ctx);
-    // Harvest with forward phrase choice regardless of the user's
-    // ChoiceBackward setting, so cand_open at a segment's start yields that
-    // segment's candidates rather than the one ending at the cursor.
     int origRearward = chewing_get_phraseChoiceRearward(ctx);
     chewing_set_phraseChoiceRearward(ctx, 0);
 
@@ -241,10 +261,15 @@ std::vector<std::vector<std::string>> collectCandidatePositions(ChewingContext *
     }
 
     for (const auto &interval : intervals) {
-        // Re-derive the cursor from libchewing each round instead of
-        // assuming chewing_cand_open/close left it where we put it.
+        // Advance the cursor to the interval start, guarding against a
+        // non-progressing step (see the freeze note above).
+        int guard = 0;
         while (chewing_cursor_Current(ctx) < interval.from) {
+            int before = chewing_cursor_Current(ctx);
             chewing_handle_Right(ctx);
+            if (chewing_cursor_Current(ctx) == before || ++guard > CHEWING_MAX_LEN) {
+                break;
+            }
         }
         const size_t span = static_cast<size_t>(interval.to - interval.from);
         chewing_cand_open(ctx);
@@ -262,9 +287,11 @@ std::vector<std::vector<std::string>> collectCandidatePositions(ChewingContext *
                         << " candidates";
         if (cands.empty()) {
             positions.clear();
+            intervalsOut.clear();
             break;
         }
         positions.push_back(std::move(cands));
+        intervalsOut.emplace_back(interval.from, interval.to);
     }
 
     chewing_set_phraseChoiceRearward(ctx, origRearward);
@@ -276,80 +303,22 @@ std::vector<std::vector<std::string>> collectCandidatePositions(ChewingContext *
     return positions;
 }
 
-std::string jsonEscape(const std::string &s) {
-    std::string out;
-    out.reserve(s.size());
-    for (unsigned char c : s) {
-        switch (c) {
-        case '"':
-            out += "\\\"";
-            break;
-        case '\\':
-            out += "\\\\";
-            break;
-        default:
-            out += static_cast<char>(c);
-        }
-    }
-    return out;
+// Serialize the request with the same JSON library the daemon parses with,
+// so escaping can never drift between the two ends.
+std::string buildRerankRequest(const std::vector<std::vector<std::string>> &positions,
+                               int n) {
+    json req;
+    req["positions"] = positions;
+    req["n"] = n;
+    return req.dump() + "\n";
 }
 
-std::string buildRerankRequest(const std::vector<std::vector<std::string>> &positions) {
-    std::string req = "{\"positions\":[";
-    for (size_t i = 0; i < positions.size(); i++) {
-        if (i) {
-            req += ",";
-        }
-        req += "[";
-        for (size_t j = 0; j < positions[i].size(); j++) {
-            if (j) {
-                req += ",";
-            }
-            req += "\"" + jsonEscape(positions[i][j]) + "\"";
-        }
-        req += "]";
-    }
-    req += "],\"n\":3}\n";
-    return req;
-}
-
-// Minimal extractor for slothingd's own fixed {"sentences":["...",...]}
-// response shape -- not a general JSON parser, and not meant to be one:
-// the protocol between eim.cpp and slothingd is closed and controlled by
-// us on both ends.
-std::vector<std::string> extractStringArray(const std::string &json, const char *key) {
-    std::vector<std::string> out;
-    std::string needle = std::string("\"") + key + "\":[";
-    auto pos = json.find(needle);
-    if (pos == std::string::npos) {
-        return out;
-    }
-    pos += needle.size();
-    while (pos < json.size() && json[pos] != ']') {
-        if (json[pos] != '"') {
-            pos++;
-            continue;
-        }
-        pos++; // opening quote
-        std::string item;
-        while (pos < json.size() && json[pos] != '"') {
-            if (json[pos] == '\\' && pos + 1 < json.size()) {
-                pos++;
-            }
-            item += json[pos];
-            pos++;
-        }
-        pos++; // closing quote
-        out.push_back(std::move(item));
-    }
-    return out;
-}
-
-// Talks to slothingd over its Unix socket with a send/recv timeout so a
-// slow or absent daemon can never wedge the worker thread for long. Returns
-// an empty list on any failure (daemon not running, timeout, malformed
-// response) -- suggestions simply don't appear.
-std::vector<std::string> queryReranker(const std::vector<std::vector<std::string>> &positions) {
+// Talks to slothingd over its Unix socket. Publishes the connected fd into
+// `fdSlot` so the engine's destructor can shutdown() it to unblock this
+// thread at teardown; clears it again before returning. Returns an empty
+// list on any failure (daemon absent, timeout, malformed/partial response).
+std::vector<std::string> queryReranker(const std::vector<std::vector<std::string>> &positions,
+                                       int n, std::atomic<int> &fdSlot) {
     if (positions.empty()) {
         return {};
     }
@@ -373,60 +342,64 @@ std::vector<std::string> queryReranker(const std::vector<std::vector<std::string
         close(fd);
         return {};
     }
+    fdSlot.store(fd);
 
-    std::string req = buildRerankRequest(positions);
+    auto finish = [&](std::vector<std::string> result) {
+        fdSlot.store(-1);
+        close(fd);
+        return result;
+    };
+
+    std::string req = buildRerankRequest(positions, n);
     size_t off = 0;
     while (off < req.size()) {
-        ssize_t n = write(fd, req.data() + off, req.size() - off);
-        if (n <= 0) {
-            close(fd);
-            return {};
+        ssize_t w = send(fd, req.data() + off, req.size() - off, MSG_NOSIGNAL);
+        if (w <= 0) {
+            return finish({});
         }
-        off += static_cast<size_t>(n);
+        off += static_cast<size_t>(w);
     }
     shutdown(fd, SHUT_WR);
 
     std::string resp;
     char buf[4096];
-    ssize_t n;
-    while ((n = read(fd, buf, sizeof(buf))) > 0) {
-        resp.append(buf, static_cast<size_t>(n));
+    ssize_t r;
+    while ((r = read(fd, buf, sizeof(buf))) > 0) {
+        resp.append(buf, static_cast<size_t>(r));
     }
-    close(fd);
     if (resp.empty()) {
-        return {};
+        return finish({});
     }
-    return extractStringArray(resp, "sentences");
+    // Parse with the same library the daemon dumped with; a truncated or
+    // malformed reply throws and yields no candidates rather than garbage.
+    try {
+        json parsed = json::parse(resp);
+        if (parsed.contains("sentences")) {
+            return finish(parsed["sentences"].get<std::vector<std::string>>());
+        }
+    } catch (const std::exception &) {
+    }
+    return finish({});
 }
 
-// Verifies `sentence` is exactly the concatenation of one candidate from
-// each entry of `positions`, in order -- i.e. that it could only have come
-// from real libchewing alternatives, never arbitrary LLM output. Prefers
-// the longest matching candidate at each step to avoid a short candidate
-// falsely matching a prefix of a longer one.
+// Verifies `sentence` is exactly the concatenation of one candidate from each
+// entry of `positions`, in order -- so it can only be a combination of real
+// libchewing alternatives, never arbitrary LLM output. Longest-match per
+// position so a short candidate can't shadow a longer one at the same offset.
 bool matchesPositions(const std::string &sentence,
                       const std::vector<std::vector<std::string>> &positions) {
     size_t off = 0;
     for (const auto &cands : positions) {
-        std::vector<const std::string *> sorted;
-        sorted.reserve(cands.size());
+        size_t best = 0;
         for (const auto &c : cands) {
-            sorted.push_back(&c);
-        }
-        std::sort(sorted.begin(), sorted.end(),
-                  [](const std::string *a, const std::string *b) { return a->size() > b->size(); });
-
-        bool matched = false;
-        for (const auto *c : sorted) {
-            if (sentence.compare(off, c->size(), *c) == 0) {
-                off += c->size();
-                matched = true;
-                break;
+            if (c.size() > best && sentence.compare(off, c.size(), c) == 0) {
+                best = c.size();
             }
         }
-        if (!matched) {
+        if (best == 0) {
             return false;
         }
+        off += best;
     }
     return off == sentence.size();
 }
@@ -443,91 +416,212 @@ ChewingEngine::ChewingEngine(Instance *instance)
     reloadConfig();
 }
 
-ChewingEngine::~ChewingEngine() = default;
+ChewingEngine::~ChewingEngine() { stopWorker(); }
 
-void ChewingEngine::dropSuggestion() {
-    suggestions_.clear();
-    suggestionIndex_ = 0;
-    suggestionForBuffer_.clear();
-    inflightForBuffer_.clear();
-    suggestionGeneration_++;
+void ChewingEngine::stopWorker() {
+    // Unblock the worker's socket I/O (if any) and join it, so no background
+    // thread can outlive the engine and touch freed state at teardown.
+    workerStop_.store(true);
+    int fd = inflightFd_.exchange(-1);
+    if (fd >= 0) {
+        shutdown(fd, SHUT_RDWR);
+    }
+    if (worker_.joinable()) {
+        worker_.join();
+    }
+    workerStop_.store(false);
 }
 
-void ChewingEngine::requestSuggestion(InputContext *ic) {
-    ChewingContext *ctx = context_.get();
+void ChewingEngine::cancelConversion(InputContext *ic) {
+    stopWorker();
+    convertState_ = ConvertState::Composing;
+    convertGeneration_++;
+    convertBuffer_.clear();
+    convertPositions_.clear();
+    convertIntervals_.clear();
+    updateUI(ic);
+}
 
-    // Only suggest for a settled multi-char buffer: nothing mid-syllable
-    // (zuin pending) and nothing while the candidate window is open.
-    // (cand_TotalChoice > 0 is the open-window signal; cand_CheckDone is
-    // false even during plain typing, so it can't be used for this.)
+void ChewingEngine::startConversion(InputContext *ic) {
+    ChewingContext *ctx = context_.get();
+    // Only convert a settled multi-char buffer: nothing mid-syllable, no open
+    // candidate window.
     const char *zuin = chewing_bopomofo_String_static(ctx);
-    if (chewing_buffer_Len(ctx) < 2 || (zuin && zuin[0]) ||
+    if (chewing_buffer_Len(ctx) < 1 || (zuin && zuin[0]) ||
         chewing_cand_TotalChoice(ctx) > 0) {
         return;
     }
 
+    std::vector<std::pair<int, int>> intervals;
+    auto positions = collectCandidatePositions(ctx, intervals);
     UniqueCPtr<char, chewing_free> buf(chewing_buffer_String(ctx));
     std::string buffer = buf.get();
-    if (buffer == suggestionForBuffer_ || buffer == inflightForBuffer_) {
-        return; // already answered / already being asked
-    }
-
-    auto positions = collectCandidatePositions(ctx);
-    // If chewing's own sentence can't be rebuilt from the harvest, the
-    // harvest is unreliable (wrong segments, missing coverage) -- asking
-    // the LLM against it would produce nonsense suggestions.
+    // If chewing's own sentence can't be rebuilt from the harvest, the harvest
+    // is unreliable -- don't convert (the LLM would be fed a broken choice set).
     if (positions.empty() || !matchesPositions(buffer, positions)) {
         return;
     }
 
-    inflightForBuffer_ = buffer;
-    const uint64_t generation = ++suggestionGeneration_;
+    // Tear down any prior worker, then start fresh.
+    stopWorker();
+    convertState_ = ConvertState::Converting;
+    convertBuffer_ = buffer;
+    convertPositions_ = positions;
+    convertIntervals_ = intervals;
+    const uint64_t generation = ++convertGeneration_;
+    const int n = *config_.LlmCandidateCount;
     auto icRef = ic->watch();
 
-    // The worker only touches its own copies plus the Unix socket; all
-    // engine state is re-entered through dispatcher_ on the main thread.
-    // The engine outlives any worker for practical purposes (the addon is
-    // only unloaded when fcitx5 itself exits).
-    std::thread([this, icRef, generation, buffer = std::move(buffer),
-                 positions = std::move(positions)]() {
+    updateUI(ic); // show the "converting" indicator
+
+    worker_ = std::thread([this, icRef, generation, n,
+                           buffer = std::move(buffer),
+                           positions = std::move(positions)]() {
         std::vector<std::string> verified;
-        for (auto &sentence : queryReranker(positions)) {
-            // only sentences provably built from real chewing candidates,
-            // and only ones that actually differ from what's on screen
-            if (sentence != buffer && matchesPositions(sentence, positions) &&
+        for (auto &sentence : queryReranker(positions, n, inflightFd_)) {
+            // Keep only sentences provably built from real chewing candidates;
+            // list the original first so the user always sees it as an option.
+            if (matchesPositions(sentence, positions) &&
                 std::find(verified.begin(), verified.end(), sentence) ==
                     verified.end()) {
                 verified.push_back(std::move(sentence));
             }
         }
-        if (verified.empty()) {
-            // Unblock retries for this buffer (e.g. daemon was briefly
-            // down); without this, a failed request would permanently
-            // suppress suggestions for this exact sentence.
-            dispatcher_.schedule([this, generation]() {
-                if (generation == suggestionGeneration_) {
-                    inflightForBuffer_.clear();
-                }
-            });
-            return;
+        if (workerStop_.load()) {
+            return; // engine tearing down; don't touch it
         }
-        dispatcher_.schedule(
-            [this, icRef, generation, buffer, verified = std::move(verified)]() {
-                if (generation != suggestionGeneration_) {
-                    return; // user kept typing; stale answer
-                }
-                inflightForBuffer_.clear();
-                suggestions_ = verified;
-                suggestionIndex_ = 0;
-                suggestionForBuffer_ = buffer;
-                CHEWING_DEBUG() << "slothingd suggests " << suggestions_.size()
-                                << " alternative(s) for '" << buffer
-                                << "', first: '" << suggestions_[0] << "'";
-                if (auto *ic = icRef.get()) {
-                    updateUI(ic);
-                }
-            });
-    }).detach();
+        dispatcher_.schedule([this, icRef, generation,
+                              verified = std::move(verified)]() {
+            if (generation != convertGeneration_ ||
+                convertState_ != ConvertState::Converting) {
+                return; // cancelled / superseded
+            }
+            auto *ic = icRef.get();
+            if (!ic) {
+                convertState_ = ConvertState::Composing;
+                return;
+            }
+            if (verified.empty()) {
+                cancelConversion(ic); // nothing to offer; back to composing
+                return;
+            }
+            showConversionChoices(ic, verified);
+        });
+    });
+}
+
+void ChewingEngine::showConversionChoices(InputContext *ic,
+                                          const std::vector<std::string> &sentences) {
+    convertState_ = ConvertState::Choosing;
+
+    auto list = std::make_unique<CommonCandidateList>();
+    list->setPageSize(*config_.PageSize);
+    list->setLayoutHint(*config_.CandidateLayout);
+    const char *selkeys =
+        builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];
+    KeyList selectionKeys;
+    std::vector<std::string> labels;
+    for (int i = 0; i < 10 && selkeys[i]; i++) {
+        selectionKeys.push_back(Key(std::string(1, selkeys[i])));
+        labels.push_back(std::string(1, selkeys[i]) + ".");
+    }
+    list->setSelectionKey(selectionKeys);
+    list->setLabels(labels);
+    for (const auto &s : sentences) {
+        list->append(std::make_unique<SlothingCandidateWord>(this, s));
+    }
+    list->setGlobalCursorIndex(0);
+
+    ic->inputPanel().reset();
+    // Keep the original sentence visible in the preedit above the choices.
+    const auto useClientPreedit =
+        ic->capabilityFlags().test(CapabilityFlag::Preedit);
+    const auto format =
+        useClientPreedit ? TextFormatFlag::Underline : TextFormatFlag::NoFlag;
+    Text preedit(convertBuffer_, format);
+    if (useClientPreedit) {
+        ic->inputPanel().setClientPreedit(preedit);
+    } else {
+        ic->inputPanel().setPreedit(preedit);
+    }
+    ic->inputPanel().setCandidateList(std::move(list));
+    ic->updatePreedit();
+    ic->updateUserInterface(UserInterfaceComponent::InputPanel);
+    CHEWING_DEBUG() << "showing " << sentences.size() << " LLM candidate(s)";
+}
+
+// Byte-substring of a UTF-8 string covering character positions [from,to).
+static std::string utf8CharSlice(const std::string &s, int from, int to) {
+    size_t byteStart = utf8::ncharByteLength(s.begin(), from);
+    size_t byteLen = utf8::ncharByteLength(s.begin() + byteStart, to - from);
+    return s.substr(byteStart, byteLen);
+}
+
+void ChewingEngine::teachChewing(const std::string &chosen) {
+    if (!*config_.LlmLearn) {
+        return;
+    }
+    ChewingContext *ctx = context_.get();
+    // Only teach with a clean, fully-captured bopomofo track that lines up with
+    // the buffer we converted; otherwise skip entirely (never feed chewing a
+    // guessed/misaligned pronunciation).
+    const int bufChars =
+        static_cast<int>(utf8::lengthValidated(std::string_view(convertBuffer_)));
+    if (bufChars <= 0 ||
+        static_cast<int>(committedBopomofo_.size()) != bufChars) {
+        CHEWING_DEBUG() << "learn: bopomofo track misaligned ("
+                        << committedBopomofo_.size() << " vs " << bufChars
+                        << " chars), skipping";
+        return;
+    }
+
+    for (const auto &iv : convertIntervals_) {
+        int from = iv.first, to = iv.second;
+        if (from < 0 || to > bufChars || from >= to) {
+            continue;
+        }
+        std::string orig = utf8CharSlice(convertBuffer_, from, to);
+        std::string repl = utf8CharSlice(chosen, from, to);
+        if (orig == repl) {
+            continue; // unchanged interval, nothing to learn
+        }
+        std::string bopomofo;
+        bool ok = true;
+        for (int i = from; i < to; i++) {
+            if (committedBopomofo_[i].empty()) {
+                ok = false;
+                break;
+            }
+            if (!bopomofo.empty()) {
+                bopomofo += " ";
+            }
+            bopomofo += committedBopomofo_[i];
+        }
+        if (!ok) {
+            continue;
+        }
+        int rc = chewing_userphrase_add(ctx, repl.c_str(), bopomofo.c_str());
+        CHEWING_DEBUG() << "learn: userphrase_add('" << repl << "','" << bopomofo
+                        << "') -> " << rc;
+    }
+}
+
+void ChewingEngine::acceptConversion(InputContext *ic, const std::string &sentence) {
+    ChewingContext *ctx = context_.get();
+    ic->commitString(sentence);
+    teachChewing(sentence);
+
+    // Discard chewing's own composing buffer (we committed our text instead of
+    // routing through chewing_handle_Enter) and return to Composing.
+    chewing_clean_preedit_buf(ctx);
+    chewing_clean_bopomofo_buf(ctx);
+    convertState_ = ConvertState::Composing;
+    convertGeneration_++;
+    convertBuffer_.clear();
+    convertPositions_.clear();
+    convertIntervals_.clear();
+    committedBopomofo_.clear();
+    updateUI(ic);
 }
 
 void ChewingEngine::reloadConfig() {
@@ -558,6 +652,10 @@ void ChewingEngine::populateConfig() {
     chewing_set_autoShiftCur(ctx, *config_.AutoShiftCursor ? 1 : 0);
     chewing_set_spaceAsSelection(ctx, *config_.SpaceAsSelection ? 1 : 0);
     chewing_set_escCleanAllBuf(ctx, 1);
+    // Let chewing auto-learn from its own commits too; accepted LLM phrases
+    // are additionally taught explicitly via teachChewing().
+    chewing_set_autoLearn(ctx, *config_.LlmLearn ? AUTOLEARN_ENABLED
+                                                 : AUTOLEARN_DISABLED);
 }
 
 void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {
@@ -567,7 +665,13 @@ void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {
 void ChewingEngine::doReset(InputContextEvent &event) {
     ChewingContext *ctx = context_.get();
     chewing_handle_Esc(ctx);
-    dropSuggestion();
+    stopWorker();
+    convertState_ = ConvertState::Composing;
+    convertGeneration_++;
+    convertBuffer_.clear();
+    convertPositions_.clear();
+    convertIntervals_.clear();
+    committedBopomofo_.clear();
     updateUI(event.inputContext());
 }
 
@@ -602,42 +706,74 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         return;
     }
 
-    // LLM suggestion interactions -- only when suggestions are being shown
-    // for exactly the buffer on screen (each was already verified via
-    // matchesPositions to be built from real chewing candidates).
-    if (!suggestions_.empty()) {
-        UniqueCPtr<char, chewing_free> buf(chewing_buffer_String(ctx));
-        const char *zuin = chewing_bopomofo_String_static(ctx);
-        bool suggestionsLive = suggestionForBuffer_ == buf.get() &&
-                               (!zuin || !zuin[0]) &&
-                               chewing_cand_TotalChoice(ctx) == 0;
-
-        // Ctrl+Enter commits the highlighted suggestion.
-        if (suggestionsLive &&
-            keyEvent.key().check(FcitxKey_Return, KeyState::Ctrl)) {
-            keyEvent.filterAndAccept();
-            keyEvent.inputContext()->commitString(
-                suggestions_[suggestionIndex_]);
-            chewing_clean_preedit_buf(ctx);
-            chewing_clean_bopomofo_buf(ctx);
-            dropSuggestion();
-            return updateUI(keyEvent.inputContext());
+    // --- LLM conversion state machine (pull model) -------------------------
+    // Composing is stock chewing except that the convert key starts a
+    // conversion. Converting and Choosing are modal: keys act on the
+    // conversion, never leak into chewing or the application.
+    if (convertState_ == ConvertState::Converting) {
+        keyEvent.filterAndAccept();
+        if (keyEvent.key().check(FcitxKey_Escape)) {
+            cancelConversion(keyEvent.inputContext());
         }
-
-        // Down cycles through the alternatives, but only while the cursor
-        // sits at the end of the buffer (its resting position right after
-        // typing) and there is more than one to cycle through. Move the
-        // cursor anywhere else and Down reverts to chewing's per-phrase
-        // candidate window, so the classic correction flow stays intact
-        // (Space also opens it when SpaceAsSelection is on).
-        if (suggestionsLive && suggestions_.size() > 1 &&
-            keyEvent.key().check(FcitxKey_Down) &&
-            chewing_cursor_Current(ctx) == chewing_buffer_Len(ctx)) {
-            keyEvent.filterAndAccept();
-            suggestionIndex_ = (suggestionIndex_ + 1) % suggestions_.size();
-            return updateUI(keyEvent.inputContext());
-        }
+        return; // swallow everything else while the worker runs
     }
+    if (convertState_ == ConvertState::Choosing) {
+        auto ic = keyEvent.inputContext();
+        auto candList = ic->inputPanel().candidateList();
+        if (!candList) { // shouldn't happen; fail safe to composing
+            cancelConversion(ic);
+            return;
+        }
+        keyEvent.filterAndAccept();
+        if (keyEvent.key().check(FcitxKey_Escape)) {
+            cancelConversion(ic);
+            return;
+        }
+        // Selection keys (same set as chewing's own window).
+        const char *selkeys =
+            builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];
+        if (keyEvent.key().isSimple()) {
+            char sym = static_cast<char>(keyEvent.key().sym() & 0xff);
+            for (int i = 0; i < 10 && selkeys[i]; i++) {
+                if (selkeys[i] == sym && i < candList->size()) {
+                    candList->candidate(i).select(ic);
+                    return;
+                }
+            }
+        }
+        auto *movable = candList->toCursorMovable();
+        auto *pageable = candList->toPageable();
+        if (keyEvent.key().check(FcitxKey_Down) && movable) {
+            movable->nextCandidate();
+        } else if (keyEvent.key().check(FcitxKey_Up) && movable) {
+            movable->prevCandidate();
+        } else if (keyEvent.key().check(FcitxKey_Page_Down) && pageable &&
+                   pageable->hasNext()) {
+            pageable->next();
+        } else if (keyEvent.key().check(FcitxKey_Page_Up) && pageable &&
+                   pageable->hasPrev()) {
+            pageable->prev();
+        } else if (keyEvent.key().check(FcitxKey_Return) ||
+                   keyEvent.key().check(FcitxKey_space)) {
+            // Commit the highlighted candidate.
+            int idx = candList->cursorIndex();
+            if (idx >= 0 && idx < candList->size()) {
+                candList->candidate(idx).select(ic);
+                return;
+            }
+        }
+        ic->updateUserInterface(UserInterfaceComponent::InputPanel);
+        return; // all other keys swallowed while choosing
+    }
+    // Composing: the convert key starts a conversion (only when enabled and
+    // the daemon can possibly serve it -- otherwise fall through to chewing).
+    if (*config_.LlmConvert &&
+        keyEvent.key().checkKeyList(*config_.ConvertKey)) {
+        keyEvent.filterAndAccept();
+        startConversion(keyEvent.inputContext());
+        return;
+    }
+    // ------------------------------------------------------------------------
 
     chewing_set_easySymbolInput(ctx, 0);
     CHEWING_DEBUG() << "KeyEvent: " << keyEvent.key().toString();
@@ -654,6 +790,13 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
             return keyEvent.filterAndAccept();
         }
     }
+
+    // For learning: remember the pending bopomofo and buffer length before
+    // this key, so if the key commits a syllable we can attribute that
+    // bopomofo to the new character (see the reconcile block after dispatch).
+    const char *prevZuinC = chewing_bopomofo_String_static(ctx);
+    std::string prevZuin = prevZuinC ? prevZuinC : "";
+    int prevBufLen = chewing_buffer_Len(ctx);
 
     if (keyEvent.key().check(FcitxKey_space)) {
         chewing_handle_Space(ctx);
@@ -728,6 +871,25 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         return;
     }
 
+    // Reconcile the bopomofo track with the buffer. Best-effort: if the buffer
+    // grew by appending at the end, attribute the just-committed bopomofo to
+    // the first new character; any other shape (mid-buffer edit, shrink,
+    // desync) abandons tracking so teachChewing() will simply skip learning.
+    {
+        int newBufLen = chewing_buffer_Len(ctx);
+        if (newBufLen > prevBufLen &&
+            static_cast<int>(committedBopomofo_.size()) == prevBufLen &&
+            !prevZuin.empty()) {
+            committedBopomofo_.push_back(prevZuin);
+            for (int i = 1; i < newBufLen - prevBufLen; i++) {
+                committedBopomofo_.push_back("");
+            }
+        } else if (newBufLen != prevBufLen ||
+                   static_cast<int>(committedBopomofo_.size()) != prevBufLen) {
+            committedBopomofo_.clear();
+        }
+    }
+
     if (chewing_keystroke_CheckAbsorb(ctx)) {
         keyEvent.filterAndAccept();
         return updateUI(ic);
@@ -737,6 +899,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         keyEvent.filterAndAccept();
         UniqueCPtr<char, chewing_free> str(chewing_commit_String(ctx));
         ic->commitString(str.get());
+        committedBopomofo_.clear(); // buffer emptied on commit
         return updateUI(ic);
     } else {
         keyEvent.filterAndAccept();
@@ -769,6 +932,31 @@ void ChewingEngine::filterKey(const InputMethodEntry &, KeyEvent &keyEvent) {
 void ChewingEngine::updateUI(InputContext *ic) {
     CHEWING_DEBUG() << "updateUI";
     ChewingContext *ctx = context_.get();
+
+    // While Choosing, showConversionChoices() owns the panel; don't rebuild it
+    // from chewing state here (that would blow away the LLM candidate list).
+    if (convertState_ == ConvertState::Choosing) {
+        return;
+    }
+    // While Converting, keep the original sentence visible with a small
+    // "converting" indicator; no chewing candidate window.
+    if (convertState_ == ConvertState::Converting) {
+        ic->inputPanel().reset();
+        const auto useClientPreedit =
+            ic->capabilityFlags().test(CapabilityFlag::Preedit);
+        const auto format =
+            useClientPreedit ? TextFormatFlag::Underline : TextFormatFlag::NoFlag;
+        Text preedit(convertBuffer_, format);
+        if (useClientPreedit) {
+            ic->inputPanel().setClientPreedit(preedit);
+        } else {
+            ic->inputPanel().setPreedit(preedit);
+        }
+        ic->inputPanel().setAuxUp(Text("轉換中…"));
+        ic->updatePreedit();
+        ic->updateUserInterface(UserInterfaceComponent::InputPanel);
+        return;
+    }
 
     // clean up window asap
     ic->inputPanel().reset();
@@ -821,42 +1009,6 @@ void ChewingEngine::updateUI(InputContext *ic) {
         const char *aux_str = chewing_aux_String_static(ctx);
         std::string aux = aux_str;
         ic->inputPanel().setAuxDown(Text(aux));
-    } else if (!suggestions_.empty() && suggestionForBuffer_ == text &&
-               zuin.empty()) {
-        // Show the LLM's alternatives as a passive hint; one is only ever
-        // applied when the user presses Ctrl+Enter. Chewing's own aux
-        // messages (errors etc.) take priority over it above.
-        // Render the suggestion with only the characters that differ from
-        // the preedit highlighted, so the proposed change is visible at a
-        // glance. Suggestion and buffer always have the same char count
-        // (both are built from the same interval spans), but walk
-        // defensively in case one runs short.
-        const std::string &sug = suggestions_[suggestionIndex_];
-        Text hint;
-        size_t sugOff = 0;
-        size_t bufOff = 0;
-        while (sugOff < sug.size()) {
-            const size_t sugLen =
-                utf8::ncharByteLength(sug.begin() + sugOff, 1);
-            const size_t bufLen =
-                bufOff < text.size()
-                    ? utf8::ncharByteLength(text.begin() + bufOff, 1)
-                    : 0;
-            const bool same = bufLen > 0 && sugLen == bufLen &&
-                              sug.compare(sugOff, sugLen, text, bufOff,
-                                          bufLen) == 0;
-            hint.append(sug.substr(sugOff, sugLen),
-                        same ? TextFormatFlag::NoFlag
-                             : TextFormatFlag::HighLight);
-            sugOff += sugLen;
-            bufOff += bufLen;
-        }
-        if (suggestions_.size() > 1) {
-            hint.append("  ↓ " + std::to_string(suggestionIndex_ + 1) + "/" +
-                        std::to_string(suggestions_.size()));
-        }
-        hint.append("  Ctrl+Enter 採用");
-        ic->inputPanel().setAuxDown(hint);
     }
 
     if (useClientPreedit) {
@@ -866,10 +1018,6 @@ void ChewingEngine::updateUI(InputContext *ic) {
     }
 
     ic->updatePreedit();
-
-    // Fire (or refresh) the async suggestion request for the buffer now on
-    // screen. No-op unless the buffer is a settled multi-char sentence.
-    requestSuggestion(ic);
 }
 
 void ChewingEngine::flushBuffer(InputContextEvent &event) {

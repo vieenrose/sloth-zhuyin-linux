@@ -7,6 +7,7 @@
 #ifndef _FCITX5_CHEWING_EIM_H_
 #define _FCITX5_CHEWING_EIM_H_
 
+#include <atomic>
 #include <chewing.h>
 #include <cstdint>
 #include <fcitx-config/configuration.h>
@@ -14,12 +15,14 @@
 #include <fcitx-config/iniparser.h>
 #include <fcitx-utils/eventdispatcher.h>
 #include <fcitx-utils/i18n.h>
+#include <fcitx-utils/key.h>
 #include <fcitx/addonfactory.h>
 #include <fcitx/addonmanager.h>
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputmethodengine.h>
 #include <fcitx/instance.h>
 #include <string>
+#include <thread>
 #include <type_traits>
 #include <vector>
 
@@ -96,7 +99,20 @@ FCITX_CONFIGURATION(
     Option<bool> SpaceAsSelection{this, "SpaceAsSelection",
                                   _("Space as selection key"), true};
     OptionWithAnnotation<ChewingLayout, ChewingLayoutI18NAnnotation> Layout{
-        this, "Layout", _("Keyboard Layout"), ChewingLayout::Default};);
+        this, "Layout", _("Keyboard Layout"), ChewingLayout::Default};
+    Option<bool> LlmConvert{
+        this, "LlmConvert",
+        _("Enable LLM sentence conversion (press the convert key)"), true};
+    KeyListOption ConvertKey{
+        this, "ConvertKey", _("LLM convert key"), {Key("F9")},
+        KeyListConstrain({KeyConstrainFlag::AllowModifierLess})};
+    Option<int, IntConstrain> LlmCandidateCount{
+        this, "LlmCandidateCount", _("Number of LLM candidates"), 5,
+        IntConstrain(1, 8)};
+    Option<bool> LlmLearn{
+        this, "LlmLearn",
+        _("Teach chewing the phrase when an LLM candidate is accepted"),
+        true};);
 
 class ChewingEngine final : public InputMethodEngine {
 public:
@@ -129,33 +145,59 @@ public:
 
     ChewingContext *context() { return context_.get(); }
 
+    // Accept an LLM candidate: commit it, optionally teach chewing, reset.
+    // Called from the candidate word's select().
+    void acceptConversion(InputContext *ic, const std::string &sentence);
+
 private:
     FCITX_ADDON_DEPENDENCY_LOADER(chttrans, instance_->addonManager());
 
     void populateConfig();
-    // If the current buffer warrants it, harvest candidates and ask
-    // slothingd for a suggestion on a background thread; the answer is
-    // posted back to the main loop and shown as an aux hint, never applied
-    // to the text on its own. Cheap no-op when a request for the same
-    // buffer is in flight or already answered.
-    void requestSuggestion(InputContext *ic);
-    // Clear any displayed/in-flight suggestion state (on reset, commit,
-    // or accept) and invalidate outstanding async replies.
-    void dropSuggestion();
+
+    // Explicit "convert" pull-model. The engine is normally in Composing and
+    // behaves exactly like stock chewing. Pressing the convert key on a
+    // settled multi-char buffer harvests candidates, fires one background
+    // request (Converting), and shows the LLM alternatives as a native
+    // candidate list (Choosing). No LLM work happens during ordinary typing.
+    enum class ConvertState { Composing, Converting, Choosing };
+
+    // Begin a conversion for the current buffer (harvest + spawn worker).
+    void startConversion(InputContext *ic);
+    // Show the returned sentences as a native candidate list.
+    void showConversionChoices(InputContext *ic,
+                               const std::vector<std::string> &sentences);
+    // Abandon an in-progress/shown conversion, keep the composing buffer.
+    void cancelConversion(InputContext *ic);
+    // Best-effort: register each changed phrase+bopomofo with libchewing so
+    // it learns the correction. No-op unless LlmLearn is on and a clean
+    // bopomofo was captured for the interval.
+    void teachChewing(const std::string &chosen);
+    // Join the background worker (if any) after unblocking its socket.
+    void stopWorker();
 
     Instance *instance_;
     ChewingConfig config_;
     UniqueCPtr<ChewingContext, chewing_delete> context_;
     EventDispatcher dispatcher_;
-    // Suggestion state; main thread only. `suggestions_` is only meaningful
-    // while the chewing buffer still equals `suggestionForBuffer_`;
-    // `suggestionIndex_` is the entry currently highlighted (cycled with
-    // Down, committed with Ctrl+Enter).
-    std::vector<std::string> suggestions_;
-    size_t suggestionIndex_ = 0;
-    std::string suggestionForBuffer_;
-    std::string inflightForBuffer_;
-    uint64_t suggestionGeneration_ = 0;
+
+    ConvertState convertState_ = ConvertState::Composing;
+    // The buffer text a conversion was started for, its harvested per-interval
+    // candidate lists, the interval boundaries, and the returned choices.
+    // Main thread only.
+    std::string convertBuffer_;
+    std::vector<std::vector<std::string>> convertPositions_;
+    std::vector<std::pair<int, int>> convertIntervals_;
+    // Per-character bopomofo of the current buffer, appended as each syllable
+    // commits; used to teach chewing on accept. Reset with the buffer.
+    std::vector<std::string> committedBopomofo_;
+
+    // Single background worker for the in-flight request. The joinable thread
+    // + stop flag + shared socket fd let the destructor tear down safely
+    // instead of leaving a detached thread to touch freed state.
+    std::thread worker_;
+    std::atomic<bool> workerStop_{false};
+    std::atomic<int> inflightFd_{-1};
+    uint64_t convertGeneration_ = 0;
 };
 
 class ChewingEngineFactory : public AddonFactory {

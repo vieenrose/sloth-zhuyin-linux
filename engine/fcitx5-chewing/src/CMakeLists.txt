@@ -2,6 +2,10 @@ set(CHEWING_SOURCES
     eim.cpp
 )
 add_library(slothing MODULE ${CHEWING_SOURCES})
+# Header-only nlohmann/json vendored inside the llama.cpp checkout; used to
+# speak the slothingd protocol with the exact same codec the daemon uses.
+target_include_directories(slothing PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../llm/llama.cpp/vendor")
 target_link_libraries(slothing Fcitx5::Core Fcitx5::Config PkgConfig::Chewing)
 target_compile_definitions(slothing PRIVATE FCITX_GETTEXT_DOMAIN=\"fcitx5-chewing\")
 fcitx5_add_i18n_definition(TARGETS slothing)
