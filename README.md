@@ -24,8 +24,11 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
 
 Milestone 1 (plain fcitx5 zhuyin engine, no LLM) is done. Milestone 2
 (`slothingd` LLM reranker daemon, wired into `eim.cpp`'s commit path) is
-implemented and validated via direct socket tests; end-to-end testing via
-real typing in fcitx5 is in progress.
+done and verified end to end with real typing: ㄨㄛˇㄗㄞˋㄔㄨㄥˊㄒㄧㄣㄎㄠˇㄌㄩˋ
+commits as 我在重新考慮 (LLM-corrected) instead of raw chewing's 我再重新考慮.
+
+Known follow-up: the rerank call is a blocking wait (up to 2s) inside
+fcitx5's key-event handler at commit time — should become asynchronous.
 
 ## Build & install the fcitx5 addon
 
