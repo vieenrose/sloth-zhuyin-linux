@@ -203,11 +203,20 @@ std::string slothingdSocketPath() {
 
 // Walks the already-decided phrase segmentation of the current buffer via
 // libchewing's interval API and, for each segment, non-invasively opens its
-// candidate list (chewing_cand_open/close, not a keystroke) to harvest every
-// alternative libchewing itself considers for that segment. Cursor position
-// is saved and restored, so this has no visible side effect on editing
-// state. Returns an empty vector if the buffer is empty or any segment
-// yields no candidates (abort rather than send a partial/malformed request).
+// candidate list (chewing_cand_open/close, not a keystroke) to harvest the
+// alternatives libchewing itself considers for that segment. Cursor position
+// and the phrase-choice-rearward mode are saved and restored, so this has no
+// visible side effect on editing state. Returns an empty vector if the
+// buffer is empty or any segment yields no usable candidates (abort rather
+// than send a partial/malformed request).
+//
+// Candidates whose length differs from the interval's span are discarded:
+// chewing_cand_open can surface shorter-than-segment candidates too, and a
+// first live test showed what happens if those leak through -- the reranker
+// rebuilt the sentence from fragments ('我再重新考慮' became '我爞考').
+// maybeRerank() additionally refuses to run unless the original sentence
+// reconstructs from what we harvested, so even a subtly wrong harvest
+// degrades to a no-op instead of corrupting the user's text.
 std::vector<std::vector<std::string>> collectCandidatePositions(ChewingContext *ctx) {
     std::vector<std::vector<std::string>> positions;
     if (chewing_buffer_Len(ctx) <= 0) {
@@ -215,6 +224,11 @@ std::vector<std::vector<std::string>> collectCandidatePositions(ChewingContext *
     }
 
     int origCursor = chewing_cursor_Current(ctx);
+    // Harvest with forward phrase choice regardless of the user's
+    // ChoiceBackward setting, so cand_open at a segment's start yields that
+    // segment's candidates rather than the one ending at the cursor.
+    int origRearward = chewing_get_phraseChoiceRearward(ctx);
+    chewing_set_phraseChoiceRearward(ctx, 0);
 
     chewing_handle_Home(ctx);
     std::vector<IntervalType> intervals;
@@ -225,22 +239,26 @@ std::vector<std::vector<std::string>> collectCandidatePositions(ChewingContext *
         intervals.push_back(iv);
     }
 
-    int cur = chewing_cursor_Current(ctx);
     for (const auto &interval : intervals) {
-        while (cur < interval.from) {
+        // Re-derive the cursor from libchewing each round instead of
+        // assuming chewing_cand_open/close left it where we put it.
+        while (chewing_cursor_Current(ctx) < interval.from) {
             chewing_handle_Right(ctx);
-            cur++;
         }
+        const size_t span = static_cast<size_t>(interval.to - interval.from);
         chewing_cand_open(ctx);
         chewing_cand_Enumerate(ctx);
         std::vector<std::string> cands;
         while (chewing_cand_hasNext(ctx)) {
             UniqueCPtr<char, chewing_free> str(chewing_cand_String(ctx));
-            if (str) {
+            if (str && utf8::lengthValidated(std::string_view(str.get())) == span) {
                 cands.emplace_back(str.get());
             }
         }
         chewing_cand_close(ctx);
+        CHEWING_DEBUG() << "harvest interval [" << interval.from << ","
+                        << interval.to << ") -> " << cands.size()
+                        << " candidates";
         if (cands.empty()) {
             positions.clear();
             break;
@@ -248,6 +266,7 @@ std::vector<std::vector<std::string>> collectCandidatePositions(ChewingContext *
         positions.push_back(std::move(cands));
     }
 
+    chewing_set_phraseChoiceRearward(ctx, origRearward);
     chewing_handle_Home(ctx);
     for (int i = 0; i < origCursor; i++) {
         chewing_handle_Right(ctx);
@@ -417,6 +436,15 @@ ChewingEngine::~ChewingEngine() = default;
 std::string ChewingEngine::maybeRerank(const std::string &original,
                                        const std::vector<std::vector<std::string>> &positions) {
     if (positions.empty()) {
+        return original;
+    }
+    // If the sentence libchewing itself produced can't be rebuilt from the
+    // harvested candidates, the harvest is unreliable (wrong segments,
+    // missing coverage) -- reranking against it could corrupt the commit,
+    // so don't ask the LLM at all.
+    if (!matchesPositions(original, positions)) {
+        CHEWING_DEBUG() << "harvest does not reconstruct '" << original
+                        << "', skipping rerank";
         return original;
     }
     auto sentence = queryReranker(positions);
