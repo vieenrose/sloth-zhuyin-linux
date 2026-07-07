@@ -826,13 +826,37 @@ void ChewingEngine::updateUI(InputContext *ic) {
         // Show the LLM's alternatives as a passive hint; one is only ever
         // applied when the user presses Ctrl+Enter. Chewing's own aux
         // messages (errors etc.) take priority over it above.
-        std::string hint = suggestions_[suggestionIndex_];
-        if (suggestions_.size() > 1) {
-            hint += " (" + std::to_string(suggestionIndex_ + 1) + "/" +
-                    std::to_string(suggestions_.size()) + " ↓)";
+        // Render the suggestion with only the characters that differ from
+        // the preedit highlighted, so the proposed change is visible at a
+        // glance. Suggestion and buffer always have the same char count
+        // (both are built from the same interval spans), but walk
+        // defensively in case one runs short.
+        const std::string &sug = suggestions_[suggestionIndex_];
+        Text hint;
+        size_t sugOff = 0;
+        size_t bufOff = 0;
+        while (sugOff < sug.size()) {
+            const size_t sugLen =
+                utf8::ncharByteLength(sug.begin() + sugOff, 1);
+            const size_t bufLen =
+                bufOff < text.size()
+                    ? utf8::ncharByteLength(text.begin() + bufOff, 1)
+                    : 0;
+            const bool same = bufLen > 0 && sugLen == bufLen &&
+                              sug.compare(sugOff, sugLen, text, bufOff,
+                                          bufLen) == 0;
+            hint.append(sug.substr(sugOff, sugLen),
+                        same ? TextFormatFlag::NoFlag
+                             : TextFormatFlag::HighLight);
+            sugOff += sugLen;
+            bufOff += bufLen;
         }
-        hint += " [Ctrl+Enter]";
-        ic->inputPanel().setAuxDown(Text(hint));
+        if (suggestions_.size() > 1) {
+            hint.append("  ↓ " + std::to_string(suggestionIndex_ + 1) + "/" +
+                        std::to_string(suggestions_.size()));
+        }
+        hint.append("  Ctrl+Enter 採用");
+        ic->inputPanel().setAuxDown(hint);
     }
 
     if (useClientPreedit) {
