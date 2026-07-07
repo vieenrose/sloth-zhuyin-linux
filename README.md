@@ -11,11 +11,13 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
   directly against llama.cpp's C API (`llama.h`, no `llama-server`, no
   Python bindings) that reranks libchewing's candidate list using
   grammar-constrained decoding, fixing the classic homophone-disambiguation
-  weakness of n-gram based engines. Its answer is shown as a **passive
-  suggestion** under the preedit (`懶 我在重新考慮 [Ctrl+Enter]`), fetched
-  asynchronously while you type; Ctrl+Enter accepts it, plain Enter always
-  commits exactly what the preedit shows. The LLM never rewrites text on
-  its own.
+  weakness of n-gram based engines. Its answers are shown as **passive
+  suggestions** under the preedit (`懶 我在重新考慮 (1/3 ↓) [Ctrl+Enter]`),
+  fetched asynchronously while you type: **Down** cycles the alternatives
+  (while the cursor is at the end of the buffer; move it and Down reverts
+  to chewing's per-phrase candidate window), **Ctrl+Enter** commits the
+  highlighted one, and plain **Enter** always commits exactly what the
+  preedit shows. The LLM never rewrites text on its own.
 - `llm/` — local LLM runtime: a llama.cpp checkout (built for its headers
   and shared libs, which `slothingd` links against) plus the GGUF model.
   Not vendored in git (see `.gitignore`); see setup instructions below.

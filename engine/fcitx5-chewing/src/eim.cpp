@@ -309,44 +309,54 @@ std::string buildRerankRequest(const std::vector<std::vector<std::string>> &posi
         }
         req += "]";
     }
-    req += "]}\n";
+    req += "],\"n\":3}\n";
     return req;
 }
 
-// Minimal extractor for slothingd's own fixed {"sentence":"..."} /
-// {"error":"..."} response shape -- not a general JSON parser, and not
-// meant to be one: the protocol between eim.cpp and slothingd is closed
-// and controlled by us on both ends.
-std::optional<std::string> extractStringField(const std::string &json, const char *key) {
-    std::string needle = std::string("\"") + key + "\":\"";
+// Minimal extractor for slothingd's own fixed {"sentences":["...",...]}
+// response shape -- not a general JSON parser, and not meant to be one:
+// the protocol between eim.cpp and slothingd is closed and controlled by
+// us on both ends.
+std::vector<std::string> extractStringArray(const std::string &json, const char *key) {
+    std::vector<std::string> out;
+    std::string needle = std::string("\"") + key + "\":[";
     auto pos = json.find(needle);
     if (pos == std::string::npos) {
-        return std::nullopt;
+        return out;
     }
     pos += needle.size();
-    std::string out;
-    while (pos < json.size() && json[pos] != '"') {
-        if (json[pos] == '\\' && pos + 1 < json.size()) {
+    while (pos < json.size() && json[pos] != ']') {
+        if (json[pos] != '"') {
+            pos++;
+            continue;
+        }
+        pos++; // opening quote
+        std::string item;
+        while (pos < json.size() && json[pos] != '"') {
+            if (json[pos] == '\\' && pos + 1 < json.size()) {
+                pos++;
+            }
+            item += json[pos];
             pos++;
         }
-        out += json[pos];
-        pos++;
+        pos++; // closing quote
+        out.push_back(std::move(item));
     }
     return out;
 }
 
-// Talks to slothingd over its Unix socket with a short send/recv timeout so
-// a slow or absent daemon never perceptibly delays typing. Returns
-// std::nullopt on any failure (daemon not running, timeout, malformed
-// response) -- callers must fall back to libchewing's own output.
-std::optional<std::string> queryReranker(const std::vector<std::vector<std::string>> &positions) {
+// Talks to slothingd over its Unix socket with a send/recv timeout so a
+// slow or absent daemon can never wedge the worker thread for long. Returns
+// an empty list on any failure (daemon not running, timeout, malformed
+// response) -- suggestions simply don't appear.
+std::vector<std::string> queryReranker(const std::vector<std::vector<std::string>> &positions) {
     if (positions.empty()) {
-        return std::nullopt;
+        return {};
     }
 
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
-        return std::nullopt;
+        return {};
     }
     struct timeval tv;
     tv.tv_sec = kSlothingdTimeoutMs / 1000;
@@ -361,7 +371,7 @@ std::optional<std::string> queryReranker(const std::vector<std::vector<std::stri
     strncpy(addr.sun_path, sockPath.c_str(), sizeof(addr.sun_path) - 1);
     if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) != 0) {
         close(fd);
-        return std::nullopt;
+        return {};
     }
 
     std::string req = buildRerankRequest(positions);
@@ -370,7 +380,7 @@ std::optional<std::string> queryReranker(const std::vector<std::vector<std::stri
         ssize_t n = write(fd, req.data() + off, req.size() - off);
         if (n <= 0) {
             close(fd);
-            return std::nullopt;
+            return {};
         }
         off += static_cast<size_t>(n);
     }
@@ -384,9 +394,9 @@ std::optional<std::string> queryReranker(const std::vector<std::vector<std::stri
     }
     close(fd);
     if (resp.empty()) {
-        return std::nullopt;
+        return {};
     }
-    return extractStringField(resp, "sentence");
+    return extractStringArray(resp, "sentences");
 }
 
 // Verifies `sentence` is exactly the concatenation of one candidate from
@@ -436,7 +446,8 @@ ChewingEngine::ChewingEngine(Instance *instance)
 ChewingEngine::~ChewingEngine() = default;
 
 void ChewingEngine::dropSuggestion() {
-    suggestion_.clear();
+    suggestions_.clear();
+    suggestionIndex_ = 0;
     suggestionForBuffer_.clear();
     inflightForBuffer_.clear();
     suggestionGeneration_++;
@@ -477,23 +488,31 @@ void ChewingEngine::requestSuggestion(InputContext *ic) {
     // only unloaded when fcitx5 itself exits).
     std::thread([this, icRef, generation, buffer = std::move(buffer),
                  positions = std::move(positions)]() {
-        auto sentence = queryReranker(positions);
-        if (!sentence || !matchesPositions(*sentence, positions)) {
+        std::vector<std::string> verified;
+        for (auto &sentence : queryReranker(positions)) {
+            // only sentences provably built from real chewing candidates,
+            // and only ones that actually differ from what's on screen
+            if (sentence != buffer && matchesPositions(sentence, positions) &&
+                std::find(verified.begin(), verified.end(), sentence) ==
+                    verified.end()) {
+                verified.push_back(std::move(sentence));
+            }
+        }
+        if (verified.empty()) {
             return;
         }
         dispatcher_.schedule(
-            [this, icRef, generation, buffer, sentence = *sentence]() {
+            [this, icRef, generation, buffer, verified = std::move(verified)]() {
                 if (generation != suggestionGeneration_) {
                     return; // user kept typing; stale answer
                 }
                 inflightForBuffer_.clear();
-                if (sentence == buffer) {
-                    return; // LLM agrees with chewing; nothing to show
-                }
-                suggestion_ = sentence;
+                suggestions_ = verified;
+                suggestionIndex_ = 0;
                 suggestionForBuffer_ = buffer;
-                CHEWING_DEBUG() << "slothingd suggests '" << sentence
-                                << "' for '" << buffer << "'";
+                CHEWING_DEBUG() << "slothingd suggests " << suggestions_.size()
+                                << " alternative(s) for '" << buffer
+                                << "', first: '" << suggestions_[0] << "'";
                 if (auto *ic = icRef.get()) {
                     updateUI(ic);
                 }
@@ -573,19 +592,38 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         return;
     }
 
-    // Accept the LLM suggestion with Ctrl+Enter -- only when one is being
-    // shown for exactly the buffer on screen. The suggestion was already
-    // verified (matchesPositions) to be built from real chewing candidates.
-    if (keyEvent.key().check(FcitxKey_Return, KeyState::Ctrl) &&
-        !suggestion_.empty()) {
+    // LLM suggestion interactions -- only when suggestions are being shown
+    // for exactly the buffer on screen (each was already verified via
+    // matchesPositions to be built from real chewing candidates).
+    if (!suggestions_.empty()) {
         UniqueCPtr<char, chewing_free> buf(chewing_buffer_String(ctx));
         const char *zuin = chewing_bopomofo_String_static(ctx);
-        if (suggestionForBuffer_ == buf.get() && (!zuin || !zuin[0])) {
+        bool suggestionsLive =
+            suggestionForBuffer_ == buf.get() && (!zuin || !zuin[0]);
+
+        // Ctrl+Enter commits the highlighted suggestion.
+        if (suggestionsLive &&
+            keyEvent.key().check(FcitxKey_Return, KeyState::Ctrl)) {
             keyEvent.filterAndAccept();
-            keyEvent.inputContext()->commitString(suggestion_);
+            keyEvent.inputContext()->commitString(
+                suggestions_[suggestionIndex_]);
             chewing_clean_preedit_buf(ctx);
             chewing_clean_bopomofo_buf(ctx);
             dropSuggestion();
+            return updateUI(keyEvent.inputContext());
+        }
+
+        // Down cycles through the alternatives, but only while the cursor
+        // sits at the end of the buffer (its resting position right after
+        // typing) and there is more than one to cycle through. Move the
+        // cursor anywhere else and Down reverts to chewing's per-phrase
+        // candidate window, so the classic correction flow stays intact
+        // (Space also opens it when SpaceAsSelection is on).
+        if (suggestionsLive && suggestions_.size() > 1 &&
+            keyEvent.key().check(FcitxKey_Down) &&
+            chewing_cursor_Current(ctx) == chewing_buffer_Len(ctx)) {
+            keyEvent.filterAndAccept();
+            suggestionIndex_ = (suggestionIndex_ + 1) % suggestions_.size();
             return updateUI(keyEvent.inputContext());
         }
     }
@@ -772,13 +810,18 @@ void ChewingEngine::updateUI(InputContext *ic) {
         const char *aux_str = chewing_aux_String_static(ctx);
         std::string aux = aux_str;
         ic->inputPanel().setAuxDown(Text(aux));
-    } else if (!suggestion_.empty() && suggestionForBuffer_ == text &&
+    } else if (!suggestions_.empty() && suggestionForBuffer_ == text &&
                zuin.empty()) {
-        // Show the LLM's alternative as a passive hint; it is only ever
+        // Show the LLM's alternatives as a passive hint; one is only ever
         // applied when the user presses Ctrl+Enter. Chewing's own aux
         // messages (errors etc.) take priority over it above.
-        ic->inputPanel().setAuxDown(
-            Text("懶 " + suggestion_ + " [Ctrl+Enter]"));
+        std::string hint = "懶 " + suggestions_[suggestionIndex_];
+        if (suggestions_.size() > 1) {
+            hint += " (" + std::to_string(suggestionIndex_ + 1) + "/" +
+                    std::to_string(suggestions_.size()) + " ↓)";
+        }
+        hint += " [Ctrl+Enter]";
+        ic->inputPanel().setAuxDown(Text(hint));
     }
 
     if (useClientPreedit) {

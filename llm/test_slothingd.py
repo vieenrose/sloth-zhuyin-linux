@@ -10,7 +10,7 @@ sock_path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/slothingd.sock"
 for positions in TESTS:
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(sock_path)
-    req = json.dumps({"positions": positions}) + "\n"
+    req = json.dumps({"positions": positions, "n": 3}) + "\n"
     t0 = time.time()
     s.sendall(req.encode())
     s.shutdown(socket.SHUT_WR)

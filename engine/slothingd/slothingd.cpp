@@ -5,13 +5,16 @@
 // Protocol: one JSON object per connection on stdin-style read, one JSON
 // object written back, then the connection is closed.
 //
-// Request:  {"positions": [["你","妳","擬"], ["好","號","毫"], ...]}
-// Response: {"sentence": "你好"}
+// Request:  {"positions": [["你","妳","擬"], ["好","號","毫"], ...], "n": 3}
+//           ("n" = max alternatives wanted, optional, defaults to 1)
+// Response: {"sentences": ["你好", "妳好"], "sentence": "你好"}
+//           (deduped, best/greedy first; "sentence" kept for old clients)
 //        or {"error": "message"}
 
 #include "llama.h"
 #include "nlohmann/json.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -194,6 +197,13 @@ int main(int argc, char ** argv) {
             if (positions.empty()) {
                 throw std::runtime_error("positions must be non-empty");
             }
+            int n_alternatives = req.value("n", 1);
+            if (n_alternatives < 1) {
+                n_alternatives = 1;
+            }
+            if (n_alternatives > 8) {
+                n_alternatives = 8;
+            }
 
             // start every request from a clean KV cache: each call is an
             // independent classification, not a multi-turn conversation.
@@ -218,43 +228,85 @@ int main(int argc, char ** argv) {
             std::string prompt(formatted.begin(), formatted.begin() + len);
 
             std::string grammar_str = build_grammar(positions);
-            llama_sampler * smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
-            llama_sampler_chain_add(smpl, llama_sampler_init_grammar(vocab, grammar_str.c_str(), "root"));
-            llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
 
             const int n_prompt_tokens =
                 -llama_tokenize(vocab, prompt.c_str(), prompt.size(), NULL, 0, true, true);
             std::vector<llama_token> prompt_tokens(n_prompt_tokens);
             llama_tokenize(vocab, prompt.c_str(), prompt.size(), prompt_tokens.data(),
                            prompt_tokens.size(), true, true);
+            if (prompt_tokens.empty()) {
+                throw std::runtime_error("empty prompt");
+            }
+
+            // Decode the prompt except its last token once; each alternative
+            // pass then re-decodes just that last token to refresh the
+            // logits, generates, and trims the KV cache back. This makes
+            // extra alternatives cost only their own generated tokens, not a
+            // full prompt re-eval.
+            const int n_prefix = (int) prompt_tokens.size() - 1;
+            if (n_prefix > 0) {
+                llama_batch prefix_batch =
+                    llama_batch_get_one(prompt_tokens.data(), n_prefix);
+                if (llama_decode(ctx, prefix_batch) != 0) {
+                    throw std::runtime_error("llama_decode failed (prompt)");
+                }
+            }
+            llama_token last_prompt_token = prompt_tokens.back();
 
             // safety cap: real answers finish once the grammar completes, but
             // guard against a runaway loop if the model refuses to converge.
             const int max_new_tokens = (int) positions.size() * 4 + 8;
 
-            std::string sentence;
-            llama_batch batch = llama_batch_get_one(prompt_tokens.data(), prompt_tokens.size());
-            for (int step = 0; step < max_new_tokens; step++) {
-                if (llama_decode(ctx, batch) != 0) {
-                    throw std::runtime_error("llama_decode failed");
+            std::vector<std::string> sentences;
+            for (int pass = 0; pass < n_alternatives; pass++) {
+                // drop everything after the prompt prefix from the KV cache
+                llama_memory_seq_rm(llama_get_memory(ctx), 0, n_prefix, -1);
+
+                llama_sampler * smpl =
+                    llama_sampler_chain_init(llama_sampler_chain_default_params());
+                llama_sampler_chain_add(
+                    smpl, llama_sampler_init_grammar(vocab, grammar_str.c_str(), "root"));
+                if (pass == 0) {
+                    // the primary answer stays deterministic
+                    llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+                } else {
+                    llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.8f));
+                    llama_sampler_chain_add(smpl, llama_sampler_init_dist(1000 + pass));
                 }
-                llama_token new_token = llama_sampler_sample(smpl, ctx, -1);
-                if (llama_vocab_is_eog(vocab, new_token)) {
-                    break;
+
+                std::string sentence;
+                llama_batch batch = llama_batch_get_one(&last_prompt_token, 1);
+                for (int step = 0; step < max_new_tokens; step++) {
+                    if (llama_decode(ctx, batch) != 0) {
+                        llama_sampler_free(smpl);
+                        throw std::runtime_error("llama_decode failed");
+                    }
+                    llama_token new_token = llama_sampler_sample(smpl, ctx, -1);
+                    if (llama_vocab_is_eog(vocab, new_token)) {
+                        break;
+                    }
+                    char buf[256];
+                    int n = llama_token_to_piece(vocab, new_token, buf, sizeof(buf), 0, true);
+                    if (n < 0) {
+                        llama_sampler_free(smpl);
+                        throw std::runtime_error("failed to detokenize");
+                    }
+                    sentence.append(buf, n);
+                    batch = llama_batch_get_one(&new_token, 1);
                 }
-                char buf[256];
-                int n = llama_token_to_piece(vocab, new_token, buf, sizeof(buf), 0, true);
-                if (n < 0) {
-                    throw std::runtime_error("failed to detokenize");
+                llama_sampler_free(smpl);
+
+                if (!sentence.empty() &&
+                    std::find(sentences.begin(), sentences.end(), sentence) ==
+                        sentences.end()) {
+                    sentences.push_back(std::move(sentence));
                 }
-                sentence.append(buf, n);
-                batch = llama_batch_get_one(&new_token, 1);
             }
 
-            llama_sampler_free(smpl);
-
             json resp;
-            resp["sentence"] = sentence;
+            resp["sentences"] = sentences;
+            // kept for older clients that read a single answer
+            resp["sentence"] = sentences.empty() ? "" : sentences.front();
             resp_str = resp.dump();
         } catch (const std::exception & e) {
             json resp;

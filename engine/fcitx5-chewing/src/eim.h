@@ -147,9 +147,12 @@ private:
     ChewingConfig config_;
     UniqueCPtr<ChewingContext, chewing_delete> context_;
     EventDispatcher dispatcher_;
-    // Suggestion state; main thread only. `suggestion_` is only meaningful
-    // while the chewing buffer still equals `suggestionForBuffer_`.
-    std::string suggestion_;
+    // Suggestion state; main thread only. `suggestions_` is only meaningful
+    // while the chewing buffer still equals `suggestionForBuffer_`;
+    // `suggestionIndex_` is the entry currently highlighted (cycled with
+    // Down, committed with Ctrl+Enter).
+    std::vector<std::string> suggestions_;
+    size_t suggestionIndex_ = 0;
     std::string suggestionForBuffer_;
     std::string inflightForBuffer_;
     uint64_t suggestionGeneration_ = 0;
