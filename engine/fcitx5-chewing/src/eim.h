@@ -17,7 +17,9 @@
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputmethodengine.h>
 #include <fcitx/instance.h>
+#include <string>
 #include <type_traits>
+#include <vector>
 
 namespace fcitx {
 FCITX_CONFIG_ENUM_NAME_WITH_I18N(CandidateLayoutHint, N_("Not Set"),
@@ -125,6 +127,14 @@ public:
 
     ChewingContext *context() { return context_.get(); }
 
+    // Rerank `original` (the string libchewing is about to commit) against
+    // `positions` (per-phrase candidate lists harvested from the same
+    // pre-commit buffer) via the slothingd LLM daemon. Falls back to
+    // `original` unchanged if the daemon is unavailable/slow or its answer
+    // doesn't provably reconstruct from the given candidates.
+    std::string maybeRerank(const std::string &original,
+                            const std::vector<std::vector<std::string>> &positions);
+
 private:
     FCITX_ADDON_DEPENDENCY_LOADER(chttrans, instance_->addonManager());
 
@@ -132,6 +142,12 @@ private:
     Instance *instance_;
     ChewingConfig config_;
     UniqueCPtr<ChewingContext, chewing_delete> context_;
+    // Set right before an explicit Enter-triggered commit so the shared
+    // commit-handling code at the bottom of keyEvent() knows to rerank;
+    // left empty (and thus a no-op) for every other commit path, e.g.
+    // manual candidate selection or buffer-overflow auto-commit, which
+    // should never be silently overridden by the reranker.
+    std::vector<std::vector<std::string>> pendingRerankPositions_;
 };
 
 class ChewingEngineFactory : public AddonFactory {

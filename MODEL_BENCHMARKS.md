@@ -37,6 +37,7 @@ grammar-constrained-decoding technique either way.
 | MiniCPM4-0.5B | 266MB (Q4_K_M) | 你好**邪邪**妳 (2/5) | 我在**池**飯的**十**候 (5/7) | — | — | 7/12 (58%) | Worst of that group; also needs ~3x the token budget per character, so a naive `max_tokens` truncates output mid-grammar unless sized generously |
 | ERNIE-4.5-0.3B-PT | 368MB (Q8_0) | — | — | — | — | n/a | Base **pretrained** model (no chat template) — `llama_chat_apply_template` fails outright with our chat-based prompting; would need raw-completion prompting to evaluate fairly, not attempted |
 | **LFM2.5-230M** | 236MB (Q8_0) | 你好謝謝你 ✅ (5/5) | 我在吃飯的時候 ✅ (7/7) | 他是老師 ✅ (4/4) | 今天天**器**很好 (5/6) | **21/22 (95%)** | Smallest model tested, and by far the most accurate — beats every larger model above by a wide margin |
+| LFM2.5-230M | 115MB (unsloth UD-Q2_K_XL) | 你好謝謝**擬**(4/5) | 我在吃飯的時候 ✅ (7/7) | 他是老**濕** (3/4) | 今天**添**氣很好 (5/6) | 19/22 (86%) | Tried a much more aggressive quant hoping for lower latency after hitting slow responses under heavy system load. Backfired on both axes: *lower* accuracy (86% vs 95%) and *higher* latency (~1.4-3.5s vs ~0.75-1.6s on the same loaded machine) — 2-bit/mixed-precision quants don't map as efficiently to llama.cpp's CPU SIMD kernels as Q4/Q8 for a model this small, where per-weight unpacking overhead dominates. **Not used**; Q8_0 above is what ships. |
 
 ## Takeaways
 

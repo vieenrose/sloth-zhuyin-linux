@@ -6,13 +6,21 @@
  *
  */
 #include "eim.h"
+#include <algorithm>
 #include <cstdarg>
+#include <cstdlib>
+#include <cstring>
 #include <fcitx-utils/utf8.h>
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputpanel.h>
 #include <fcitx/statusarea.h>
 #include <fcitx/text.h>
 #include <fcitx/userinterfacemanager.h>
+#include <optional>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 FCITX_DEFINE_LOG_CATEGORY(chewing_log, "chewing");
 #define CHEWING_DEBUG() FCITX_LOGC(chewing_log, Debug)
@@ -176,6 +184,221 @@ void logger(void *, int, const char *fmt, ...) {
     va_end(ap);
 }
 
+// Reranking only runs on explicit commit (Enter / focus-out), a much less
+// frequent and more latency-tolerant event than per-keystroke decoding, so
+// this can afford to be generous: observed LFM2.5-230M latency ranged from
+// ~260ms (idle machine) to ~1.6s (under heavy system load) in testing.
+// Note this is still a *blocking* wait inside keyEvent() -- see README for
+// the known follow-up to make this asynchronous instead.
+constexpr int kSlothingdTimeoutMs = 2000;
+
+std::string slothingdSocketPath() {
+    if (const char *env = std::getenv("SLOTHINGD_SOCKET")) {
+        return env;
+    }
+    return "/tmp/slothingd.sock";
+}
+
+// Walks the already-decided phrase segmentation of the current buffer via
+// libchewing's interval API and, for each segment, non-invasively opens its
+// candidate list (chewing_cand_open/close, not a keystroke) to harvest every
+// alternative libchewing itself considers for that segment. Cursor position
+// is saved and restored, so this has no visible side effect on editing
+// state. Returns an empty vector if the buffer is empty or any segment
+// yields no candidates (abort rather than send a partial/malformed request).
+std::vector<std::vector<std::string>> collectCandidatePositions(ChewingContext *ctx) {
+    std::vector<std::vector<std::string>> positions;
+    if (chewing_buffer_Len(ctx) <= 0) {
+        return positions;
+    }
+
+    int origCursor = chewing_cursor_Current(ctx);
+
+    chewing_handle_Home(ctx);
+    std::vector<IntervalType> intervals;
+    chewing_interval_Enumerate(ctx);
+    while (chewing_interval_hasNext(ctx)) {
+        IntervalType iv;
+        chewing_interval_Get(ctx, &iv);
+        intervals.push_back(iv);
+    }
+
+    int cur = chewing_cursor_Current(ctx);
+    for (const auto &interval : intervals) {
+        while (cur < interval.from) {
+            chewing_handle_Right(ctx);
+            cur++;
+        }
+        chewing_cand_open(ctx);
+        chewing_cand_Enumerate(ctx);
+        std::vector<std::string> cands;
+        while (chewing_cand_hasNext(ctx)) {
+            UniqueCPtr<char, chewing_free> str(chewing_cand_String(ctx));
+            if (str) {
+                cands.emplace_back(str.get());
+            }
+        }
+        chewing_cand_close(ctx);
+        if (cands.empty()) {
+            positions.clear();
+            break;
+        }
+        positions.push_back(std::move(cands));
+    }
+
+    chewing_handle_Home(ctx);
+    for (int i = 0; i < origCursor; i++) {
+        chewing_handle_Right(ctx);
+    }
+
+    return positions;
+}
+
+std::string jsonEscape(const std::string &s) {
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char c : s) {
+        switch (c) {
+        case '"':
+            out += "\\\"";
+            break;
+        case '\\':
+            out += "\\\\";
+            break;
+        default:
+            out += static_cast<char>(c);
+        }
+    }
+    return out;
+}
+
+std::string buildRerankRequest(const std::vector<std::vector<std::string>> &positions) {
+    std::string req = "{\"positions\":[";
+    for (size_t i = 0; i < positions.size(); i++) {
+        if (i) {
+            req += ",";
+        }
+        req += "[";
+        for (size_t j = 0; j < positions[i].size(); j++) {
+            if (j) {
+                req += ",";
+            }
+            req += "\"" + jsonEscape(positions[i][j]) + "\"";
+        }
+        req += "]";
+    }
+    req += "]}\n";
+    return req;
+}
+
+// Minimal extractor for slothingd's own fixed {"sentence":"..."} /
+// {"error":"..."} response shape -- not a general JSON parser, and not
+// meant to be one: the protocol between eim.cpp and slothingd is closed
+// and controlled by us on both ends.
+std::optional<std::string> extractStringField(const std::string &json, const char *key) {
+    std::string needle = std::string("\"") + key + "\":\"";
+    auto pos = json.find(needle);
+    if (pos == std::string::npos) {
+        return std::nullopt;
+    }
+    pos += needle.size();
+    std::string out;
+    while (pos < json.size() && json[pos] != '"') {
+        if (json[pos] == '\\' && pos + 1 < json.size()) {
+            pos++;
+        }
+        out += json[pos];
+        pos++;
+    }
+    return out;
+}
+
+// Talks to slothingd over its Unix socket with a short send/recv timeout so
+// a slow or absent daemon never perceptibly delays typing. Returns
+// std::nullopt on any failure (daemon not running, timeout, malformed
+// response) -- callers must fall back to libchewing's own output.
+std::optional<std::string> queryReranker(const std::vector<std::vector<std::string>> &positions) {
+    if (positions.empty()) {
+        return std::nullopt;
+    }
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return std::nullopt;
+    }
+    struct timeval tv;
+    tv.tv_sec = kSlothingdTimeoutMs / 1000;
+    tv.tv_usec = (kSlothingdTimeoutMs % 1000) * 1000;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    std::string sockPath = slothingdSocketPath();
+    strncpy(addr.sun_path, sockPath.c_str(), sizeof(addr.sun_path) - 1);
+    if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) != 0) {
+        close(fd);
+        return std::nullopt;
+    }
+
+    std::string req = buildRerankRequest(positions);
+    size_t off = 0;
+    while (off < req.size()) {
+        ssize_t n = write(fd, req.data() + off, req.size() - off);
+        if (n <= 0) {
+            close(fd);
+            return std::nullopt;
+        }
+        off += static_cast<size_t>(n);
+    }
+    shutdown(fd, SHUT_WR);
+
+    std::string resp;
+    char buf[4096];
+    ssize_t n;
+    while ((n = read(fd, buf, sizeof(buf))) > 0) {
+        resp.append(buf, static_cast<size_t>(n));
+    }
+    close(fd);
+    if (resp.empty()) {
+        return std::nullopt;
+    }
+    return extractStringField(resp, "sentence");
+}
+
+// Verifies `sentence` is exactly the concatenation of one candidate from
+// each entry of `positions`, in order -- i.e. that it could only have come
+// from real libchewing alternatives, never arbitrary LLM output. Prefers
+// the longest matching candidate at each step to avoid a short candidate
+// falsely matching a prefix of a longer one.
+bool matchesPositions(const std::string &sentence,
+                      const std::vector<std::vector<std::string>> &positions) {
+    size_t off = 0;
+    for (const auto &cands : positions) {
+        std::vector<const std::string *> sorted;
+        sorted.reserve(cands.size());
+        for (const auto &c : cands) {
+            sorted.push_back(&c);
+        }
+        std::sort(sorted.begin(), sorted.end(),
+                  [](const std::string *a, const std::string *b) { return a->size() > b->size(); });
+
+        bool matched = false;
+        for (const auto *c : sorted) {
+            if (sentence.compare(off, c->size(), *c) == 0) {
+                off += c->size();
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            return false;
+        }
+    }
+    return off == sentence.size();
+}
+
 } // namespace
 
 ChewingEngine::ChewingEngine(Instance *instance)
@@ -188,6 +411,21 @@ ChewingEngine::ChewingEngine(Instance *instance)
 }
 
 ChewingEngine::~ChewingEngine() = default;
+
+std::string ChewingEngine::maybeRerank(const std::string &original,
+                                       const std::vector<std::vector<std::string>> &positions) {
+    if (positions.empty()) {
+        return original;
+    }
+    auto sentence = queryReranker(positions);
+    if (!sentence || !matchesPositions(*sentence, positions)) {
+        return original;
+    }
+    if (*sentence != original) {
+        CHEWING_DEBUG() << "slothingd reranked '" << original << "' -> '" << *sentence << "'";
+    }
+    return *sentence;
+}
 
 void ChewingEngine::reloadConfig() {
     readAsIni(config_, "conf/chewing.conf");
@@ -259,6 +497,11 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
     if (keyEvent.isRelease()) {
         return;
     }
+
+    // Only the Enter branch below populates this; every other commit path
+    // (manual candidate selection, buffer-overflow auto-commit) must not be
+    // reranked, so start each key event with it cleared.
+    pendingRerankPositions_.clear();
 
     chewing_set_easySymbolInput(ctx, 0);
     CHEWING_DEBUG() << "KeyEvent: " << keyEvent.key().toString();
@@ -340,6 +583,10 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
     } else if (keyEvent.key().check(FcitxKey_Right, KeyState::Shift)) {
         chewing_handle_ShiftRight(ctx);
     } else if (keyEvent.key().check(FcitxKey_Return)) {
+        // Harvest candidates from the buffer as it stands *before* Enter
+        // commits it -- afterward the intervals we'd be querying may no
+        // longer exist.
+        pendingRerankPositions_ = collectCandidatePositions(ctx);
         chewing_handle_Enter(ctx);
     } else if (keyEvent.key().states() == KeyState::Ctrl &&
                Key(keyEvent.key().sym()).isDigit()) {
@@ -357,7 +604,11 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
     } else if (chewing_commit_Check(ctx)) {
         keyEvent.filterAndAccept();
         UniqueCPtr<char, chewing_free> str(chewing_commit_String(ctx));
-        ic->commitString(str.get());
+        std::string text = str.get();
+        if (!pendingRerankPositions_.empty()) {
+            text = maybeRerank(text, pendingRerankPositions_);
+        }
+        ic->commitString(text);
         return updateUI(ic);
     } else {
         keyEvent.filterAndAccept();
@@ -457,10 +708,15 @@ void ChewingEngine::flushBuffer(InputContextEvent &event) {
     auto ctx = context_.get();
     // This check is because we ask the client to do the focus out commit.
     if (event.type() != EventType::InputContextFocusOut) {
+        auto positions = collectCandidatePositions(ctx);
         chewing_handle_Enter(ctx);
         if (chewing_commit_Check(ctx)) {
             UniqueCPtr<char, chewing_free> str(chewing_commit_String(ctx));
-            event.inputContext()->commitString(str.get());
+            std::string text = str.get();
+            if (!positions.empty()) {
+                text = maybeRerank(text, positions);
+            }
+            event.inputContext()->commitString(text);
         }
         UniqueCPtr<char, chewing_free> buf_str(chewing_buffer_String(ctx));
         const char *zuin_str = chewing_bopomofo_String_static(ctx);
