@@ -109,15 +109,10 @@ FCITX_CONFIGURATION(
     Option<int, IntConstrain> LlmCandidateCount{
         this, "LlmCandidateCount", _("Number of LLM candidates"), 5,
         IntConstrain(1, 8)};
-    // EXPERIMENTAL and OFF by default: the per-character bopomofo tracker
-    // currently captures a syllable *before* its tone key completes it, so it
-    // would teach chewing a toneless pronunciation. libchewing stores that as
-    // a tone-0 phone, which is invalid and has crashed its decoder. Do not
-    // enable until the tracker captures the completing tone correctly.
     Option<bool> LlmLearn{
         this, "LlmLearn",
-        _("Teach chewing on accept (EXPERIMENTAL, may corrupt user dict)"),
-        false};);
+        _("Teach chewing the phrase when an LLM candidate is accepted"),
+        true};);
 
 class ChewingEngine final : public InputMethodEngine {
 public:
@@ -192,9 +187,14 @@ private:
     std::string convertBuffer_;
     std::vector<std::vector<std::string>> convertPositions_;
     std::vector<std::pair<int, int>> convertIntervals_;
-    // Per-character bopomofo of the current buffer, appended as each syllable
-    // commits; used to teach chewing on accept. Reset with the buffer.
-    std::vector<std::string> committedBopomofo_;
+    // Per-character bopomofo (with tones) of the buffer being converted,
+    // captured at startConversion() from chewing_get_phoneSeq -- chewing's own
+    // record of the typed pronunciation -- and used to teach chewing when a
+    // conversion is accepted. Never reconstructed from keystrokes: an earlier
+    // keystroke-tracking attempt captured syllables before their tone key and
+    // wrote a wrong-pronunciation userphrase that crashed libchewing's
+    // decoder.
+    std::vector<std::string> convertBopomofo_;
 
     // Single background worker for the in-flight request. The joinable thread
     // + stop flag + shared socket fd let the destructor tear down safely

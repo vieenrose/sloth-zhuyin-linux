@@ -439,6 +439,7 @@ void ChewingEngine::cancelConversion(InputContext *ic) {
     convertBuffer_.clear();
     convertPositions_.clear();
     convertIntervals_.clear();
+    convertBopomofo_.clear();
     updateUI(ic);
 }
 
@@ -470,12 +471,34 @@ void ChewingEngine::startConversion(InputContext *ic) {
     CHEWING_DEBUG() << "startConversion: buffer='" << buffer << "' positions="
                     << positions.size();
 
+    // Capture the typed pronunciation (with tones) directly from chewing's
+    // phone sequence; used to teach chewing if a correction is accepted.
+    // Any conversion failure clears the whole track, which makes
+    // teachChewing() a no-op rather than a wrong-pronunciation write.
+    std::vector<std::string> bopomofo;
+    int phoneLen = chewing_get_phoneSeqLen(ctx);
+    if (unsigned short *phones = chewing_get_phoneSeq(ctx)) {
+        for (int i = 0; i < phoneLen; i++) {
+            char pb[24] = {0};
+            // returns 0 on success (verified against libchewing 0.6.0)
+            if (chewing_phone_to_bopomofo(phones[i], pb, sizeof(pb)) == 0 &&
+                pb[0]) {
+                bopomofo.emplace_back(pb);
+            } else {
+                bopomofo.clear();
+                break;
+            }
+        }
+        chewing_free(phones);
+    }
+
     // Tear down any prior worker, then start fresh.
     stopWorker();
     convertState_ = ConvertState::Converting;
     convertBuffer_ = buffer;
     convertPositions_ = positions;
     convertIntervals_ = intervals;
+    convertBopomofo_ = std::move(bopomofo);
     const uint64_t generation = ++convertGeneration_;
     const int n = *config_.LlmCandidateCount;
     auto icRef = ic->watch();
@@ -576,9 +599,9 @@ void ChewingEngine::teachChewing(const std::string &chosen) {
     const int bufChars =
         static_cast<int>(utf8::lengthValidated(std::string_view(convertBuffer_)));
     if (bufChars <= 0 ||
-        static_cast<int>(committedBopomofo_.size()) != bufChars) {
+        static_cast<int>(convertBopomofo_.size()) != bufChars) {
         CHEWING_DEBUG() << "learn: bopomofo track misaligned ("
-                        << committedBopomofo_.size() << " vs " << bufChars
+                        << convertBopomofo_.size() << " vs " << bufChars
                         << " chars), skipping";
         return;
     }
@@ -596,14 +619,14 @@ void ChewingEngine::teachChewing(const std::string &chosen) {
         std::string bopomofo;
         bool ok = true;
         for (int i = from; i < to; i++) {
-            if (committedBopomofo_[i].empty()) {
+            if (convertBopomofo_[i].empty()) {
                 ok = false;
                 break;
             }
             if (!bopomofo.empty()) {
                 bopomofo += " ";
             }
-            bopomofo += committedBopomofo_[i];
+            bopomofo += convertBopomofo_[i];
         }
         if (!ok) {
             continue;
@@ -628,7 +651,7 @@ void ChewingEngine::acceptConversion(InputContext *ic, const std::string &senten
     convertBuffer_.clear();
     convertPositions_.clear();
     convertIntervals_.clear();
-    committedBopomofo_.clear();
+    convertBopomofo_.clear();
     updateUI(ic);
 }
 
@@ -678,7 +701,7 @@ void ChewingEngine::doReset(InputContextEvent &event) {
     convertBuffer_.clear();
     convertPositions_.clear();
     convertIntervals_.clear();
-    committedBopomofo_.clear();
+    convertBopomofo_.clear();
     updateUI(event.inputContext());
 }
 
@@ -810,13 +833,6 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         }
     }
 
-    // For learning: remember the pending bopomofo and buffer length before
-    // this key, so if the key commits a syllable we can attribute that
-    // bopomofo to the new character (see the reconcile block after dispatch).
-    const char *prevZuinC = chewing_bopomofo_String_static(ctx);
-    std::string prevZuin = prevZuinC ? prevZuinC : "";
-    int prevBufLen = chewing_buffer_Len(ctx);
-
     if (keyEvent.key().check(FcitxKey_space)) {
         chewing_handle_Space(ctx);
     } else if (keyEvent.key().check(FcitxKey_Tab)) {
@@ -890,25 +906,6 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         return;
     }
 
-    // Reconcile the bopomofo track with the buffer. Best-effort: if the buffer
-    // grew by appending at the end, attribute the just-committed bopomofo to
-    // the first new character; any other shape (mid-buffer edit, shrink,
-    // desync) abandons tracking so teachChewing() will simply skip learning.
-    {
-        int newBufLen = chewing_buffer_Len(ctx);
-        if (newBufLen > prevBufLen &&
-            static_cast<int>(committedBopomofo_.size()) == prevBufLen &&
-            !prevZuin.empty()) {
-            committedBopomofo_.push_back(prevZuin);
-            for (int i = 1; i < newBufLen - prevBufLen; i++) {
-                committedBopomofo_.push_back("");
-            }
-        } else if (newBufLen != prevBufLen ||
-                   static_cast<int>(committedBopomofo_.size()) != prevBufLen) {
-            committedBopomofo_.clear();
-        }
-    }
-
     if (chewing_keystroke_CheckAbsorb(ctx)) {
         keyEvent.filterAndAccept();
         return updateUI(ic);
@@ -918,7 +915,6 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         keyEvent.filterAndAccept();
         UniqueCPtr<char, chewing_free> str(chewing_commit_String(ctx));
         ic->commitString(str.get());
-        committedBopomofo_.clear(); // buffer emptied on commit
         return updateUI(ic);
     } else {
         keyEvent.filterAndAccept();
