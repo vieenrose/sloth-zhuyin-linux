@@ -458,9 +458,11 @@ void ChewingEngine::requestSuggestion(InputContext *ic) {
 
     // Only suggest for a settled multi-char buffer: nothing mid-syllable
     // (zuin pending) and nothing while the candidate window is open.
+    // (cand_TotalChoice > 0 is the open-window signal; cand_CheckDone is
+    // false even during plain typing, so it can't be used for this.)
     const char *zuin = chewing_bopomofo_String_static(ctx);
     if (chewing_buffer_Len(ctx) < 2 || (zuin && zuin[0]) ||
-        !chewing_cand_CheckDone(ctx)) {
+        chewing_cand_TotalChoice(ctx) > 0) {
         return;
     }
 
@@ -499,6 +501,14 @@ void ChewingEngine::requestSuggestion(InputContext *ic) {
             }
         }
         if (verified.empty()) {
+            // Unblock retries for this buffer (e.g. daemon was briefly
+            // down); without this, a failed request would permanently
+            // suppress suggestions for this exact sentence.
+            dispatcher_.schedule([this, generation]() {
+                if (generation == suggestionGeneration_) {
+                    inflightForBuffer_.clear();
+                }
+            });
             return;
         }
         dispatcher_.schedule(
@@ -598,8 +608,9 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
     if (!suggestions_.empty()) {
         UniqueCPtr<char, chewing_free> buf(chewing_buffer_String(ctx));
         const char *zuin = chewing_bopomofo_String_static(ctx);
-        bool suggestionsLive =
-            suggestionForBuffer_ == buf.get() && (!zuin || !zuin[0]);
+        bool suggestionsLive = suggestionForBuffer_ == buf.get() &&
+                               (!zuin || !zuin[0]) &&
+                               chewing_cand_TotalChoice(ctx) == 0;
 
         // Ctrl+Enter commits the highlighted suggestion.
         if (suggestionsLive &&
