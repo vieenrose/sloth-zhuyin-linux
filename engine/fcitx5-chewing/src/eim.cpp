@@ -306,10 +306,13 @@ collectCandidatePositions(ChewingContext *ctx,
 // Serialize the request with the same JSON library the daemon parses with,
 // so escaping can never drift between the two ends.
 std::string buildRerankRequest(const std::vector<std::vector<std::string>> &positions,
-                               int n) {
+                               int n, const std::string &context) {
     json req;
     req["positions"] = positions;
     req["n"] = n;
+    if (!context.empty()) {
+        req["context"] = context;
+    }
     return req.dump() + "\n";
 }
 
@@ -318,7 +321,8 @@ std::string buildRerankRequest(const std::vector<std::vector<std::string>> &posi
 // thread at teardown; clears it again before returning. Returns an empty
 // list on any failure (daemon absent, timeout, malformed/partial response).
 std::vector<std::string> queryReranker(const std::vector<std::vector<std::string>> &positions,
-                                       int n, std::atomic<int> &fdSlot) {
+                                       int n, const std::string &context,
+                                       std::atomic<int> &fdSlot) {
     if (positions.empty()) {
         return {};
     }
@@ -350,7 +354,7 @@ std::vector<std::string> queryReranker(const std::vector<std::vector<std::string
         return result;
     };
 
-    std::string req = buildRerankRequest(positions, n);
+    std::string req = buildRerankRequest(positions, n, context);
     size_t off = 0;
     while (off < req.size()) {
         ssize_t w = send(fd, req.data() + off, req.size() - off, MSG_NOSIGNAL);
@@ -492,6 +496,20 @@ void ChewingEngine::startConversion(InputContext *ic) {
         chewing_free(phones);
     }
 
+    // Document context: the text already committed before the cursor, when
+    // the client app exposes it. This is what lets the model resolve
+    // homophones by what the user is actually writing, not just the buffer.
+    std::string context;
+    if (ic->capabilityFlags().test(CapabilityFlag::SurroundingText) &&
+        ic->surroundingText().isValid()) {
+        const auto &st = ic->surroundingText();
+        const std::string &t = st.text();
+        auto tLen = utf8::lengthValidated(t);
+        if (tLen != utf8::INVALID_LENGTH && st.cursor() <= tLen) {
+            context = t.substr(0, utf8::ncharByteLength(t.begin(), st.cursor()));
+        }
+    }
+
     // Tear down any prior worker, then start fresh.
     stopWorker();
     convertState_ = ConvertState::Converting;
@@ -507,16 +525,23 @@ void ChewingEngine::startConversion(InputContext *ic) {
 
     worker_ = std::thread([this, icRef, generation, n,
                            buffer = std::move(buffer),
-                           positions = std::move(positions)]() {
+                           positions = std::move(positions),
+                           context = std::move(context)]() {
         std::vector<std::string> verified;
-        for (auto &sentence : queryReranker(positions, n, inflightFd_)) {
-            // Keep only sentences provably built from real chewing candidates;
-            // list the original first so the user always sees it as an option.
+        for (auto &sentence : queryReranker(positions, n, context, inflightFd_)) {
+            // Keep only sentences provably built from real chewing candidates.
             if (matchesPositions(sentence, positions) &&
                 std::find(verified.begin(), verified.end(), sentence) ==
                     verified.end()) {
                 verified.push_back(std::move(sentence));
             }
+        }
+        // Always offer chewing's own sentence too (as the last entry when the
+        // LLM proposed alternatives), so the list is complete without Esc.
+        if (!verified.empty() &&
+            std::find(verified.begin(), verified.end(), buffer) ==
+                verified.end()) {
+            verified.push_back(buffer);
         }
         if (workerStop_.load()) {
             return; // engine tearing down; don't touch it

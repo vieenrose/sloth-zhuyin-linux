@@ -5,8 +5,10 @@
 // Protocol: one JSON object per connection on stdin-style read, one JSON
 // object written back, then the connection is closed.
 //
-// Request:  {"positions": [["你","妳","擬"], ["好","號","毫"], ...], "n": 3}
-//           ("n" = max alternatives wanted, optional, defaults to 1)
+// Request:  {"positions": [["你","妳","擬"], ["好","號","毫"], ...], "n": 3,
+//            "context": "已經送出的前文"}
+//           ("n" = max alternatives wanted, optional, defaults to 1;
+//            "context" = text before the cursor, optional, tail-truncated)
 // Response: {"sentences": ["你好", "妳好"]}
 //           (deduped, best/greedy first; only fully grammar-complete sentences)
 //        or {"error": "message"}
@@ -86,8 +88,17 @@ std::string build_grammar(const std::vector<std::vector<std::string>> & position
     return grammar;
 }
 
-std::string build_user_message(const std::vector<std::vector<std::string>> & positions) {
+std::string build_user_message(const std::vector<std::vector<std::string>> & positions,
+                               const std::string & context) {
     std::string msg;
+    if (!context.empty()) {
+        // Text already committed before the cursor; lets the model pick
+        // candidates that continue the document, not just an isolated
+        // sentence (e.g. 在 vs 再 given what came before). Phrased as a
+        // fill-in-the-blank continuation, which small models follow better
+        // than a meta description of "preceding text".
+        msg += context + "＿＿＿\n";
+    }
     for (size_t i = 0; i < positions.size(); i++) {
         if (i > 0) {
             msg += " ";
@@ -239,6 +250,18 @@ int main(int argc, char ** argv) {
             if (n_alternatives > 8) {
                 n_alternatives = 8;
             }
+            std::string context = req.value("context", std::string());
+            // Keep the prompt bounded even if a client sends a huge context.
+            constexpr size_t kMaxContextBytes = 240;
+            if (context.size() > kMaxContextBytes) {
+                size_t cut = context.size() - kMaxContextBytes;
+                // don't split a UTF-8 sequence at the cut point
+                while (cut < context.size() &&
+                       (static_cast<unsigned char>(context[cut]) & 0xC0) == 0x80) {
+                    cut++;
+                }
+                context.erase(0, cut);
+            }
 
             // start every request from a clean KV cache: each call is an
             // independent classification, not a multi-turn conversation.
@@ -246,7 +269,7 @@ int main(int argc, char ** argv) {
 
             std::vector<llama_chat_message> messages;
             messages.push_back({"system", "選字。"});
-            std::string user_msg = build_user_message(positions);
+            std::string user_msg = build_user_message(positions, context);
             messages.push_back({"user", user_msg.c_str()});
 
             std::vector<char> formatted(n_ctx);
