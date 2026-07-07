@@ -8,9 +8,11 @@
 #define _FCITX5_CHEWING_EIM_H_
 
 #include <chewing.h>
+#include <cstdint>
 #include <fcitx-config/configuration.h>
 #include <fcitx-config/enum.h>
 #include <fcitx-config/iniparser.h>
+#include <fcitx-utils/eventdispatcher.h>
 #include <fcitx-utils/i18n.h>
 #include <fcitx/addonfactory.h>
 #include <fcitx/addonmanager.h>
@@ -127,27 +129,30 @@ public:
 
     ChewingContext *context() { return context_.get(); }
 
-    // Rerank `original` (the string libchewing is about to commit) against
-    // `positions` (per-phrase candidate lists harvested from the same
-    // pre-commit buffer) via the slothingd LLM daemon. Falls back to
-    // `original` unchanged if the daemon is unavailable/slow or its answer
-    // doesn't provably reconstruct from the given candidates.
-    std::string maybeRerank(const std::string &original,
-                            const std::vector<std::vector<std::string>> &positions);
-
 private:
     FCITX_ADDON_DEPENDENCY_LOADER(chttrans, instance_->addonManager());
 
     void populateConfig();
+    // If the current buffer warrants it, harvest candidates and ask
+    // slothingd for a suggestion on a background thread; the answer is
+    // posted back to the main loop and shown as an aux hint, never applied
+    // to the text on its own. Cheap no-op when a request for the same
+    // buffer is in flight or already answered.
+    void requestSuggestion(InputContext *ic);
+    // Clear any displayed/in-flight suggestion state (on reset, commit,
+    // or accept) and invalidate outstanding async replies.
+    void dropSuggestion();
+
     Instance *instance_;
     ChewingConfig config_;
     UniqueCPtr<ChewingContext, chewing_delete> context_;
-    // Set right before an explicit Enter-triggered commit so the shared
-    // commit-handling code at the bottom of keyEvent() knows to rerank;
-    // left empty (and thus a no-op) for every other commit path, e.g.
-    // manual candidate selection or buffer-overflow auto-commit, which
-    // should never be silently overridden by the reranker.
-    std::vector<std::vector<std::string>> pendingRerankPositions_;
+    EventDispatcher dispatcher_;
+    // Suggestion state; main thread only. `suggestion_` is only meaningful
+    // while the chewing buffer still equals `suggestionForBuffer_`.
+    std::string suggestion_;
+    std::string suggestionForBuffer_;
+    std::string inflightForBuffer_;
+    uint64_t suggestionGeneration_ = 0;
 };
 
 class ChewingEngineFactory : public AddonFactory {

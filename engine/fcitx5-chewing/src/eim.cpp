@@ -20,6 +20,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
+#include <thread>
 #include <unistd.h>
 
 FCITX_DEFINE_LOG_CATEGORY(chewing_log, "chewing");
@@ -428,33 +429,76 @@ ChewingEngine::ChewingEngine(Instance *instance)
     if (chewing_log().checkLogLevel(Debug)) {
         chewing_set_logger(context_.get(), logger, nullptr);
     }
+    dispatcher_.attach(&instance_->eventLoop());
     reloadConfig();
 }
 
 ChewingEngine::~ChewingEngine() = default;
 
-std::string ChewingEngine::maybeRerank(const std::string &original,
-                                       const std::vector<std::vector<std::string>> &positions) {
-    if (positions.empty()) {
-        return original;
+void ChewingEngine::dropSuggestion() {
+    suggestion_.clear();
+    suggestionForBuffer_.clear();
+    inflightForBuffer_.clear();
+    suggestionGeneration_++;
+}
+
+void ChewingEngine::requestSuggestion(InputContext *ic) {
+    ChewingContext *ctx = context_.get();
+
+    // Only suggest for a settled multi-char buffer: nothing mid-syllable
+    // (zuin pending) and nothing while the candidate window is open.
+    const char *zuin = chewing_bopomofo_String_static(ctx);
+    if (chewing_buffer_Len(ctx) < 2 || (zuin && zuin[0]) ||
+        !chewing_cand_CheckDone(ctx)) {
+        return;
     }
-    // If the sentence libchewing itself produced can't be rebuilt from the
-    // harvested candidates, the harvest is unreliable (wrong segments,
-    // missing coverage) -- reranking against it could corrupt the commit,
-    // so don't ask the LLM at all.
-    if (!matchesPositions(original, positions)) {
-        CHEWING_DEBUG() << "harvest does not reconstruct '" << original
-                        << "', skipping rerank";
-        return original;
+
+    UniqueCPtr<char, chewing_free> buf(chewing_buffer_String(ctx));
+    std::string buffer = buf.get();
+    if (buffer == suggestionForBuffer_ || buffer == inflightForBuffer_) {
+        return; // already answered / already being asked
     }
-    auto sentence = queryReranker(positions);
-    if (!sentence || !matchesPositions(*sentence, positions)) {
-        return original;
+
+    auto positions = collectCandidatePositions(ctx);
+    // If chewing's own sentence can't be rebuilt from the harvest, the
+    // harvest is unreliable (wrong segments, missing coverage) -- asking
+    // the LLM against it would produce nonsense suggestions.
+    if (positions.empty() || !matchesPositions(buffer, positions)) {
+        return;
     }
-    if (*sentence != original) {
-        CHEWING_DEBUG() << "slothingd reranked '" << original << "' -> '" << *sentence << "'";
-    }
-    return *sentence;
+
+    inflightForBuffer_ = buffer;
+    const uint64_t generation = ++suggestionGeneration_;
+    auto icRef = ic->watch();
+
+    // The worker only touches its own copies plus the Unix socket; all
+    // engine state is re-entered through dispatcher_ on the main thread.
+    // The engine outlives any worker for practical purposes (the addon is
+    // only unloaded when fcitx5 itself exits).
+    std::thread([this, icRef, generation, buffer = std::move(buffer),
+                 positions = std::move(positions)]() {
+        auto sentence = queryReranker(positions);
+        if (!sentence || !matchesPositions(*sentence, positions)) {
+            return;
+        }
+        dispatcher_.schedule(
+            [this, icRef, generation, buffer, sentence = *sentence]() {
+                if (generation != suggestionGeneration_) {
+                    return; // user kept typing; stale answer
+                }
+                inflightForBuffer_.clear();
+                if (sentence == buffer) {
+                    return; // LLM agrees with chewing; nothing to show
+                }
+                suggestion_ = sentence;
+                suggestionForBuffer_ = buffer;
+                CHEWING_DEBUG() << "slothingd suggests '" << sentence
+                                << "' for '" << buffer << "'";
+                if (auto *ic = icRef.get()) {
+                    updateUI(ic);
+                }
+            });
+    }).detach();
 }
 
 void ChewingEngine::reloadConfig() {
@@ -494,6 +538,7 @@ void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {
 void ChewingEngine::doReset(InputContextEvent &event) {
     ChewingContext *ctx = context_.get();
     chewing_handle_Esc(ctx);
+    dropSuggestion();
     updateUI(event.inputContext());
 }
 
@@ -528,10 +573,22 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         return;
     }
 
-    // Only the Enter branch below populates this; every other commit path
-    // (manual candidate selection, buffer-overflow auto-commit) must not be
-    // reranked, so start each key event with it cleared.
-    pendingRerankPositions_.clear();
+    // Accept the LLM suggestion with Ctrl+Enter -- only when one is being
+    // shown for exactly the buffer on screen. The suggestion was already
+    // verified (matchesPositions) to be built from real chewing candidates.
+    if (keyEvent.key().check(FcitxKey_Return, KeyState::Ctrl) &&
+        !suggestion_.empty()) {
+        UniqueCPtr<char, chewing_free> buf(chewing_buffer_String(ctx));
+        const char *zuin = chewing_bopomofo_String_static(ctx);
+        if (suggestionForBuffer_ == buf.get() && (!zuin || !zuin[0])) {
+            keyEvent.filterAndAccept();
+            keyEvent.inputContext()->commitString(suggestion_);
+            chewing_clean_preedit_buf(ctx);
+            chewing_clean_bopomofo_buf(ctx);
+            dropSuggestion();
+            return updateUI(keyEvent.inputContext());
+        }
+    }
 
     chewing_set_easySymbolInput(ctx, 0);
     CHEWING_DEBUG() << "KeyEvent: " << keyEvent.key().toString();
@@ -613,10 +670,6 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
     } else if (keyEvent.key().check(FcitxKey_Right, KeyState::Shift)) {
         chewing_handle_ShiftRight(ctx);
     } else if (keyEvent.key().check(FcitxKey_Return)) {
-        // Harvest candidates from the buffer as it stands *before* Enter
-        // commits it -- afterward the intervals we'd be querying may no
-        // longer exist.
-        pendingRerankPositions_ = collectCandidatePositions(ctx);
         chewing_handle_Enter(ctx);
     } else if (keyEvent.key().states() == KeyState::Ctrl &&
                Key(keyEvent.key().sym()).isDigit()) {
@@ -634,11 +687,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
     } else if (chewing_commit_Check(ctx)) {
         keyEvent.filterAndAccept();
         UniqueCPtr<char, chewing_free> str(chewing_commit_String(ctx));
-        std::string text = str.get();
-        if (!pendingRerankPositions_.empty()) {
-            text = maybeRerank(text, pendingRerankPositions_);
-        }
-        ic->commitString(text);
+        ic->commitString(str.get());
         return updateUI(ic);
     } else {
         keyEvent.filterAndAccept();
@@ -723,6 +772,13 @@ void ChewingEngine::updateUI(InputContext *ic) {
         const char *aux_str = chewing_aux_String_static(ctx);
         std::string aux = aux_str;
         ic->inputPanel().setAuxDown(Text(aux));
+    } else if (!suggestion_.empty() && suggestionForBuffer_ == text &&
+               zuin.empty()) {
+        // Show the LLM's alternative as a passive hint; it is only ever
+        // applied when the user presses Ctrl+Enter. Chewing's own aux
+        // messages (errors etc.) take priority over it above.
+        ic->inputPanel().setAuxDown(
+            Text("懶 " + suggestion_ + " [Ctrl+Enter]"));
     }
 
     if (useClientPreedit) {
@@ -732,21 +788,20 @@ void ChewingEngine::updateUI(InputContext *ic) {
     }
 
     ic->updatePreedit();
+
+    // Fire (or refresh) the async suggestion request for the buffer now on
+    // screen. No-op unless the buffer is a settled multi-char sentence.
+    requestSuggestion(ic);
 }
 
 void ChewingEngine::flushBuffer(InputContextEvent &event) {
     auto ctx = context_.get();
     // This check is because we ask the client to do the focus out commit.
     if (event.type() != EventType::InputContextFocusOut) {
-        auto positions = collectCandidatePositions(ctx);
         chewing_handle_Enter(ctx);
         if (chewing_commit_Check(ctx)) {
             UniqueCPtr<char, chewing_free> str(chewing_commit_String(ctx));
-            std::string text = str.get();
-            if (!positions.empty()) {
-                text = maybeRerank(text, positions);
-            }
-            event.inputContext()->commitString(text);
+            event.inputContext()->commitString(str.get());
         }
         UniqueCPtr<char, chewing_free> buf_str(chewing_buffer_String(ctx));
         const char *zuin_str = chewing_bopomofo_String_static(ctx);

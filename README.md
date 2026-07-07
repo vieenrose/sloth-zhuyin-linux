@@ -9,9 +9,13 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
   zhuyin-key → candidate generation.
 - `engine/slothingd/` — **slothingd**, a small Unix-socket daemon linking
   directly against llama.cpp's C API (`llama.h`, no `llama-server`, no
-  Python bindings) that reranks/corrects libchewing's candidate list at
-  commit points using grammar-constrained decoding, fixing the classic
-  homophone-disambiguation weakness of n-gram based engines.
+  Python bindings) that reranks libchewing's candidate list using
+  grammar-constrained decoding, fixing the classic homophone-disambiguation
+  weakness of n-gram based engines. Its answer is shown as a **passive
+  suggestion** under the preedit (`懶 我在重新考慮 [Ctrl+Enter]`), fetched
+  asynchronously while you type; Ctrl+Enter accepts it, plain Enter always
+  commits exactly what the preedit shows. The LLM never rewrites text on
+  its own.
 - `llm/` — local LLM runtime: a llama.cpp checkout (built for its headers
   and shared libs, which `slothingd` links against) plus the GGUF model.
   Not vendored in git (see `.gitignore`); see setup instructions below.
@@ -23,12 +27,9 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
 ## Status
 
 Milestone 1 (plain fcitx5 zhuyin engine, no LLM) is done. Milestone 2
-(`slothingd` LLM reranker daemon, wired into `eim.cpp`'s commit path) is
-done and verified end to end with real typing: ㄨㄛˇㄗㄞˋㄔㄨㄥˊㄒㄧㄣㄎㄠˇㄌㄩˋ
-commits as 我在重新考慮 (LLM-corrected) instead of raw chewing's 我再重新考慮.
-
-Known follow-up: the rerank call is a blocking wait (up to 2s) inside
-fcitx5's key-event handler at commit time — should become asynchronous.
+(`slothingd` LLM reranker, surfaced as an async suggestion with Ctrl+Enter
+accept) is implemented; verified for ㄨㄛˇㄗㄞˋㄔㄨㄥˊㄒㄧㄣㄎㄠˇㄌㄩˋ →
+suggestion 我在重新考慮 where raw chewing produces 我再重新考慮.
 
 ## Build & install the fcitx5 addon
 
