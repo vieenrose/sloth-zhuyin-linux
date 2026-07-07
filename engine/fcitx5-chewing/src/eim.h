@@ -104,7 +104,7 @@ FCITX_CONFIGURATION(
         this, "LlmConvert",
         _("Enable LLM sentence conversion (press the convert key)"), true};
     KeyListOption ConvertKey{
-        this, "ConvertKey", _("LLM convert key"), {Key("F9")},
+        this, "ConvertKey", _("LLM convert key"), {Key("Control+Return")},
         KeyListConstrain({KeyConstrainFlag::AllowModifierLess})};
     Option<int, IntConstrain> LlmCandidateCount{
         this, "LlmCandidateCount", _("Number of LLM candidates"), 5,

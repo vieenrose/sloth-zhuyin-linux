@@ -449,6 +449,10 @@ void ChewingEngine::startConversion(InputContext *ic) {
     const char *zuin = chewing_bopomofo_String_static(ctx);
     if (chewing_buffer_Len(ctx) < 1 || (zuin && zuin[0]) ||
         chewing_cand_TotalChoice(ctx) > 0) {
+        CHEWING_DEBUG() << "startConversion: bail (bufLen="
+                        << chewing_buffer_Len(ctx) << " zuin='"
+                        << (zuin ? zuin : "") << "' totalChoice="
+                        << chewing_cand_TotalChoice(ctx) << ")";
         return;
     }
 
@@ -459,8 +463,12 @@ void ChewingEngine::startConversion(InputContext *ic) {
     // If chewing's own sentence can't be rebuilt from the harvest, the harvest
     // is unreliable -- don't convert (the LLM would be fed a broken choice set).
     if (positions.empty() || !matchesPositions(buffer, positions)) {
+        CHEWING_DEBUG() << "startConversion: harvest unusable (positions="
+                        << positions.size() << " buffer='" << buffer << "')";
         return;
     }
+    CHEWING_DEBUG() << "startConversion: buffer='" << buffer << "' positions="
+                    << positions.size();
 
     // Tear down any prior worker, then start fresh.
     stopWorker();
@@ -705,6 +713,12 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
     if (keyEvent.isRelease()) {
         return;
     }
+    CHEWING_DEBUG() << "keyEvent(top): " << keyEvent.key().toString()
+                    << " state=" << static_cast<int>(convertState_)
+                    << " llmConvert=" << *config_.LlmConvert
+                    << " convertKeyMatch="
+                    << keyEvent.key().normalize().checkKeyList(
+                           *config_.ConvertKey);
 
     // --- LLM conversion state machine (pull model) -------------------------
     // Composing is stock chewing except that the convert key starts a
@@ -765,13 +779,19 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         ic->updateUserInterface(UserInterfaceComponent::InputPanel);
         return; // all other keys swallowed while choosing
     }
-    // Composing: the convert key starts a conversion (only when enabled and
-    // the daemon can possibly serve it -- otherwise fall through to chewing).
+    // Composing: the convert key starts a conversion -- but only when there is
+    // a settled buffer to convert. With no preedit (or a pending syllable /
+    // open candidate window) the key is NOT consumed, so a modifier combo like
+    // Ctrl+Return still reaches the application (e.g. "send message").
     if (*config_.LlmConvert &&
-        keyEvent.key().checkKeyList(*config_.ConvertKey)) {
-        keyEvent.filterAndAccept();
-        startConversion(keyEvent.inputContext());
-        return;
+        keyEvent.key().normalize().checkKeyList(*config_.ConvertKey)) {
+        const char *cz = chewing_bopomofo_String_static(ctx);
+        if (chewing_buffer_Len(ctx) >= 1 && !(cz && cz[0]) &&
+            chewing_cand_TotalChoice(ctx) == 0) {
+            keyEvent.filterAndAccept();
+            startConversion(keyEvent.inputContext());
+            return;
+        }
     }
     // ------------------------------------------------------------------------
 
