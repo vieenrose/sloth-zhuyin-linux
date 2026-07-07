@@ -660,10 +660,9 @@ void ChewingEngine::populateConfig() {
     chewing_set_autoShiftCur(ctx, *config_.AutoShiftCursor ? 1 : 0);
     chewing_set_spaceAsSelection(ctx, *config_.SpaceAsSelection ? 1 : 0);
     chewing_set_escCleanAllBuf(ctx, 1);
-    // Let chewing auto-learn from its own commits too; accepted LLM phrases
-    // are additionally taught explicitly via teachChewing().
-    chewing_set_autoLearn(ctx, *config_.LlmLearn ? AUTOLEARN_ENABLED
-                                                 : AUTOLEARN_DISABLED);
+    // Leave chewing's own auto-learn at its default (enabled) -- it encodes
+    // its own commits with correct tones. Our experimental teachChewing() is
+    // gated separately on LlmLearn and must not disable chewing's learning.
 }
 
 void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {

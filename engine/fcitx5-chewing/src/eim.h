@@ -109,10 +109,15 @@ FCITX_CONFIGURATION(
     Option<int, IntConstrain> LlmCandidateCount{
         this, "LlmCandidateCount", _("Number of LLM candidates"), 5,
         IntConstrain(1, 8)};
+    // EXPERIMENTAL and OFF by default: the per-character bopomofo tracker
+    // currently captures a syllable *before* its tone key completes it, so it
+    // would teach chewing a toneless pronunciation. libchewing stores that as
+    // a tone-0 phone, which is invalid and has crashed its decoder. Do not
+    // enable until the tracker captures the completing tone correctly.
     Option<bool> LlmLearn{
         this, "LlmLearn",
-        _("Teach chewing the phrase when an LLM candidate is accepted"),
-        true};);
+        _("Teach chewing on accept (EXPERIMENTAL, may corrupt user dict)"),
+        false};);
 
 class ChewingEngine final : public InputMethodEngine {
 public:
