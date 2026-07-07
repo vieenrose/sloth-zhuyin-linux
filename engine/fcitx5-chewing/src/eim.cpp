@@ -826,7 +826,7 @@ void ChewingEngine::updateUI(InputContext *ic) {
         // Show the LLM's alternatives as a passive hint; one is only ever
         // applied when the user presses Ctrl+Enter. Chewing's own aux
         // messages (errors etc.) take priority over it above.
-        std::string hint = "懶 " + suggestions_[suggestionIndex_];
+        std::string hint = suggestions_[suggestionIndex_];
         if (suggestions_.size() > 1) {
             hint += " (" + std::to_string(suggestionIndex_ + 1) + "/" +
                     std::to_string(suggestions_.size()) + " ↓)";

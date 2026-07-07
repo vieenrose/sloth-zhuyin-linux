@@ -12,7 +12,7 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
   Python bindings) that reranks libchewing's candidate list using
   grammar-constrained decoding, fixing the classic homophone-disambiguation
   weakness of n-gram based engines. Its answers are shown as **passive
-  suggestions** under the preedit (`懶 我在重新考慮 (1/3 ↓) [Ctrl+Enter]`),
+  suggestions** under the preedit (`我在重新考慮 (1/3 ↓) [Ctrl+Enter]`),
   fetched asynchronously while you type: **Down** cycles the alternatives
   (while the cursor is at the end of the buffer; move it and Down reverts
   to chewing's per-phrase candidate window), **Ctrl+Enter** commits the
