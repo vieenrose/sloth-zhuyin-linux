@@ -1,0 +1,7 @@
+# External LLM runtime (cloned by scripts/setup-llm.sh, not vendored)
+llm/llama.cpp/
+llm/models/
+
+# Build directories
+build/
+build*/

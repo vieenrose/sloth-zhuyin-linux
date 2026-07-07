@@ -1,0 +1,13 @@
+[Addon]
+Name=Slothing
+Comment=LLM-enhanced Zhuyin (Chewing-based) input engine
+Category=InputMethod
+Version=@PROJECT_VERSION@
+Type=SharedLibrary
+OnDemand=True
+Configurable=True
+Library=libslothing
+
+[Addon/OptionalDependencies]
+0=chttrans
+
