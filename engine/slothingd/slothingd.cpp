@@ -7,8 +7,8 @@
 //
 // Request:  {"positions": [["你","妳","擬"], ["好","號","毫"], ...], "n": 3}
 //           ("n" = max alternatives wanted, optional, defaults to 1)
-// Response: {"sentences": ["你好", "妳好"], "sentence": "你好"}
-//           (deduped, best/greedy first; "sentence" kept for old clients)
+// Response: {"sentences": ["你好", "妳好"]}
+//           (deduped, best/greedy first; only fully grammar-complete sentences)
 //        or {"error": "message"}
 
 #include "llama.h"
@@ -16,12 +16,15 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -29,8 +32,27 @@ using json = nlohmann::json;
 
 namespace {
 
+// A client that connects but never sends a complete request must not be able
+// to wedge the single-threaded accept loop; bound each read with this.
+constexpr int kClientReadTimeoutSec = 5;
+
 void print_usage(const char * argv0) {
     fprintf(stderr, "usage: %s -m model.gguf [-s /path/to/socket] [-c context_size]\n", argv0);
+}
+
+// Default socket path: a per-user private location so that (a) another local
+// user cannot connect and read what is being typed, and (b) it matches the
+// path the fcitx5 engine derives. Falls back to /tmp only if XDG_RUNTIME_DIR
+// is unset. Keep this identical to slothingdSocketPath() in eim.cpp and the
+// derivation in packaging/run-slothingd.sh.
+std::string default_socket_path() {
+    if (const char * env = std::getenv("SLOTHINGD_SOCKET")) {
+        return env;
+    }
+    if (const char * xdg = std::getenv("XDG_RUNTIME_DIR")) {
+        return std::string(xdg) + "/slothingd.sock";
+    }
+    return "/tmp/slothingd.sock";
 }
 
 // Quote a candidate string as a GBNF string literal.
@@ -100,7 +122,10 @@ std::string read_request(int fd) {
 void write_all(int fd, const std::string & data) {
     size_t off = 0;
     while (off < data.size()) {
-        ssize_t n = write(fd, data.data() + off, data.size() - off);
+        // MSG_NOSIGNAL: a client that closed early (e.g. timed out) must yield
+        // EPIPE here, never a process-killing SIGPIPE. (SIGPIPE is also
+        // ignored globally in main() as a belt-and-braces measure.)
+        ssize_t n = send(fd, data.data() + off, data.size() - off, MSG_NOSIGNAL);
         if (n <= 0) {
             break;
         }
@@ -111,8 +136,11 @@ void write_all(int fd, const std::string & data) {
 } // namespace
 
 int main(int argc, char ** argv) {
+    // Never let a write to a disconnected client kill the daemon.
+    signal(SIGPIPE, SIG_IGN);
+
     std::string model_path;
-    std::string socket_path = "/tmp/slothingd.sock";
+    std::string socket_path = default_socket_path();
     int n_ctx = 2048;
 
     for (int i = 1; i < argc; i++) {
@@ -188,6 +216,13 @@ int main(int argc, char ** argv) {
             continue;
         }
 
+        // Bound the read so a client that connects and stalls without sending
+        // a full request cannot wedge this single-threaded loop forever.
+        struct timeval rtv;
+        rtv.tv_sec = kClientReadTimeoutSec;
+        rtv.tv_usec = 0;
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
+
         std::string req_str = read_request(fd);
         std::string resp_str;
         try {
@@ -253,9 +288,25 @@ int main(int argc, char ** argv) {
             }
             llama_token last_prompt_token = prompt_tokens.back();
 
-            // safety cap: real answers finish once the grammar completes, but
-            // guard against a runaway loop if the model refuses to converge.
-            const int max_new_tokens = (int) positions.size() * 4 + 8;
+            // Token budget: the longest legal sentence is one where every
+            // position takes its longest-tokenizing candidate. Cap at that
+            // (plus slack for EOG / template quirks) rather than a fixed
+            // tokens-per-position guess, which truncated long-phrase
+            // candidates mid-grammar. A generation that still hits this cap
+            // without the grammar completing is discarded below.
+            size_t budget = 0;
+            for (const auto & pos : positions) {
+                int longest = 0;
+                for (const auto & cand : pos) {
+                    int t = -llama_tokenize(vocab, cand.c_str(), cand.size(),
+                                            NULL, 0, false, true);
+                    if (t > longest) {
+                        longest = t;
+                    }
+                }
+                budget += (size_t) longest;
+            }
+            const int max_new_tokens = (int) budget + 8;
 
             std::vector<std::string> sentences;
             for (int pass = 0; pass < n_alternatives; pass++) {
@@ -275,6 +326,7 @@ int main(int argc, char ** argv) {
                 }
 
                 std::string sentence;
+                bool complete = false; // grammar reached an accepting state (EOG)
                 llama_batch batch = llama_batch_get_one(&last_prompt_token, 1);
                 for (int step = 0; step < max_new_tokens; step++) {
                     if (llama_decode(ctx, batch) != 0) {
@@ -283,6 +335,7 @@ int main(int argc, char ** argv) {
                     }
                     llama_token new_token = llama_sampler_sample(smpl, ctx, -1);
                     if (llama_vocab_is_eog(vocab, new_token)) {
+                        complete = true;
                         break;
                     }
                     char buf[256];
@@ -296,7 +349,10 @@ int main(int argc, char ** argv) {
                 }
                 llama_sampler_free(smpl);
 
-                if (!sentence.empty() &&
+                // Only surface a fully-formed sentence: a run that exhausted
+                // the token budget without the grammar completing is a
+                // truncated fragment, never a valid answer.
+                if (complete && !sentence.empty() &&
                     std::find(sentences.begin(), sentences.end(), sentence) ==
                         sentences.end()) {
                     sentences.push_back(std::move(sentence));
@@ -305,8 +361,6 @@ int main(int argc, char ** argv) {
 
             json resp;
             resp["sentences"] = sentences;
-            // kept for older clients that read a single answer
-            resp["sentence"] = sentences.empty() ? "" : sentences.front();
             resp_str = resp.dump();
         } catch (const std::exception & e) {
             json resp;
