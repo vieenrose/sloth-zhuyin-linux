@@ -27,19 +27,23 @@ with a GBNF grammar restricting output to exactly those candidates,
 | Qwen2.5-1.5B-Instruct | 1.1GB | **擬**好謝謝你 (4/5) | 我**再**吃飯的時候 (6/7) | 10/12 (83%) | |
 | LFM2.5-1.2B-Instruct | 698MB | 你好**邪邪**你 (3/5) | 我在吃飯的時候 ✅ (7/7) | 10/12 (83%) | Fastest per-token generation (~34ms/tok) |
 | gemma-3-1b-it | 769MB | 你好謝**斜**你 (4/5) | 我**再**吃飯的時候 (6/7) | 10/12 (83%) | Slowest per-token generation (~58ms/tok) despite being smallest param count tested here |
-| MiniCPM4-0.5B | pending | — | — | — | OpenBMB, zh+en native; result to be added |
+| MiniCPM4-0.5B | 266MB | 你好**邪邪**妳 (2/5) | 我在**池**飯的**十**候 (5/7) | 7/12 (58%) | Worst overall; also needs ~3x the token budget per character vs. other models' tokenizers, so a naive `max_tokens` truncates output mid-grammar (finish_reason=length) unless sized generously |
 
-## Takeaways so far
+## Takeaways
 
 - None of these models are reliably correct without task-specific
   fine-tuning or richer context — confirms the GeneInput/Chinese-GPT
   papers cited in `RESEARCH.md`: generic prompting of an off-the-shelf
-  instruct model caps out around 70-85% char accuracy on this kind of
+  instruct model caps out around 60-85% char accuracy on this kind of
   probe.
 - Grammar-constrained decoding (GBNF restricting output to real candidate
   characters) is a hard requirement regardless of model choice — it
   guarantees well-formed output and turns "generate Chinese text" into
   "classify each position," which is a much easier task for small models.
-- LFM2.5-1.2B currently looks like the best size/speed/quality tradeoff:
-  ties the 1.5B and 1B alternatives on accuracy while being smaller and
-  generating faster.
+  It also surfaces per-model quirks like MiniCPM4's higher tokens-per-char
+  ratio, which would otherwise silently truncate output in production.
+- **Decision: LFM2.5-1.2B** is the best size/speed/quality tradeoff of the
+  five tested — ties the top accuracy (83%, alongside Qwen2.5-1.5B and
+  gemma-3-1b-it) while being smaller than 1.5B and generating fastest
+  per-token of the three 83%-accuracy models. This is what `slothingd`
+  (Milestone 2) will ship with.
