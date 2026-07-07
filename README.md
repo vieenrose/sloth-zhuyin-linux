@@ -11,16 +11,17 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
   directly against llama.cpp's C API (`llama.h`, no `llama-server`, no
   Python bindings) that reranks libchewing's candidate list using
   grammar-constrained decoding, fixing the classic homophone-disambiguation
-  weakness of n-gram based engines. Its answers are shown as **passive
-  suggestions** under the preedit (`我在重新考慮 (1/3 ↓) [Ctrl+Enter]`),
-  fetched asynchronously while you type: **Down** cycles the alternatives
-  (while the cursor is at the end of the buffer; move it and Down reverts
-  to chewing's per-phrase candidate window), **Ctrl+Enter** commits the
-  highlighted one, and plain **Enter** always commits exactly what the
-  preedit shows. The LLM never rewrites text on its own.
+  weakness of n-gram based engines. It runs on a **pull** model: type your
+  whole sentence as usual, then press the **convert key** (default **F9**) to
+  get the LLM's alternatives in a normal fcitx5 candidate list — number keys /
+  arrows select, Enter/Space commits the highlighted one, Esc cancels. Nothing
+  runs during ordinary typing, and the LLM never rewrites text on its own; you
+  always pick from the list. Accepting a candidate also teaches libchewing the
+  correction (via `chewing_userphrase_add`) so it converges over time. The
+  daemon binds a per-user socket under `$XDG_RUNTIME_DIR`.
 - `llm/` — local LLM runtime: a llama.cpp checkout (built for its headers
-  and shared libs, which `slothingd` links against) plus the GGUF model.
-  Not vendored in git (see `.gitignore`); see setup instructions below.
+  and shared libs, which both `slothingd` and the engine link against) plus
+  the GGUF model. Not vendored in git (see `.gitignore`); see setup below.
 - `RESEARCH.md` — notes on how LLMs are used to improve input methods
   elsewhere, gathered before designing the reranker.
 - `MODEL_BENCHMARKS.md` — comparison of candidate reranker models; see
@@ -28,10 +29,13 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
 
 ## Status
 
-Milestone 1 (plain fcitx5 zhuyin engine, no LLM) is done. Milestone 2
-(`slothingd` LLM reranker, surfaced as an async suggestion with Ctrl+Enter
-accept) is implemented; verified for ㄨㄛˇㄗㄞˋㄔㄨㄥˊㄒㄧㄣㄎㄠˇㄌㄩˋ →
-suggestion 我在重新考慮 where raw chewing produces 我再重新考慮.
+Milestone 1 (plain fcitx5 zhuyin engine, no LLM) is done. Milestone 2 (LLM
+conversion) was hardened after an adversarial code review found a cluster of
+security/lifetime/UX bugs in the first async-suggestion design; it is now a
+**pull-model conversion** (convert key → native candidate list) with a
+hardened daemon (per-user socket, SIGPIPE-safe, read-timeout) and a
+lifetime-safe background worker. Example: type ㄨㄛˇㄗㄞˋㄔㄨㄥˊㄒㄧㄣㄎㄠˇㄌㄩˋ,
+press F9 → 我在重新考慮 offered where raw chewing produces 我再重新考慮.
 
 ## Build & install the fcitx5 addon
 
