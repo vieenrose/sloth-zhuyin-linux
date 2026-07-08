@@ -32,14 +32,20 @@ tags:
 # SlothLM — a tiny from-scratch LM for Zhuyin input-method conversion
 
 SlothLM is a ~34M-parameter LlamaForCausalLM trained from scratch to do one
-job well: rank/convert Traditional-Chinese homophone candidates for a Zhuyin
-(Bopomofo) input method. It is the conversion model for
-[Slothing](https://github.com/vieenrose/sloth-zhuyin-linux), an fcitx5 IME
-that reranks libchewing candidates with grammar-constrained decoding.
+job well: convert typed Zhuyin (Bopomofo) into Traditional Chinese for an
+input method. It is the decoder for
+[Slothing](https://github.com/vieenrose/sloth-zhuyin-linux), a **libchewing-
+free** fcitx5 IME: SlothLM decodes the syllables directly under a phonetic-
+legality grammar (each position constrained to the characters actually read
+that way), so output is always phonetically valid, never hallucinated.
 
 Unlike general chat models, its entire pretraining distribution is the task:
-plain Traditional-Chinese text plus synthetic zhuyin↔text, tone-free zhuyin,
-and candidate-selection examples built from real libchewing harvests.
+plain Traditional-Chinese text plus synthetic zhuyin→text, tone-free zhuyin,
+text→zhuyin, and candidate-selection examples.
+
+On a 159-sentence held-out set, direct decode reaches **69% sentence / 94.0%
+char at ~125 ms** (CPU, f16) — ahead of the libchewing statistical baseline
+(61% / 92.8%) it replaces.
 
 - **Params:** ~34M (10L, hidden 512, GQA), llama arch → llama.cpp/GGUF native
 - **Tokenizer:** custom byte-level BPE, vocab ~8.3k; one token per bopomofo
@@ -54,9 +60,10 @@ and candidate-selection examples built from real libchewing harvests.
 ## Limitations
 
 A 34M model has no world knowledge — rare named entities may be missed;
-mitigated by libchewing's candidate set and per-user learning. English output
-quality is poor by design (English is included only for code-switching
-survival). Use via grammar-constrained decoding, not free generation.
+mitigated by the phonetic-legality grammar (output is always a valid reading
+of the input). Tone-free decoding is still weak. English output quality is
+poor by design (English is included only for code-switching survival). Use
+via grammar-constrained decoding, not free generation.
 
 Trained on Traditional-Chinese corpora (Wikinews/Wikipedia cc-by-sa,
 Common-Crawl-derived text). See the repo for the full recipe.
