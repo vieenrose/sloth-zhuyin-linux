@@ -148,7 +148,13 @@ ROWS.forEach(row=>{const r=document.createElement('div');r.className='krow';
     b.onclick=()=>feedKey(key);r.appendChild(b);});kb.appendChild(r);});
 const r=document.createElement('div');r.className='krow';
 const sp=document.createElement('button');sp.className='key wide';sp.textContent='空白 / 轉換';
-sp.onclick=()=>{if(!choosing&&(committed.length||hasPending()||rawWord))convert();};
+// 空白: with a syllable in progress it's tone 1 (closes the syllable);
+// with everything closed it converts. Matches the physical space key.
+sp.onclick=()=>{
+  if(choosing) return;
+  if(hasPending()||rawWord) feedKey(' ');
+  else if(committed.length) convert();
+};
 r.appendChild(sp);kb.appendChild(r);
 
 document.addEventListener('keydown',e=>{
@@ -163,6 +169,10 @@ document.addEventListener('keydown',e=>{
     return;
   }
   if(k==='Enter'){if(committed.length||hasPending()||rawWord){convert();e.preventDefault();}}
+  else if(k===' '){ // tone 1 while composing a syllable; convert when all closed
+    if(hasPending()||rawWord){feedKey(' ');e.preventDefault();}
+    else if(committed.length){convert();e.preventDefault();}
+  }
   else if(k==='Backspace'){if(committed.length||hasPending()||rawWord){backspace();e.preventDefault();}}
   else if(k==='Escape'){committed=[];resetRun();renderComposing();}
   else if(k.length===1&&(DACHEN[k]||k in TONEK||/[A-Za-z0-9]/.test(k))){feedKey(k);e.preventDefault();}

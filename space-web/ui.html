@@ -175,7 +175,12 @@
   });
   const r=document.createElement('div');r.className='sl-krow';
   const sp=document.createElement('button');sp.className='sl-key wide';sp.textContent='空白 / 轉換';
-  sp.onclick=()=>{if(!hasPending()&&!committed.length){}else if(!choosing&&(committed.length||hasPending()))convert();else feedKey(' ');};
+  // 空白: with a syllable in progress it's tone 1; all closed => convert.
+  sp.onclick=()=>{
+    if(choosing) return;
+    if(hasPending()) feedKey(' ');
+    else if(committed.length) convert();
+  };
   r.appendChild(sp);kb.appendChild(r);
 
   // physical keyboard
@@ -191,7 +196,11 @@
         segSel[segFocus]=(segSel[segFocus]+d+n)%n;renderSegments();e.preventDefault();}
       return;
     }
-    if(k==='Enter'||k===' '){if(committed.length||hasPending()){convert();e.preventDefault();}}
+    if(k==='Enter'){if(committed.length||hasPending()){convert();e.preventDefault();}}
+    else if(k===' '){ // tone 1 while composing; convert when all closed
+      if(hasPending()){feedKey(' ');e.preventDefault();}
+      else if(committed.length){convert();e.preventDefault();}
+    }
     else if(k==='Backspace'){if(committed.length||hasPending()){backspace();e.preventDefault();}}
     else if(k==='Escape'){cur=['','',''];committed=[];renderComposing();}
     else if(k.length===1&&(DACHEN[k]||k in TONE)){feedKey(k);e.preventDefault();}
