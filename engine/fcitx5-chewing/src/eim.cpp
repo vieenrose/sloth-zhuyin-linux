@@ -777,17 +777,10 @@ void ChewingEngine::showConversionChoices(InputContext *ic,
     list->setGlobalCursorIndex(0);
 
     ic->inputPanel().reset();
-    // Keep the original sentence visible in the preedit above the choices.
-    const auto useClientPreedit =
-        ic->capabilityFlags().test(CapabilityFlag::Preedit);
-    const auto format =
-        useClientPreedit ? TextFormatFlag::Underline : TextFormatFlag::NoFlag;
-    Text preedit(convertBuffer_, format);
-    if (useClientPreedit) {
-        ic->inputPanel().setClientPreedit(preedit);
-    } else {
-        ic->inputPanel().setPreedit(preedit);
-    }
+    // No preedit while choosing: the candidate list already shows every
+    // sentence (chewing's own is tagged （原）), and a leftover preedit
+    // collides with the aux hint on one line in most themes. The aux line is
+    // the only header.
     ic->inputPanel().setCandidateList(std::move(list));
     // Make the modal keys discoverable; the highlighted chars carry the diff.
     ic->inputPanel().setAuxUp(Text("↑↓ 選擇　Enter 確認　Esc 取消"));
