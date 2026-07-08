@@ -97,9 +97,13 @@ with gr.Blocks(title="Slothing — Web Zhuyin IME",
     bridge_btn = gr.Button(visible=False, elem_id="sl-bridge-btn")
     bridge_btn.click(decode_bridge, bridge_in, bridge_out)
 
-    demo.load(lambda: _load_table() or None, None, None)
-    demo.load(lambda: threading.Thread(target=_model, daemon=True).start(),
-              None, None)
+# Load the phonetic table and warm the model at import time -- NOT on demo.load
+# -- so a decode works regardless of how the app is invoked (browser session,
+# API client, etc.). demo.load only fires on a browser page-load, which left
+# the table empty for headless/API calls (every syllable then fell through to
+# literal passthrough and the model just echoed the bopomofo back).
+_load_table()
+threading.Thread(target=_model, daemon=True).start()
 
 if __name__ == "__main__":
     demo.launch()
