@@ -8,3 +8,9 @@ build*/
 
 # eval harness build artifact
 eval/harvest
+
+# fine-tuning corpus / outputs (bring your own; large)
+finetune/*.jsonl
+finetune/out/
+finetune/corpus*.txt
+llm/venv/
