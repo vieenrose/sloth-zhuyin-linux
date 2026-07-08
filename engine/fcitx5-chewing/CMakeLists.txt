@@ -30,3 +30,24 @@ fcitx5_translate_desktop_file(org.fcitx.Fcitx5.Addon.Slothing.metainfo.xml.in
                               org.fcitx.Fcitx5.Addon.Slothing.metainfo.xml XML)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/org.fcitx.Fcitx5.Addon.Slothing.metainfo.xml" DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
 feature_summary(WHAT ALL FATAL_ON_MISSING_REQUIRED_PACKAGES)
+
+# --- .deb packaging (the fcitx5 addon only) --------------------------------
+# `cpack -G DEB` from the build dir produces an installable fcitx5-slothing
+# .deb. This packages ONLY the addon (the part that needs a system install);
+# the LLM daemon + model stay user-local via scripts/setup-llm.sh, since
+# llama.cpp isn't a system package. The addon runs fine without the daemon --
+# it just behaves like stock chewing until slothingd is running.
+set(CPACK_PACKAGE_NAME "fcitx5-slothing")
+set(CPACK_PACKAGE_CONTACT "luigi.plurital@gmail.com")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "LLM-enhanced Zhuyin (Bopomofo) input method addon for fcitx5")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_GENERATOR "DEB")
+set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+# shlibdeps fills libc6/libfcitx5*/libchewing3/libstdc++ from the linked .so;
+# we only add `fcitx5` (the framework package, not a linked library).
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "fcitx5")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "fcitx5-chinese-addons")
+set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")  # name_version_arch.deb
+include(CPack)

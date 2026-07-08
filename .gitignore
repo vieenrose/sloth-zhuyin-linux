@@ -14,3 +14,6 @@ finetune/*.jsonl
 finetune/out/
 finetune/corpus*.txt
 llm/venv/
+
+# packaging build artifacts
+*.deb
