@@ -127,3 +127,14 @@ ambiguity — fine for weights we train, note in the model card.
 3. Convert → Q8_0 → A/B on the eval harness vs chewing and LFM2.5-230M.
 4. If gates pass: ship as slothingd default; upload weights + card to the
    user's HF account; keep LFM2.5 as a documented alternative.
+
+## Status
+
+- **Phase 0 DONE (2026-07-08):** tokenizer built (byte-level BPE, vocab 8342,
+  one token per bopomofo symbol / common Han char); random ~34M
+  LlamaForCausalLM converts to GGUF via `model/register_tokenizer.py` (maps
+  our pre-tokenizer hash → `gpt-2`, the one llama.cpp gotcha the research
+  flagged); the GGUF loads in **unmodified** slothingd and produces
+  grammar-constrained candidate output. The full custom-model → daemon path is
+  proven before spending any GPU time. Training box: RTX 3060 12GB, torch
+  2.12+cu130, 400k-sentence TC corpus pulled.
