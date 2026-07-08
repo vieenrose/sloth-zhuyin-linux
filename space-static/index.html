@@ -16,13 +16,13 @@
   .tag{color:var(--muted);font-size:.85rem;margin:.2rem 0 0}
   .out{width:100%;min-height:3.2rem;border:2px solid var(--border);border-radius:10px;background:var(--panel);padding:.6rem .8rem;font-size:1.3rem;line-height:1.6;margin-bottom:.7rem;white-space:pre-wrap;word-break:break-all}
   .ime{background:var(--panel);border:2px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem}
-  .preview{min-height:1.6rem;font-size:1.35rem;color:var(--muted);letter-spacing:.05em;word-break:break-all}
-  .preview:not(:empty){margin-bottom:.2rem}
-  .pre{min-height:2rem;font-size:1.5rem;letter-spacing:.1em;color:var(--brown);border-bottom:2px dashed var(--border);padding-bottom:.4rem;margin-bottom:.5rem;word-break:break-all}
+  .pre{min-height:2.2rem;font-size:1.6rem;color:var(--ink);border-bottom:2px dashed var(--border);padding-bottom:.4rem;margin-bottom:.5rem;word-break:break-all;line-height:1.5}
   .pre.empty{color:var(--muted)}
-  .segs{display:flex;flex-wrap:wrap;gap:.35rem}.segs:not(:empty){margin-bottom:.5rem}
-  .seg{font-size:1.6rem;padding:.05rem .45rem;border-radius:8px;cursor:pointer;border:2px solid transparent}
-  .seg:hover{background:var(--bg)}.seg.focus{border-color:var(--brown);background:var(--bg)}
+  .pchar{cursor:pointer;border-radius:6px;padding:0 .06em;border-bottom:3px solid var(--border)}
+  .pchar:hover{background:var(--bg)}
+  .pchar.fix{background:var(--brown);color:var(--hi)}
+  .pchar.en{color:var(--brown);cursor:default;border-bottom-style:dotted}
+  .ptail{color:var(--brown);letter-spacing:.1em;border-bottom:3px solid var(--brown)}
   .cands{display:flex;flex-wrap:wrap;gap:.3rem}.cands:not(:empty){margin-bottom:.5rem}
   .cand{font-size:1.15rem;padding:.15rem .5rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
   .cand.sel{background:var(--brown);color:var(--hi);border-color:var(--brown)}
@@ -37,10 +37,11 @@
   .key{position:relative;width:42px;height:44px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--ink);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0}
   .key:hover{background:var(--bg);border-color:var(--brown)}.key:active{background:var(--brown);color:var(--hi)}
   .key .k{font-size:.55rem;color:var(--muted)}.key .s{font-size:1rem;line-height:1}
-  .key.wide{width:230px;height:38px;font-size:.9rem}
+  .key.wide{width:150px;height:38px;font-size:.9rem}
+  .key.wide2{width:110px;height:38px;font-size:.9rem;background:var(--brown);color:var(--hi)}
   footer{margin-top:1.1rem;color:var(--muted);font-size:.8rem;text-align:center}
   footer a{color:var(--brown)}
-  @media (max-width:480px){.key{width:29px;height:36px}.key.wide{width:150px}.pre,.seg{font-size:1.25rem}}
+  @media (max-width:480px){.key{width:29px;height:36px}.key.wide{width:100px}.key.wide2{width:80px}.pre{font-size:1.3rem}}
 </style>
 </head>
 <body>
@@ -51,14 +52,11 @@
   </header>
   <div class="out" id="out"></div>
   <div class="ime">
-    <div class="preview" id="preview"></div>
     <div class="pre empty" id="pre">​</div>
-    <div class="segs" id="segs"></div>
     <div class="cands" id="cands"></div>
     <p class="hint" id="hint">模型載入中…（首次約下載 33MB，之後離線可用）</p>
     <div class="ctrls">
-      <button id="convert" disabled>轉換 ⏎</button>
-      <button id="commit">確認</button>
+      <button id="commit">⏎ 上字</button>
       <button class="ghost" id="clear">清除</button>
       <label class="toggle"><input type="checkbox" id="toneless"> 免聲調</label>
     </div>
