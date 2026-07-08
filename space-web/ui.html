@@ -1,0 +1,196 @@
+<div id="slothing-root">
+<style>
+  #slothing-root{max-width:640px;margin:0 auto;font-family:"Noto Sans TC",system-ui,sans-serif;color:var(--ink,#3a2e28)}
+  #slothing-root *{box-sizing:border-box}
+  .sl-head{text-align:center;margin:.2rem 0 1rem}
+  .sl-head h1{margin:0;font-size:1.9rem}
+  .sl-sloth{color:#8b5a2b;font-weight:800;font-family:"Noto Serif TC",serif;margin-right:.2rem}
+  .sl-tag{color:#8a7a6c;font-size:.85rem;margin:.2rem 0 0}
+  .sl-out{width:100%;min-height:3.2rem;border:2px solid #c9a87c;border-radius:10px;background:#fff;
+    padding:.6rem .8rem;font-size:1.3rem;line-height:1.6;margin-bottom:.7rem;white-space:pre-wrap;word-break:break-all}
+  .sl-ime{background:#fff;border:2px solid #c9a87c;border-radius:12px;padding:1rem;margin-bottom:1rem}
+  .sl-pre{min-height:2rem;font-size:1.5rem;letter-spacing:.1em;color:#8b5a2b;border-bottom:2px dashed #c9a87c;
+    padding-bottom:.4rem;margin-bottom:.5rem;word-break:break-all}
+  .sl-pre.empty{color:#b3a595}
+  .sl-segs{display:flex;flex-wrap:wrap;gap:.35rem}
+  .sl-segs:not(:empty){margin-bottom:.5rem}
+  .sl-seg{font-size:1.6rem;padding:.05rem .45rem;border-radius:8px;cursor:pointer;border:2px solid transparent}
+  .sl-seg:hover{background:#faf6f0}
+  .sl-seg.focus{border-color:#8b5a2b;background:#faf6f0}
+  .sl-cands{display:flex;flex-wrap:wrap;gap:.3rem}
+  .sl-cands:not(:empty){margin-bottom:.5rem}
+  .sl-cand{font-size:1.15rem;padding:.15rem .5rem;border-radius:8px;border:1px solid #c9a87c;background:#faf6f0;cursor:pointer}
+  .sl-cand.sel{background:#8b5a2b;color:#fff8f0;border-color:#8b5a2b}
+  .sl-hint{color:#8a7a6c;font-size:.82rem;margin:.3rem 0 .6rem}
+  .sl-ctrls{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .sl-ctrls button{background:#8b5a2b;color:#fff8f0;border:none;border-radius:8px;padding:.4rem .85rem;font-size:.95rem;cursor:pointer}
+  .sl-ctrls button.ghost{background:transparent;color:#8a7a6c;border:1px solid #c9a87c}
+  .sl-toggle{margin-left:auto;color:#8a7a6c;font-size:.88rem;cursor:pointer}
+  .sl-kb{display:flex;flex-direction:column;gap:.3rem;align-items:center}
+  .sl-krow{display:flex;gap:.28rem}
+  .sl-key{position:relative;width:42px;height:44px;border-radius:8px;border:1px solid #c9a87c;background:#fff;
+    cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0}
+  .sl-key:hover{background:#faf6f0;border-color:#8b5a2b}
+  .sl-key:active{background:#8b5a2b;color:#fff8f0}
+  .sl-key .k{font-size:.55rem;color:#b3a595}
+  .sl-key .s{font-size:1rem;line-height:1}
+  .sl-key.wide{width:230px;height:38px;font-size:.9rem}
+  @media (max-width:480px){.sl-key{width:29px;height:36px}.sl-key.wide{width:150px}.sl-pre,.sl-seg{font-size:1.25rem}}
+</style>
+
+<div class="sl-head">
+  <h1><span class="sl-sloth">懶</span>Slothing</h1>
+  <p class="sl-tag">注音輸入法 · 由 34M SlothLM 解碼 · libchewing-free</p>
+</div>
+<div class="sl-out" id="sl-out"></div>
+<div class="sl-ime">
+  <div class="sl-pre empty" id="sl-pre">​</div>
+  <div class="sl-segs" id="sl-segs"></div>
+  <div class="sl-cands" id="sl-cands"></div>
+  <p class="sl-hint" id="sl-hint"></p>
+  <div class="sl-ctrls">
+    <button id="sl-convert">轉換 ⏎</button>
+    <button id="sl-commit">確認</button>
+    <button class="ghost" id="sl-clear">清除</button>
+    <label class="sl-toggle"><input type="checkbox" id="sl-toneless"> 免聲調</label>
+  </div>
+</div>
+<div class="sl-kb" id="sl-kb"></div>
+
+<script>
+(function(){
+  const DACHEN={'1':['ㄅ',0],'q':['ㄆ',0],'a':['ㄇ',0],'z':['ㄈ',0],'2':['ㄉ',0],'w':['ㄊ',0],
+    's':['ㄋ',0],'x':['ㄌ',0],'e':['ㄍ',0],'d':['ㄎ',0],'c':['ㄏ',0],'r':['ㄐ',0],'f':['ㄑ',0],
+    'v':['ㄒ',0],'5':['ㄓ',0],'t':['ㄔ',0],'g':['ㄕ',0],'b':['ㄖ',0],'y':['ㄗ',0],'h':['ㄘ',0],
+    'n':['ㄙ',0],'u':['ㄧ',1],'j':['ㄨ',1],'m':['ㄩ',1],'8':['ㄚ',2],'i':['ㄛ',2],'k':['ㄜ',2],
+    ',':['ㄝ',2],'9':['ㄞ',2],'o':['ㄟ',2],'l':['ㄠ',2],'.':['ㄡ',2],'0':['ㄢ',2],'p':['ㄣ',2],
+    ';':['ㄤ',2],'/':['ㄥ',2],'-':['ㄦ',2]};
+  const TONE={' ':'','6':'ˊ','3':'ˇ','4':'ˋ','7':'˙'};
+  const ROWS=[['1','2','3','4','5','6','7','8','9','0','-'],
+    ['q','w','e','r','t','y','u','i','o','p'],
+    ['a','s','d','f','g','h','j','k','l',';'],
+    ['z','x','c','v','b','n','m',',','.','/']];
+  const strip=s=>[...s].filter(c=>!'ˊˇˋ˙'.includes(c)).join('');
+
+  let cur=['','',''],committed=[],positions=[],segSel=[],segFocus=0,choosing=false;
+  const $=id=>document.getElementById(id);
+  const hasPending=()=>cur[0]||cur[1]||cur[2];
+  const pending=()=>cur[0]+cur[1]+cur[2];
+  const preedit=()=>committed.join('')+pending();
+
+  function feedKey(c){
+    if(choosing)return false;
+    if(DACHEN[c]){cur[DACHEN[c][1]]=DACHEN[c][0];renderComposing();return true;}
+    if(c in TONE){
+      if(!hasPending())return c!==' ';
+      committed.push(cur[0]+cur[1]+cur[2]+TONE[c]);cur=['','',''];renderComposing();return true;
+    }
+    return false;
+  }
+  function backspace(){
+    if(cur[2])cur[2]='';else if(cur[1])cur[1]='';else if(cur[0])cur[0]='';else committed.pop();
+    renderComposing();
+  }
+  function renderComposing(){
+    choosing=false;$('sl-segs').innerHTML='';$('sl-cands').innerHTML='';
+    const p=preedit();$('sl-pre').textContent=p||'​';
+    $('sl-pre').classList.toggle('empty',!p);
+    $('sl-hint').textContent=p?'空白鍵 / 轉換 → 讓 SlothLM 解碼':'在鍵盤上輸入注音（實體鍵盤也可）';
+  }
+  function composed(){return positions.map((c,i)=>c[segSel[i]]).join('');}
+  function renderSegments(){
+    choosing=true;$('sl-pre').textContent='​';
+    $('sl-hint').textContent='點字改詞　←→ 換詞　↑↓ 換字　⏎ 確認　Esc 取消';
+    const wrap=$('sl-segs');wrap.innerHTML='';
+    positions.forEach((cands,i)=>{
+      const seg=document.createElement('div');
+      seg.className='sl-seg'+(i===segFocus?' focus':'');seg.textContent=cands[segSel[i]];
+      seg.onclick=()=>{segFocus=i;renderSegments();};wrap.appendChild(seg);
+    });
+    const strip2=$('sl-cands');strip2.innerHTML='';
+    (positions[segFocus]||[]).forEach((c,j)=>{
+      const b=document.createElement('button');b.className='sl-cand'+(j===segSel[segFocus]?' sel':'');
+      b.textContent=c;b.onclick=()=>{segSel[segFocus]=j;
+        const nx=positions.findIndex((p,k)=>k>segFocus&&p.length>1);if(nx>=0)segFocus=nx;renderSegments();};
+      strip2.appendChild(b);
+    });
+  }
+  function commit(){$('sl-out').textContent+=composed();cur=['','',''];committed=[];positions=[];renderComposing();}
+
+  // ---- bridge to the hidden Gradio components ----
+  function gset(elemId,val){
+    const el=document.querySelector('#'+elemId+' textarea, #'+elemId+' input');if(!el)return false;
+    const proto=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto,'value').set.call(el,val);
+    el.dispatchEvent(new Event('input',{bubbles:true}));return true;
+  }
+  function gget(elemId){const el=document.querySelector('#'+elemId+' textarea, #'+elemId+' input');return el?el.value:'';}
+  function gclick(elemId){const b=document.querySelector('#'+elemId+' button');if(b){b.click();return true;}return false;}
+
+  async function convert(){
+    let syls=committed.slice();if(hasPending())syls.push(pending());
+    if(!syls.length)return;
+    if($('sl-toneless').checked)syls=syls.map(strip);
+    $('sl-hint').textContent='解碼中…';
+    const before=gget('sl-bridge-out');
+    gset('sl-bridge-in',JSON.stringify({syllables:syls}));
+    await new Promise(r=>setTimeout(r,60));
+    gclick('sl-bridge-btn');
+    // poll for the result to change
+    for(let i=0;i<200;i++){
+      await new Promise(r=>setTimeout(r,100));
+      const v=gget('sl-bridge-out');
+      if(v&&v!==before){
+        let d;try{d=JSON.parse(v);}catch(e){continue;}
+        positions=d.positions;
+        segSel=positions.map((cands,k)=>{const ch=[...d.sentence][k];const j=cands.indexOf(ch);return j>=0?j:0;});
+        segFocus=segSel.findIndex((_,k)=>positions[k].length>1);if(segFocus<0)segFocus=0;
+        renderSegments();return;
+      }
+    }
+    $('sl-hint').textContent='解碼逾時，請重試';
+  }
+
+  // keyboard
+  const kb=$('sl-kb');
+  ROWS.forEach(row=>{
+    const r=document.createElement('div');r.className='sl-krow';
+    row.forEach(key=>{
+      const b=document.createElement('button');b.className='sl-key';
+      const sym=DACHEN[key]?DACHEN[key][0]:(TONE[key]||'');
+      b.innerHTML='<span class="k">'+key+'</span><span class="s">'+sym+'</span>';
+      b.onclick=()=>feedKey(key);r.appendChild(b);
+    });
+    kb.appendChild(r);
+  });
+  const r=document.createElement('div');r.className='sl-krow';
+  const sp=document.createElement('button');sp.className='sl-key wide';sp.textContent='空白 / 轉換';
+  sp.onclick=()=>{if(!hasPending()&&!committed.length){}else if(!choosing&&(committed.length||hasPending()))convert();else feedKey(' ');};
+  r.appendChild(sp);kb.appendChild(r);
+
+  // physical keyboard
+  document.addEventListener('keydown',e=>{
+    if(e.ctrlKey||e.altKey||e.metaKey)return;
+    const k=e.key;
+    if(choosing){
+      if(k==='Enter'){commit();e.preventDefault();}
+      else if(k==='Escape'){renderComposing();e.preventDefault();}
+      else if(k==='ArrowRight'||k==='ArrowLeft'){const d=k==='ArrowRight'?1:-1;
+        for(let i=segFocus+d;i>=0&&i<positions.length;i+=d)if(positions[i].length>1){segFocus=i;break;}renderSegments();e.preventDefault();}
+      else if(k==='ArrowDown'||k==='ArrowUp'){const n=positions[segFocus].length,d=k==='ArrowDown'?1:-1;
+        segSel[segFocus]=(segSel[segFocus]+d+n)%n;renderSegments();e.preventDefault();}
+      return;
+    }
+    if(k==='Enter'||k===' '){if(committed.length||hasPending()){convert();e.preventDefault();}}
+    else if(k==='Backspace'){if(committed.length||hasPending()){backspace();e.preventDefault();}}
+    else if(k==='Escape'){cur=['','',''];committed=[];renderComposing();}
+    else if(k.length===1&&(DACHEN[k]||k in TONE)){feedKey(k);e.preventDefault();}
+  });
+
+  $('sl-convert').onclick=convert;
+  $('sl-commit').onclick=commit;
+  $('sl-clear').onclick=()=>{cur=['','',''];committed=[];positions=[];renderComposing();};
+  renderComposing();
+})();
+</script>
+</div>

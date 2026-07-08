@@ -1,0 +1,2 @@
+llama-cpp-python==0.3.2
+huggingface_hub>=0.33.5
