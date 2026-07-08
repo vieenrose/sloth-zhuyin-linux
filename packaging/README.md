@@ -29,3 +29,16 @@ conversion (Ctrl+Enter).
 
 Manual launcher for the reranker daemon (see the script header). Started by
 hand on purpose — no systemd unit / auto-start.
+
+## Slothing theme (optional)
+
+Sloth-brown fcitx5 candidate-panel themes (light + dark) matching the 懶
+icon, under `packaging/themes/`:
+
+```sh
+packaging/install-theme.sh --set   # install both + activate the light one
+fcitx5 -r -d
+```
+
+Or pick "Slothing" / "Slothing Dark" in fcitx5-configtool → Global Options →
+Theme. Per-user, no sudo.
