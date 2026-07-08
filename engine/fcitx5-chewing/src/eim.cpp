@@ -218,9 +218,14 @@ public:
     SlothingCandidateWord(ChewingEngine *engine, std::string sentence,
                           const std::string &buffer, bool isOriginal)
         : engine_(engine), sentence_(std::move(sentence)) {
-        Text display = diffHighlightText(sentence_, buffer);
-        if (isOriginal) {
-            display.append("（原）");
+        // Label each row so "what you typed" (原) and "what's proposed" (建議)
+        // are never confused; the changed characters are highlighted too.
+        Text display;
+        display.append(isOriginal ? "原 " : "建議 ",
+                       TextFormatFlag::NoFlag);
+        Text diff = diffHighlightText(sentence_, buffer);
+        for (size_t i = 0; i < diff.size(); i++) {
+            display.append(diff.stringAt(i), diff.formatAt(i));
         }
         setText(std::move(display));
     }
