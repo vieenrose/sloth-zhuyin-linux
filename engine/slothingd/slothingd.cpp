@@ -5,10 +5,17 @@
 // Protocol: one JSON object per connection on stdin-style read, one JSON
 // object written back, then the connection is closed.
 //
-// Request:  {"positions": [["你","妳","擬"], ["好","號","毫"], ...], "n": 3,
+// Request (rerank):
+//           {"positions": [["你","妳","擬"], ["好","號","毫"], ...], "n": 3,
 //            "context": "已經送出的前文"}
 //           ("n" = max alternatives wanted, optional, defaults to 1;
 //            "context" = text before the cursor, optional, tail-truncated)
+// Request (decode, libchewing-free; needs -t phonetic_table.tsv):
+//           {"syllables": ["ㄨㄛˇ","ㄗㄞˋ",...], "n": 1, "context": "..."}
+//           Syllables may omit tones ("ㄨㄛ") -- legality then unions all
+//           tones of that base syllable. Each syllable becomes one grammar
+//           position of its phonetically-legal characters; the model decodes
+//           the sentence directly (z2t / toneless training tasks).
 // Response: {"sentences": ["你好", "妳好"]}
 //           (deduped, best/greedy first; only fully grammar-complete sentences)
 //        or {"error": "message"}
@@ -25,6 +32,10 @@
 #include <string>
 #include <vector>
 
+#include <fstream>
+#include <unordered_map>
+#include <unordered_set>
+
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
@@ -39,7 +50,10 @@ namespace {
 constexpr int kClientReadTimeoutSec = 5;
 
 void print_usage(const char * argv0) {
-    fprintf(stderr, "usage: %s -m model.gguf [-s /path/to/socket] [-c context_size]\n", argv0);
+    fprintf(stderr,
+            "usage: %s -m model.gguf [-s /path/to/socket] [-c context_size]\n"
+            "          [-t phonetic_table.tsv]   enable decode mode\n",
+            argv0);
 }
 
 // Default socket path: a per-user private location so that (a) another local
@@ -55,6 +69,76 @@ std::string default_socket_path() {
         return std::string(xdg) + "/slothingd.sock";
     }
     return "/tmp/slothingd.sock";
+}
+
+// Phonetic table for decode mode: bopomofo syllable -> the characters legal
+// for that reading (model/phonetic_table.tsv, built by
+// model/build_phonetic_table.py from the SAME reading source as SlothLM's
+// z2t/toneless training data). `tonal` is keyed by the exact syllable;
+// `toneless` unions every tone of a base syllable, for tone-free typing.
+struct PhoneticTable {
+    std::unordered_map<std::string, std::vector<std::string>> tonal;
+    std::unordered_map<std::string, std::vector<std::string>> toneless;
+    bool loaded = false;
+};
+
+// Split a UTF-8 string into single characters (bopomofo symbols and Han
+// characters are one codepoint each).
+std::vector<std::string> utf8_chars(const std::string & s) {
+    std::vector<std::string> out;
+    for (size_t i = 0; i < s.size();) {
+        size_t len = 1;
+        unsigned char c = s[i];
+        if ((c & 0xF8) == 0xF0) len = 4;
+        else if ((c & 0xF0) == 0xE0) len = 3;
+        else if ((c & 0xE0) == 0xC0) len = 2;
+        out.push_back(s.substr(i, len));
+        i += len;
+    }
+    return out;
+}
+
+bool is_tone_mark(const std::string & c) {
+    return c == "ˊ" || c == "ˇ" || c == "ˋ" || c == "˙";
+}
+
+std::string strip_tones(const std::string & syl) {
+    std::string out;
+    for (const auto & c : utf8_chars(syl)) {
+        if (!is_tone_mark(c)) {
+            out += c;
+        }
+    }
+    return out;
+}
+
+bool load_phonetic_table(const std::string & path, PhoneticTable & table) {
+    std::ifstream f(path);
+    if (!f) {
+        return false;
+    }
+    std::unordered_map<std::string, std::unordered_set<std::string>> seen;
+    std::string line;
+    while (std::getline(f, line)) {
+        size_t tab = line.find('\t');
+        if (tab == std::string::npos) {
+            continue;
+        }
+        std::string syl = line.substr(0, tab);
+        std::vector<std::string> chars = utf8_chars(line.substr(tab + 1));
+        table.tonal[syl] = chars;
+        // toneless union preserves per-tone order, dedupes across tones
+        std::string base = strip_tones(syl);
+        auto & dst = table.toneless[base];
+        auto & dup = seen[base];
+        for (auto & ch : chars) {
+            if (dup.insert(ch).second) {
+                dst.push_back(ch);
+            }
+        }
+    }
+    table.loaded = !table.tonal.empty();
+    return table.loaded;
 }
 
 // Quote a candidate string as a GBNF string literal.
@@ -152,6 +236,7 @@ int main(int argc, char ** argv) {
 
     std::string model_path;
     std::string socket_path = default_socket_path();
+    std::string table_path;
     int n_ctx = 2048;
 
     for (int i = 1; i < argc; i++) {
@@ -161,6 +246,8 @@ int main(int argc, char ** argv) {
             socket_path = argv[++i];
         } else if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
             n_ctx = std::stoi(argv[++i]);
+        } else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
+            table_path = argv[++i];
         } else {
             print_usage(argv[0]);
             return 1;
@@ -169,6 +256,17 @@ int main(int argc, char ** argv) {
     if (model_path.empty()) {
         print_usage(argv[0]);
         return 1;
+    }
+
+    PhoneticTable table;
+    if (!table_path.empty()) {
+        if (!load_phonetic_table(table_path, table)) {
+            fprintf(stderr, "error: failed to load phonetic table '%s'\n",
+                    table_path.c_str());
+            return 1;
+        }
+        fprintf(stderr, "slothingd: decode mode on (%zu syllables, %zu toneless)\n",
+                table.tonal.size(), table.toneless.size());
     }
 
     llama_log_set([](enum ggml_log_level level, const char * text, void *) {
@@ -238,10 +336,36 @@ int main(int argc, char ** argv) {
         std::string resp_str;
         try {
             json req = json::parse(req_str);
-            std::vector<std::vector<std::string>> positions =
-                req.at("positions").get<std::vector<std::vector<std::string>>>();
-            if (positions.empty()) {
-                throw std::runtime_error("positions must be non-empty");
+            std::vector<std::vector<std::string>> positions;
+            bool decode_mode = req.contains("syllables");
+            std::vector<std::string> syllables;
+            if (decode_mode) {
+                if (!table.loaded) {
+                    throw std::runtime_error(
+                        "decode mode needs -t phonetic_table.tsv");
+                }
+                syllables = req.at("syllables").get<std::vector<std::string>>();
+                if (syllables.empty()) {
+                    throw std::runtime_error("syllables must be non-empty");
+                }
+                for (const auto & syl : syllables) {
+                    // exact (tonal) lookup first; a syllable with no tone mark
+                    // falls back to the toneless union of all its tones
+                    auto it = table.tonal.find(syl);
+                    if (it == table.tonal.end()) {
+                        it = table.toneless.find(strip_tones(syl));
+                        if (it == table.toneless.end()) {
+                            throw std::runtime_error("unknown syllable: " + syl);
+                        }
+                    }
+                    positions.push_back(it->second);
+                }
+            } else {
+                positions =
+                    req.at("positions").get<std::vector<std::vector<std::string>>>();
+                if (positions.empty()) {
+                    throw std::runtime_error("positions must be non-empty");
+                }
             }
             int n_alternatives = req.value("n", 1);
             if (n_alternatives < 1) {
@@ -267,9 +391,27 @@ int main(int argc, char ** argv) {
             // independent classification, not a multi-turn conversation.
             llama_memory_seq_rm(llama_get_memory(ctx), 0, 0, -1);
 
+            // Decode mode uses the exact z2t/toneless training format
+            // (system 注音轉繁體中文。, user = space-joined syllables);
+            // rerank keeps the SELECT format. Context, when present, is
+            // prepended as a fill-in-the-blank continuation in both.
             std::vector<llama_chat_message> messages;
-            messages.push_back({"system", "選字。"});
-            std::string user_msg = build_user_message(positions, context);
+            std::string user_msg;
+            if (decode_mode) {
+                messages.push_back({"system", "注音轉繁體中文。"});
+                if (!context.empty()) {
+                    user_msg += context + "＿＿＿\n";
+                }
+                for (size_t i = 0; i < syllables.size(); i++) {
+                    if (i > 0) {
+                        user_msg += " ";
+                    }
+                    user_msg += syllables[i];
+                }
+            } else {
+                messages.push_back({"system", "選字。"});
+                user_msg = build_user_message(positions, context);
+            }
             messages.push_back({"user", user_msg.c_str()});
 
             std::vector<char> formatted(n_ctx);
