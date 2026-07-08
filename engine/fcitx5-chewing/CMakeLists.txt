@@ -12,9 +12,6 @@ include(GNUInstallDirs)
 include(ECMSetupVersion)
 include(ECMUninstallTarget)
 
-pkg_check_modules(Chewing "chewing>=0.5.0" IMPORTED_TARGET REQUIRED)
-pkg_get_variable(CHEWING_DATADIR "chewing" datadir)
-
 include("${FCITX_INSTALL_CMAKECONFIG_DIR}/Fcitx5Utils/Fcitx5CompilerSettings.cmake")
 
 configure_file(
@@ -44,8 +41,8 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_GENERATOR "DEB")
 set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
-# shlibdeps fills libc6/libfcitx5*/libchewing3/libstdc++ from the linked .so;
-# we only add `fcitx5` (the framework package, not a linked library).
+# shlibdeps fills libc6/libfcitx5*/libstdc++ from the linked .so; we only add
+# `fcitx5` (the framework package, not a linked library). No libchewing.
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "fcitx5")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "fcitx5-chinese-addons")
