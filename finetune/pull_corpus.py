@@ -2,10 +2,10 @@
 """Stream a native Traditional-Chinese dataset and emit short, clean,
 all-Han sentences suitable for training-data generation.
 
-Defaults to yentinglin/zh_TW_c4 (Taiwan-LLM project; native Traditional
-Chinese web text). Streamed, so nothing is fully downloaded. Sentences are
-split on 。！？!?\\n, kept only if 2-18 chars and *entirely* CJK ideographs
-(so bopomofo conversion downstream is clean), and deduped.
+Defaults to erhwenkuo/wikinews-zhtw (Traditional-Chinese Wikinews, permissive
+cc-by-sa-3.0). Sentences are split on 。！？!?\\n, kept only if 2-18 chars and
+*entirely* CJK ideographs (so bopomofo conversion downstream is clean), and
+deduped.
 
 Usage:
   python3 finetune/pull_corpus.py --n 8000 > corpus.txt
@@ -24,13 +24,17 @@ HAN = re.compile(r"^[一-鿿㐀-䶿]+$")
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=8000)
-    ap.add_argument("--dataset", default="yentinglin/zh_TW_c4")
+    ap.add_argument("--dataset", default="erhwenkuo/wikinews-zhtw")
+    ap.add_argument("--config", default="20231001")
     ap.add_argument("--split", default="train")
     ap.add_argument("--min", type=int, default=2)
     ap.add_argument("--max", type=int, default=18)
     args = ap.parse_args()
 
-    ds = load_dataset(args.dataset, split=args.split, streaming=True)
+    kw = {"split": args.split, "streaming": True}
+    if args.config:
+        kw["name"] = args.config
+    ds = load_dataset(args.dataset, **kw)
     seen = set()
     emitted = 0
     for row in ds:
