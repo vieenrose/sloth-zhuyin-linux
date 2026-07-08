@@ -6,6 +6,7 @@ slothingd uses, reimplemented on llama-cpp-python so the Space is self-contained
 (no C++ daemon to build).
 """
 import os
+import threading
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -23,6 +24,7 @@ TONES = "ˊˇˋ˙"
 app = FastAPI()
 
 _llm = None
+_llm_lock = threading.Lock()
 _tonal = {}     # exact syllable  -> [chars]
 _toneless = {}  # tone-stripped   -> [chars] (union of tones)
 
@@ -47,8 +49,10 @@ def _load_table():
 def _model():
     global _llm
     if _llm is None:
-        path = hf_hub_download(REPO, GGUF)
-        _llm = Llama(model_path=path, n_ctx=2048, verbose=False)
+        with _llm_lock:
+            if _llm is None:  # double-checked: only one thread loads
+                path = hf_hub_download(REPO, GGUF)
+                _llm = Llama(model_path=path, n_ctx=2048, verbose=False)
     return _llm
 
 
@@ -79,8 +83,15 @@ class DecodeReq(BaseModel):
 
 @app.on_event("startup")
 def _startup():
-    _load_table()
-    _model()  # warm the model so the first request isn't slow
+    _load_table()  # fast; the port binds immediately
+    # Warm the model off the request path so the Space reports RUNNING at once
+    # instead of blocking startup on the download+load.
+    threading.Thread(target=_model, daemon=True).start()
+
+
+@app.get("/api/ready")
+def ready():
+    return {"ready": _llm is not None}
 
 
 @app.post("/api/decode")

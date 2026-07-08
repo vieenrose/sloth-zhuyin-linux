@@ -186,3 +186,17 @@ $('commitBtn').onclick = commit;
 $('clearBtn').onclick = () => { buf.clear(); positions = []; renderComposing(); };
 buildKeyboard();
 renderComposing();
+
+// Poll model readiness; the first Space start downloads + loads the GGUF.
+(async function waitReady() {
+  try {
+    const r = await fetch('/api/ready');
+    if ((await r.json()).ready) {
+      if (buf.empty() && !choosing) renderComposing();
+      return;
+    }
+  } catch (e) {}
+  if (buf.empty() && !choosing)
+    $('hint').textContent = '模型載入中…（首次啟動需下載約 20MB）';
+  setTimeout(waitReady, 2000);
+})();
