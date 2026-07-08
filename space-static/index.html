@@ -20,9 +20,16 @@
   .pre.empty{color:var(--muted)}
   .pchar{cursor:pointer;border-radius:6px;padding:0 .06em;border-bottom:3px solid var(--border)}
   .pchar:hover{background:var(--bg)}
-  .pchar.fix{background:var(--brown);color:var(--hi)}
+  .pchar.fixsel{background:var(--brown);color:var(--hi)}
   .pchar.en{color:var(--brown);cursor:default;border-bottom-style:dotted}
   .ptail{color:var(--brown);letter-spacing:.1em;border-bottom:3px solid var(--brown)}
+  .caret{display:inline-block;width:2px;height:1.35em;background:var(--brown);vertical-align:text-bottom;
+    animation:blink 1s step-end infinite;margin:0 1px}
+  @keyframes blink{50%{opacity:0}}
+  .cand .n{font-size:.7rem;color:var(--muted);margin-right:.25rem}
+  .cand.sel .n{color:var(--hi)}
+  .cand.nav{font-weight:700}
+  .pg{color:var(--muted);font-size:.8rem;align-self:center;margin-left:.3rem}
   .cands{display:flex;flex-wrap:wrap;gap:.3rem}.cands:not(:empty){margin-bottom:.5rem}
   .cand{font-size:1.15rem;padding:.15rem .5rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
   .cand.sel{background:var(--brown);color:var(--hi);border-color:var(--brown)}

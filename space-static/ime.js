@@ -1,10 +1,13 @@
 // Slothing static web IME — chewing-style UX, fully in-browser.
-//  * inline conversion: the preedit shows CHINESE (live-decoded) as you type;
-//    bopomofo is visible only for the syllable still being composed
-//  * Enter commits the sentence directly (one step, like chewing)
-//  * click any character in the preedit to fix it in place (candidate strip)
-//  * auto zh/en: valid zhuyin adds one symbol per keystroke, so an overwrite
-//    (impossible zhuyin) or a non-zhuyin char flips the run to English
+//  * inline conversion: preedit shows CHINESE as you type (live decode);
+//    bopomofo visible only for the syllable being composed
+//  * Enter commits; Space = tone 1
+//  * preedit cursor: ←/→ move, type/delete mid-sentence
+//  * fix a char: click it or press ↓ at the cursor; paged candidates,
+//    number keys 1-9 select (chewing-style)
+//  * punctuation: Shift+, Shift+. Shift+/ Shift+1 Shift+; → ，。？！：
+//  * session learning: your picks become the default for that syllable
+//  * auto zh/en: impossible-zhuyin keystrokes flip the run to English
 import { AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList }
   from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
 
@@ -17,108 +20,160 @@ const DACHEN = {'1':['ㄅ',0],'q':['ㄆ',0],'a':['ㄇ',0],'z':['ㄈ',0],'2':['�
   ',':['ㄝ',2],'9':['ㄞ',2],'o':['ㄟ',2],'l':['ㄠ',2],'.':['ㄡ',2],'0':['ㄢ',2],'p':['ㄣ',2],
   ';':['ㄤ',2],'/':['ㄥ',2],'-':['ㄦ',2]};
 const TONEK = {'6':'ˊ','3':'ˇ','4':'ˋ','7':'˙'};
+const PUNCT = {'<':'，','>':'。','?':'？','!':'！',':':'：','"':'；','(':'（',')':'）'};
 const ROWS = [['1','2','3','4','5','6','7','8','9','0','-'],['q','w','e','r','t','y','u','i','o','p'],
   ['a','s','d','f','g','h','j','k','l',';'],['z','x','c','v','b','n','m',',','.','/']];
+const PAGE = 9;
 const strip = s => [...s].filter(c => !TONES.includes(c)).join('');
 const $ = id => document.getElementById(id);
 
 // ---- buffer state ----
-// committed: [{t:'zh'|'en', v}] closed tokens; cur/rawWord: the run in progress
-let committed = [], cur = ['','',''], rawWord = '', enRun = false;
-// live conversion state, aligned with `committed` when pvKey matches
-let pvChars = [], pvCands = [], pvKey = null, overrides = [];
-let fixIndex = -1;            // preedit char being corrected (-1 = none)
+// committed: [{t:'zh'|'en'|'punct', v}]; cursor = insertion index into it.
+// cur/rawWord: the run being typed (lives at the cursor).
+let committed = [], overrides = [], cursor = 0;
+let cur = ['','',''], rawWord = '', enRun = false;
+let pvChars = [], pvCands = [], pvKey = null;
+let fix = -1, fixPage = 0;              // char being corrected
 const numSym = () => (cur[0]?1:0)+(cur[1]?1:0)+(cur[2]?1:0);
 const hasPending = () => cur[0]||cur[1]||cur[2];
 const pending = () => cur[0]+cur[1]+cur[2];
+const hasRun = () => hasPending()||rawWord;
 const bufKey = () => committed.map(t=>t.t+':'+t.v).join('|')+($('toneless').checked?'#TL':'');
 
+// session learning (persisted): syllable -> last picked char
+let learn = {};
+try{ learn = JSON.parse(localStorage.getItem('slothing-learn')||'{}'); }catch(e){}
+const saveLearn = ()=>{ try{localStorage.setItem('slothing-learn',JSON.stringify(learn));}catch(e){} };
+
 function resetRun(){ cur=['','','']; rawWord=''; enRun=false; }
+function insertTok(tok){ committed.splice(cursor,0,tok); overrides.splice(cursor,0,null); cursor++; }
 function commitRun(){
-  if(enRun && rawWord) committed.push({t:'en',v:rawWord});
-  else if(hasPending()) committed.push({t:'zh',v:pending()});
-  else if(rawWord) committed.push({t:'en',v:rawWord});
-  else { resetRun(); return; }
-  overrides.push(null);
+  if(enRun && rawWord) insertTok({t:'en',v:rawWord});
+  else if(hasPending()) insertTok({t:'zh',v:pending()});
+  else if(rawWord) insertTok({t:'en',v:rawWord});
   resetRun();
 }
-function clearAll(){ committed=[]; overrides=[]; resetRun(); pvKey=null; fixIndex=-1; }
+function clearAll(){ committed=[];overrides=[];cursor=0;resetRun();pvKey=null;fix=-1; }
 
 function feedKey(k){
-  if(k===' '){ if(hasPending()||rawWord){commitRun();render();} return true; }
+  fix=-1;
+  if(k in PUNCT){ if(hasRun())commitRun(); insertTok({t:'punct',v:PUNCT[k]}); render(); return true; }
+  if(k===' '){ if(hasRun()){commitRun();render();} return true; }
   if(k in TONEK){
-    if(!enRun && hasPending()){committed.push({t:'zh',v:pending()+TONEK[k]});overrides.push(null);resetRun();render();return true;}
+    if(!enRun && hasPending()){ insertTok({t:'zh',v:pending()+TONEK[k]}); resetRun(); render(); return true; }
     rawWord+=k; enRun=true; render(); return true;
   }
   if(enRun){ rawWord+=k; render(); return true; }
   if(DACHEN[k]){ cur[DACHEN[k][1]]=DACHEN[k][0]; rawWord+=k;
-    if(rawWord.length>numSym()) enRun=true;
-    render(); return true; }
+    if(rawWord.length>numSym()) enRun=true; render(); return true; }
   rawWord+=k; enRun=true; render(); return true;
 }
 function backspace(){
-  fixIndex=-1;
+  fix=-1;
   if(rawWord){ rawWord=rawWord.slice(0,-1);
     if(!enRun){ cur=['','','']; for(const c of rawWord) if(DACHEN[c]) cur[DACHEN[c][1]]=DACHEN[c][0]; }
     else if(rawWord.length<=numSym()) enRun=false;
     if(!rawWord) resetRun();
-  } else if(committed.length){ committed.pop(); overrides.pop(); }
+  } else if(cursor>0){ committed.splice(cursor-1,1); overrides.splice(cursor-1,1); cursor--; }
   render();
 }
+function moveCursor(d){
+  if(hasRun()) commitRun();          // close the run before moving
+  fix=-1;
+  cursor=Math.max(0,Math.min(committed.length,cursor+d));
+  render();
+}
+function openFix(i){
+  if(i<0||i>=committed.length||committed[i].t!=='zh') return;
+  if(pvKey!==bufKey()) return;       // wait for decode
+  fix=i; fixPage=0;
+  const sel=displayFor(i), cands=pvCands[i]||[];
+  const at=cands.indexOf(sel); if(at>=0) fixPage=Math.floor(at/PAGE);
+  render();
+}
+function pickCand(j){                 // j is index within current page
+  const cands=pvCands[fix]||[];
+  const idx=fixPage*PAGE+j;
+  if(idx>=cands.length) return;
+  overrides[fix]=cands[idx];
+  const syl=$('toneless').checked?strip(committed[fix].v):committed[fix].v;
+  learn[syl]=cands[idx]; saveLearn();
+  fix=-1; render();
+}
 
-// display text of committed token i (override > live conversion > bopomofo)
 function displayFor(i){
-  if(committed[i].t==='en') return committed[i].v;
+  const tok=committed[i];
+  if(tok.t!=='zh') return tok.v;
   if(overrides[i]) return overrides[i];
   if(pvKey===bufKey() && pvChars[i]!=null) return pvChars[i];
-  return committed[i].v;   // bopomofo until the decode lands
+  return tok.v;                        // bopomofo until decode lands
 }
 function sentenceText(){
   let out='';
   committed.forEach((tok,i)=>{const v=displayFor(i);
-    if(tok.t==='en') out+=(out&&!out.endsWith(' ')?' ':'')+v+' '; else out+=v;});
-  return out.trim();
+    if(tok.t==='en') out+=(out&&!/[\s（]$/.test(out)?' ':'')+v+' ';
+    else out+=v;});
+  return out.replace(/\s+([，。？！：；）])/g,'$1').trim();
 }
 
-// ---- rendering: one preedit line, chewing-style ----
+// ---- rendering ----
 function render(){
   const pre=$('pre'); pre.innerHTML='';
+  const caret=()=>{const c=document.createElement('span');c.className='caret';return c;};
   committed.forEach((tok,i)=>{
+    if(i===cursor && !hasRun()) pre.appendChild(caret());
     const span=document.createElement('span');
-    span.className='pchar'+(fixIndex===i?' fix':'')+(tok.t==='en'?' en':'');
+    span.className='pchar'+(fix===i?' fixsel':'')+(tok.t!=='zh'?' en':'');
     span.textContent=(tok.t==='en'?' '+displayFor(i)+' ':displayFor(i));
-    if(tok.t==='zh'){ span.onclick=()=>{ fixIndex=(fixIndex===i?-1:i); render(); }; }
+    if(tok.t==='zh') span.onclick=()=>{ fix===i?(fix=-1,render()):openFix(i); };
     pre.appendChild(span);
+    if(i===committed.length-1 && cursor===committed.length && !hasRun()) pre.appendChild(caret());
   });
-  const run=enRun?rawWord:pending();
-  if(run){ const tail=document.createElement('span'); tail.className='ptail';
-    tail.textContent=(enRun?' ':'')+run; pre.appendChild(tail); }
-  pre.classList.toggle('empty', !committed.length && !run);
-  if(!committed.length && !run) pre.textContent='​';
-
-  // candidate strip for the char being fixed
-  const strip2=$('cands'); strip2.innerHTML='';
-  if(fixIndex>=0 && pvKey===bufKey() && pvCands[fixIndex]){
-    pvCands[fixIndex].forEach(c=>{
-      const b=document.createElement('button');
-      b.className='cand'+(displayFor(fixIndex)===c?' sel':'');
-      b.textContent=c;
-      b.onclick=()=>{ overrides[fixIndex]=c; fixIndex=-1; render(); };
-      strip2.appendChild(b);
-    });
+  if(!committed.length && !hasRun()) pre.appendChild(caret());
+  if(hasRun()){
+    // the run renders at the cursor position
+    const nodes=[...pre.childNodes];
+    const tail=document.createElement('span'); tail.className='ptail';
+    tail.textContent=(enRun?' ':'')+(enRun?rawWord:pending());
+    // insert after cursor-1 tokens
+    let anchor=null, count=0;
+    for(const n of nodes){ if(n.classList&&n.classList.contains('pchar')){count++; if(count===cursor){anchor=n;break;}} }
+    if(cursor===0) pre.insertBefore(tail,pre.firstChild);
+    else if(anchor&&anchor.nextSibling) pre.insertBefore(tail,anchor.nextSibling);
+    else pre.appendChild(tail);
   }
-  if(ready) $('hint').textContent = committed.length||run
-    ? '⏎ 上字　點字改字　⌫ 刪除' : '直接打注音或英文，自動辨識';
+  pre.classList.toggle('empty',!committed.length&&!hasRun());
+
+  // paged candidate strip
+  const stripEl=$('cands'); stripEl.innerHTML='';
+  if(fix>=0 && pvKey===bufKey() && pvCands[fix]){
+    const cands=pvCands[fix], pages=Math.ceil(cands.length/PAGE);
+    if(pages>1){ const bp=document.createElement('button'); bp.className='cand nav'; bp.textContent='‹';
+      bp.onclick=()=>{fixPage=(fixPage-1+pages)%pages;render();}; stripEl.appendChild(bp); }
+    cands.slice(fixPage*PAGE,fixPage*PAGE+PAGE).forEach((c,j)=>{
+      const b=document.createElement('button');
+      b.className='cand'+(displayFor(fix)===c?' sel':'');
+      b.innerHTML='<span class="n">'+(j+1)+'</span>'+c;
+      b.onclick=()=>pickCand(j);
+      stripEl.appendChild(b);
+    });
+    if(pages>1){ const bn=document.createElement('button'); bn.className='cand nav'; bn.textContent='›';
+      bn.onclick=()=>{fixPage=(fixPage+1)%pages;render();}; stripEl.appendChild(bn);
+      const pg=document.createElement('span'); pg.className='pg'; pg.textContent=(fixPage+1)+'/'+pages;
+      stripEl.appendChild(pg); }
+  }
+  if(ready) $('hint').textContent = fix>=0 ? '1-9 選字　↑↓ 翻頁　Esc 取消'
+    : (committed.length||hasRun() ? '⏎ 上字　←→ 游標　↓ 選字　點字改字' : '直接打注音或英文，自動辨識；Shift+，。？！ 輸入標點');
   schedulePreview();
 }
 
-// ---- live conversion (debounced, serialized, stale-dropped) ----
+// ---- live conversion ----
 let previewTimer=null, previewBusy=false, previewGen=0;
 function schedulePreview(){
   if(!ready) return;
   clearTimeout(previewTimer);
   if(!committed.some(t=>t.t==='zh')){ pvKey=bufKey(); pvChars=committed.map(t=>t.v); pvCands=committed.map(t=>[t.v]); return; }
-  if(pvKey===bufKey()) return;                 // already current
+  if(pvKey===bufKey()) return;
   previewTimer=setTimeout(()=>{ runPreview(); },200);
 }
 async function runPreview(){
@@ -130,10 +185,14 @@ async function runPreview(){
     const zh=committed.filter(t=>t.t==='zh').map(t=>toneless?strip(t.v):t.v);
     const r=zh.length?await decodeZh(zh):{chars:[],cands:[]};
     if(gen===previewGen && key===bufKey()){
-      pvChars=[]; pvCands=[]; let zc=0;
+      pvChars=[];pvCands=[];let zc=0;
       for(const tok of committed){
-        if(tok.t==='zh'){ pvChars.push(r.chars[zc]); pvCands.push(r.cands[zc]); zc++; }
-        else { pvChars.push(tok.v); pvCands.push([tok.v]); }
+        if(tok.t==='zh'){
+          const syl=toneless?strip(tok.v):tok.v;
+          let ch=r.chars[zc]; const cands=r.cands[zc];
+          if(learn[syl]&&cands.includes(learn[syl])) ch=learn[syl];  // learned pick wins
+          pvChars.push(ch); pvCands.push(cands); zc++;
+        } else { pvChars.push(tok.v); pvCands.push([tok.v]); }
       }
       pvKey=key; render();
     }
@@ -142,7 +201,7 @@ async function runPreview(){
   if(pvKey!==bufKey()) schedulePreview();
 }
 async function ensureConverted(){
-  if(hasPending()||rawWord) commitRun();
+  if(hasRun()) commitRun();
   if(!committed.length) return false;
   if(pvKey!==bufKey()){
     $('hint').textContent='解碼中…';
@@ -186,23 +245,45 @@ ROWS.forEach(row=>{const r=document.createElement('div');r.className='krow';
     const sym=DACHEN[key]?DACHEN[key][0]:(key in TONEK?TONEK[key]:'');
     b.innerHTML='<span class="k">'+key+'</span><span class="s">'+sym+'</span>';
     b.onclick=()=>feedKey(key);r.appendChild(b);});kb.appendChild(r);});
+const rowP=document.createElement('div');rowP.className='krow';
+[['，','<'],['。','>'],['？','?'],['！','!'],['：',':']].forEach(([label,k])=>{
+  const b=document.createElement('button');b.className='key';b.style.width='40px';
+  b.innerHTML='<span class="s">'+label+'</span>';
+  b.onclick=()=>feedKey(k);rowP.appendChild(b);});
+const bl=document.createElement('button');bl.className='key';bl.style.width='40px';
+bl.innerHTML='<span class="s">←</span>';bl.onclick=()=>moveCursor(-1);rowP.appendChild(bl);
+const br=document.createElement('button');br.className='key';br.style.width='40px';
+br.innerHTML='<span class="s">→</span>';br.onclick=()=>moveCursor(1);rowP.appendChild(br);
+kb.appendChild(rowP);
 const r=document.createElement('div');r.className='krow';
 const sp=document.createElement('button');sp.className='key wide';sp.textContent='空白（一聲）';
-sp.onclick=()=>{ if(hasPending()||rawWord) feedKey(' '); };
+sp.onclick=()=>{ if(hasRun()) feedKey(' '); };
 const ent=document.createElement('button');ent.className='key wide2';ent.textContent='⏎ 上字';
 ent.onclick=()=>commitSentence();
 const bs=document.createElement('button');bs.className='key';bs.style.width='64px';
 bs.innerHTML='<span class="s">⌫</span>';
-bs.onclick=()=>{ if(committed.length||hasPending()||rawWord) backspace(); };
+bs.onclick=()=>{ if(committed.length||hasRun()) backspace(); };
 r.appendChild(sp);r.appendChild(ent);r.appendChild(bs);kb.appendChild(r);
 
 document.addEventListener('keydown',e=>{
   if(e.ctrlKey||e.altKey||e.metaKey)return;const k=e.key;
-  if(k==='Enter'){ if(committed.length||hasPending()||rawWord){commitSentence();e.preventDefault();} }
-  else if(k===' '){ if(hasPending()||rawWord){feedKey(' ');e.preventDefault();}
-                    else if(committed.length){e.preventDefault();} }
-  else if(k==='Backspace'){ if(committed.length||hasPending()||rawWord){backspace();e.preventDefault();} }
+  // candidate-fix mode: numbers pick, arrows page, Esc closes
+  if(fix>=0){
+    if(k>='1'&&k<='9'){ pickCand(k.charCodeAt(0)-49); e.preventDefault(); return; }
+    if(k==='ArrowDown'||k==='ArrowUp'){
+      const pages=Math.ceil((pvCands[fix]||[]).length/PAGE), d=k==='ArrowDown'?1:-1;
+      if(pages>1){fixPage=(fixPage+d+pages)%pages;render();} e.preventDefault(); return; }
+    if(k==='Escape'){ fix=-1; render(); e.preventDefault(); return; }
+    if(k==='Enter'){ fix=-1; render(); e.preventDefault(); return; }
+  }
+  if(k==='Enter'){ if(committed.length||hasRun()){commitSentence();e.preventDefault();} }
+  else if(k===' '){ if(hasRun()){feedKey(' ');e.preventDefault();} else if(committed.length) e.preventDefault(); }
+  else if(k==='Backspace'){ if(committed.length||hasRun()){backspace();e.preventDefault();} }
+  else if(k==='ArrowLeft'){ if(committed.length||hasRun()){moveCursor(-1);e.preventDefault();} }
+  else if(k==='ArrowRight'){ if(committed.length||hasRun()){moveCursor(1);e.preventDefault();} }
+  else if(k==='ArrowDown'){ if(cursor>0&&committed[cursor-1]&&committed[cursor-1].t==='zh'){openFix(cursor-1);e.preventDefault();} }
   else if(k==='Escape'){ clearAll(); render(); }
+  else if(k in PUNCT){ feedKey(k); e.preventDefault(); }
   else if(k.length===1&&(DACHEN[k]||k in TONEK||/[A-Za-z0-9]/.test(k))){ feedKey(k); e.preventDefault(); }
 });
 $('commit').onclick=()=>commitSentence();
