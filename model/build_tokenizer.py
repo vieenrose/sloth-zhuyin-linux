@@ -20,7 +20,14 @@ from transformers import PreTrainedTokenizerFast
 
 BOPOMOFO = [chr(c) for c in range(0x3105, 0x312A)]  # ㄅ..ㄪ
 TONES = ["ˊ", "ˇ", "ˋ", "˙", "ˉ"]
-SPECIALS = ["<|endoftext|>", "<|pad|>", "<|unk|>"]
+# ChatML control tokens so serving (llama_chat_apply_template) and training
+# use the same rendering; llama.cpp recognises this format natively.
+SPECIALS = ["<|endoftext|>", "<|pad|>", "<|unk|>", "<|im_start|>", "<|im_end|>"]
+CHATML = (
+    "{% for m in messages %}<|im_start|>{{ m['role'] }}\n{{ m['content'] }}"
+    "<|im_end|>\n{% endfor %}"
+    "{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}"
+)
 
 
 def han_freq(corpus_path, top):
@@ -71,9 +78,11 @@ def main():
     fast = PreTrainedTokenizerFast(
         tokenizer_file=raw,
         bos_token="<|endoftext|>",
-        eos_token="<|endoftext|>",
+        eos_token="<|im_end|>",
         pad_token="<|pad|>",
         unk_token="<|unk|>",
+        additional_special_tokens=["<|im_start|>", "<|im_end|>"],
+        chat_template=CHATML,
     )
     fast.save_pretrained(args.out)
     print(f"tokenizer vocab={tok.get_vocab_size()} saved to {args.out}")
