@@ -22,6 +22,16 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
 - `llm/` — local LLM runtime: a llama.cpp checkout (built for its headers
   and shared libs, which both `slothingd` and the engine link against) plus
   the GGUF model. Not vendored in git (see `.gitignore`); see setup below.
+- `model/` — **SlothLM**, a ~34M-parameter zhuyin-native model trained from
+  scratch for this IME (`model/DESIGN.md`): custom tokenizer (one token per
+  bopomofo symbol / Han character), trained on Traditional-Chinese text plus
+  synthetic conversion tasks in the exact serving format. **Much smaller than
+  the interim LFM2.5-230M** (~7× fewer parameters) — the point is speed:
+  conversion should feel instant (~50-150ms target vs ~200-350ms today),
+  fast enough to also power per-phrase reranking and, eventually,
+  direct zhuyin→sentence decoding. Includes `phonetic_table.tsv`
+  (bopomofo syllable → legal Traditional characters), the legality
+  constraint for the libchewing-free decode mode.
 - `RESEARCH.md` — notes on how LLMs are used to improve input methods
   elsewhere, gathered before designing the reranker.
 - `ARCHITECTURE.md` — how the engine, daemon, model, and eval fit together.
@@ -33,11 +43,21 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
 Milestone 1 (plain fcitx5 zhuyin engine, no LLM) is done. Milestone 2 (LLM
 conversion) was hardened after an adversarial code review found a cluster of
 security/lifetime/UX bugs in the first async-suggestion design; it is now a
-**pull-model conversion** (convert key → native candidate list) with a
-hardened daemon (per-user socket, SIGPIPE-safe, read-timeout) and a
-lifetime-safe background worker. Example: type ㄨㄛˇㄗㄞˋㄔㄨㄥˊㄒㄧㄣㄎㄠˇㄌㄩˋ,
-press Ctrl+Enter → 我在重新考慮 offered where raw chewing produces
-我再重新考慮.
+**pull-model conversion** with a hardened daemon (per-user socket,
+SIGPIPE-safe, read-timeout) and a lifetime-safe background worker. The
+conversion UX is **segment-based** (Japanese-henkan style): type
+ㄨㄛˇㄗㄞˋㄔㄨㄥˊㄒㄧㄣㄎㄠˇㄌㄩˋ, press Ctrl+Enter → the LLM's best sentence
+(我在重新考慮 where raw chewing produces 我再重新考慮) appears with the
+focused phrase highlighted; ←/→ move between phrases, ↑/↓ cycle a phrase's
+candidates with the sentence updating live, Enter commits, Esc cancels.
+
+The current model is an interim off-the-shelf LFM2.5-230M; **SlothLM, a much
+smaller (~34M) purpose-trained replacement, is in training** — see the
+roadmap. The daemon also already has a libchewing-free *decode* mode
+(`-t model/phonetic_table.tsv`, `{"syllables": [...]}` requests) that decodes
+bopomofo directly under a phonetic-legality grammar, including toneless
+input; it awaits SlothLM to be useful (`eval/run_decode_eval.py` is the
+scoreboard).
 
 ## Roadmap
 
@@ -70,16 +90,20 @@ open, is exactly Slothing's lane.
 - [x] Hardened daemon (per-user `$XDG_RUNTIME_DIR` socket, SIGPIPE-safe,
       read timeouts) and lifetime-safe worker threading
 
-**Next (v0.3) — accuracy**
-- [~] Task-specialise the conversion model. **Necessary, not optional**: on
-      the 159-case eval the *un-fine-tuned* LFM2.5-230M top-1 (53% sentence)
-      is a net regression vs chewing (61%); it wins only on recall (right
-      answer in the list: 73% vs 61%). The job is to convert that recall
-      headroom into reliable top-1. Two tracks: **SlothLM** — a ~34M
-      from-scratch zhuyin-native model (`model/DESIGN.md`, primary), and a
-      LoRA fine-tune of LFM2.5 (`finetune/`, fallback). Off-the-shelf LLMs
-      align phonetics poorly until trained on conversion (Huawei PY-GEC:
-      cosine 0.26 → 0.82). SlothLM training in progress on GPU.
+**Next (v0.3) — accuracy *and* speed: SlothLM**
+- [~] Replace the interim LFM2.5-230M with **SlothLM**, a ~34M from-scratch
+      zhuyin-native model (`model/DESIGN.md`) — **~7× smaller**, targeting
+      ~50-150ms per conversion instead of ~200-350ms. Task-specialising is
+      **necessary, not optional** for accuracy too: on the 159-case eval the
+      *un-fine-tuned* LFM2.5-230M top-1 (53% sentence) is a net regression vs
+      chewing (61%); it wins only on recall (right answer in the list: 73% vs
+      61%). A small model trained *on the serving format* converts that
+      recall headroom into top-1 while being fast enough for features a 230M
+      model can't serve (per-phrase reranking, typing-time hints, direct
+      decoding). Off-the-shelf LLMs align phonetics poorly until trained on
+      conversion (Huawei PY-GEC: cosine 0.26 → 0.82). Ship gates: top-1 ≥
+      chewing's 61%, recall ≥ 73%, median latency < 500ms. Fallback track: a
+      LoRA fine-tune of LFM2.5 (`finetune/`). Training in progress on GPU.
 - [x] Evaluation harness: a scored zhuyin→sentence test set (per-char and
       per-sentence accuracy, latency) run against the daemon in CI, so model
       and prompt changes are measured instead of eyeballed.
@@ -97,12 +121,19 @@ open, is exactly Slothing's lane.
 - [ ] Per-user phrase bias in reranking (beyond what chewing's own learning
       captures).
 
-**Later (v0.5+) — looser input**
-- [ ] Tone-free zhuyin mode: type without tone keys, let the LLM disambiguate
-      (research shows abbreviated/noisy input is where generation beats
-      reranking — this likely needs constrained *generation* over syllable
-      lattices, not just candidate reranking).
-- [ ] Typo tolerance for adjacent-key zhuyin mistakes.
+**Later (v0.5+) — looser input, toward a libchewing-free decoder**
+- [~] Direct zhuyin→sentence decoding (no libchewing in the loop): the daemon
+      infrastructure is **built** — `slothingd -t model/phonetic_table.tsv`
+      accepts `{"syllables": [...]}` and decodes under a grammar of
+      phonetically-legal characters, tonal or toneless. The probe
+      (`eval/run_decode_eval.py`) scores it against the chewing baseline;
+      gated on SlothLM (the untrained interim model scores ~0%, by design —
+      SlothLM's z2t/toneless training tasks are exactly this format).
+- [ ] Tone-free zhuyin mode in the IME: type without tone keys (~35% fewer
+      keystrokes), let the model disambiguate — the decode mode's toneless
+      path already implements the backend.
+- [ ] Typo tolerance for adjacent-key zhuyin mistakes (widen each syllable's
+      legal set to keyboard-adjacent readings; same grammar mechanism).
 - [ ] Packaging: .deb + a one-command setup script (llama.cpp build + model
       download), so non-developers can install.
 - [ ] (Exploratory) Writing-tools actions on the preedit — a second key that
@@ -113,8 +144,12 @@ open, is exactly Slothing's lane.
 **Non-goals**
 - Cloud inference of any kind; telemetry. The daemon binds a per-user socket
   and everything runs locally, always.
-- Replacing libchewing: the hybrid (statistical hot path + LLM on demand) is
-  also the shipped pattern across the industry (PERT + n-gram + lexicon).
+- Ripping out libchewing *before the model earns it*: the hybrid
+  (statistical hot path + LLM on demand) stays the shipped configuration —
+  it is also the industry pattern (PERT + n-gram + lexicon) — until the
+  decode probe shows SlothLM beating chewing outright. The libchewing-free
+  path is explored in measured stages behind the eval harness, never by
+  faith.
 
 ## Build & install the fcitx5 addon
 
