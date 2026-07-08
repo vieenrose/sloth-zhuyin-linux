@@ -8,6 +8,7 @@ the LLM's top-1 sentence against the expected text.
 
 Usage: python3 eval/run_eval.py [--socket PATH] [--n 4]
 """
+from collections import Counter
 import argparse
 import json
 import os
@@ -104,6 +105,10 @@ def main():
     chewing_ok_chars = 0
     latencies = []
     failures = []
+    # Diagnostics: (wrong_char, right_char) confusion counts + fix/break tally.
+    chewing_conf = Counter()
+    llm_conf = Counter()
+    fixed = broke = 0
 
     for bopomofo, expected, context in cases:
         keys = bopomofo_to_keys(bopomofo)
@@ -134,6 +139,23 @@ def main():
         chewing_ok_chars += b_ok
         chewing_sent_ok += int(buffer == expected)
 
+        # Per-position confusion analysis (only where lengths line up).
+        if len(buffer) == len(expected):
+            for cb, ce in zip(buffer, expected):
+                if cb != ce:
+                    chewing_conf[(cb, ce)] += 1
+        if len(top1) == len(expected):
+            for ct, ce in zip(top1, expected):
+                if ct != ce:
+                    llm_conf[(ct, ce)] += 1
+        # Did the LLM fix / break a position relative to chewing?
+        if len(buffer) == len(top1) == len(expected):
+            for cb, ct, ce in zip(buffer, top1, expected):
+                if cb != ce and ct == ce:
+                    fixed += 1
+                elif cb == ce and ct != ce:
+                    broke += 1
+
         marker = "OK " if top1 == expected else "MISS"
         if args.verbose or top1 != expected:
             print(f"[{marker}] expect={expected} chewing={buffer} "
@@ -157,6 +179,16 @@ def main():
         lat = sorted(latencies)
         print(f"latency: median {lat[len(lat)//2]*1000:.0f}ms, "
               f"p95 {lat[int(len(lat)*0.95)]*1000:.0f}ms")
+        print(f"LLM vs chewing per-char: fixed {fixed}, broke {broke} "
+              f"(net {fixed - broke:+d})")
+        if chewing_conf:
+            top = ", ".join(f"{w}→{r}({c})"
+                            for (w, r), c in chewing_conf.most_common(8))
+            print(f"chewing's top confusions (wrong→right): {top}")
+        if llm_conf:
+            top = ", ".join(f"{w}→{r}({c})"
+                            for (w, r), c in llm_conf.most_common(8))
+            print(f"LLM's remaining confusions:              {top}")
 
 
 if __name__ == "__main__":
