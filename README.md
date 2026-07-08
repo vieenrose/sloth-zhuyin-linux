@@ -85,6 +85,12 @@ open, is exactly Slothing's lane.
       and prompt changes are measured instead of eyeballed.
 
 **Then (v0.4) — personalization, kept local**
+- [ ] LLM-rank the per-phrase candidate window (Down key). Today Down opens
+      chewing's frequency-ranked homophones for the phrase at the cursor; once
+      SlothLM is fast enough (~50-150ms) the daemon can reorder just that
+      phrase's candidates by sentence context (a smaller query than
+      whole-sentence Ctrl+Enter), so the quick single-word fix becomes
+      context-aware too. Gated on SlothLM latency.
 - [ ] Log accepted vs. shown-but-rejected conversion candidates on-device
       (opt-in) and use them as preference signal — the GeneInput RLHF recipe,
       but private: nothing leaves the machine.
