@@ -74,7 +74,7 @@ open, is exactly Slothing's lane.
       off-the-shelf LLMs align phonetic and text representations poorly until
       explicitly trained on conversion (Huawei PY-GEC: cosine 0.26 → 0.82);
       this is likely the single biggest quality lever available.
-- [ ] Evaluation harness: a scored zhuyin→sentence test set (per-char and
+- [x] Evaluation harness: a scored zhuyin→sentence test set (per-char and
       per-sentence accuracy, latency) run against the daemon in CI, so model
       and prompt changes are measured instead of eyeballed.
 

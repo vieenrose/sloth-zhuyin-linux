@@ -5,3 +5,6 @@ llm/models/
 # Build directories
 build/
 build*/
+
+# eval harness build artifact
+eval/harvest
