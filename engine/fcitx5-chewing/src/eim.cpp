@@ -224,6 +224,13 @@ std::string slothingdSocketPath() {
     return "/tmp/slothingd.sock";
 }
 
+// Byte-substring of a UTF-8 string covering character positions [from,to).
+std::string utf8CharSlice(const std::string &s, int from, int to) {
+    size_t byteStart = utf8::ncharByteLength(s.begin(), from);
+    size_t byteLen = utf8::ncharByteLength(s.begin() + byteStart, to - from);
+    return s.substr(byteStart, byteLen);
+}
+
 // Walks the current buffer's phrase segmentation via libchewing's interval
 // API and harvests, per segment, the phrase-length alternatives libchewing
 // considers for it (used to build the LLM's constrained choice set and to
@@ -234,10 +241,12 @@ std::string slothingdSocketPath() {
 // briefly open, chewing_handle_Right can page instead of moving the cursor,
 // which without a guard spins forever on the UI thread. Candidates whose
 // UTF-8 length differs from the interval span are dropped (chewing_cand_open
-// can surface shorter fragments; letting them through once turned
-// '我再重新考慮' into '我爞考'). Fills `intervals` with the [from,to) spans in
-// lockstep with the returned positions. Returns empty (and clears intervals)
-// if the buffer is empty or any segment yields no usable candidate.
+// can surface other lengths; letting them through once turned
+// '我再重新考慮' into '我爞考'). An interval with no span-length alternative
+// is pinned to the user's own text for that span instead of aborting the
+// whole harvest -- aborting made long sentences (more intervals, more chances
+// of one dry interval) silently unconvertible. Fills `intervals` with the
+// [from,to) spans in lockstep with the returned positions.
 std::vector<std::vector<std::string>>
 collectCandidatePositions(ChewingContext *ctx,
                           std::vector<std::pair<int, int>> &intervalsOut) {
@@ -260,6 +269,9 @@ collectCandidatePositions(ChewingContext *ctx,
         intervals.push_back(iv);
     }
 
+    UniqueCPtr<char, chewing_free> bufStr(chewing_buffer_String(ctx));
+    std::string bufferText = bufStr ? bufStr.get() : "";
+
     for (const auto &interval : intervals) {
         // Advance the cursor to the interval start, guarding against a
         // non-progressing step (see the freeze note above).
@@ -272,24 +284,48 @@ collectCandidatePositions(ChewingContext *ctx,
             }
         }
         const size_t span = static_cast<size_t>(interval.to - interval.from);
-        chewing_cand_open(ctx);
-        chewing_cand_Enumerate(ctx);
         std::vector<std::string> cands;
-        while (chewing_cand_hasNext(ctx)) {
-            UniqueCPtr<char, chewing_free> str(chewing_cand_String(ctx));
-            if (str && utf8::lengthValidated(std::string_view(str.get())) == span) {
-                cands.emplace_back(str.get());
+        if (chewing_cand_open(ctx) == 0) {
+            // The candidate window shows one phrase-length at a time;
+            // cand_list_first/next cycle through the lengths. Walk every
+            // list and keep candidates matching this interval's span --
+            // stopping at the first list means a mismatched initial length
+            // (common mid-sentence) harvests nothing at all.
+            chewing_cand_list_first(ctx);
+            int listGuard = 0;
+            while (true) {
+                chewing_cand_Enumerate(ctx);
+                while (chewing_cand_hasNext(ctx)) {
+                    UniqueCPtr<char, chewing_free> str(chewing_cand_String(ctx));
+                    if (str && utf8::lengthValidated(std::string_view(
+                                   str.get())) == span) {
+                        cands.emplace_back(str.get());
+                    }
+                }
+                if (!cands.empty() || !chewing_cand_list_has_next(ctx) ||
+                    ++listGuard > CHEWING_MAX_LEN) {
+                    break;
+                }
+                chewing_cand_list_next(ctx);
             }
+            chewing_cand_close(ctx);
         }
-        chewing_cand_close(ctx);
+        if (cands.empty()) {
+            // Keep the conversion alive: this interval simply offers no
+            // alternative, so pin it to what the user typed and let the LLM
+            // still rework the other intervals.
+            std::string slice = utf8CharSlice(bufferText, interval.from,
+                                              interval.to);
+            if (slice.empty()) {
+                positions.clear();
+                intervalsOut.clear();
+                break;
+            }
+            cands.push_back(std::move(slice));
+        }
         CHEWING_DEBUG() << "harvest interval [" << interval.from << ","
                         << interval.to << ") -> " << cands.size()
                         << " candidates";
-        if (cands.empty()) {
-            positions.clear();
-            intervalsOut.clear();
-            break;
-        }
         positions.push_back(std::move(cands));
         intervalsOut.emplace_back(interval.from, interval.to);
     }
@@ -472,6 +508,17 @@ void ChewingEngine::startConversion(InputContext *ic) {
                         << positions.size() << " buffer='" << buffer << "')";
         return;
     }
+    bool anyAlternative = false;
+    for (const auto &cands : positions) {
+        if (cands.size() > 1) {
+            anyAlternative = true;
+            break;
+        }
+    }
+    if (!anyAlternative) {
+        CHEWING_DEBUG() << "startConversion: no interval offers an alternative";
+        return;
+    }
     CHEWING_DEBUG() << "startConversion: buffer='" << buffer << "' positions="
                     << positions.size();
 
@@ -604,13 +651,6 @@ void ChewingEngine::showConversionChoices(InputContext *ic,
     ic->updatePreedit();
     ic->updateUserInterface(UserInterfaceComponent::InputPanel);
     CHEWING_DEBUG() << "showing " << sentences.size() << " LLM candidate(s)";
-}
-
-// Byte-substring of a UTF-8 string covering character positions [from,to).
-static std::string utf8CharSlice(const std::string &s, int from, int to) {
-    size_t byteStart = utf8::ncharByteLength(s.begin(), from);
-    size_t byteLen = utf8::ncharByteLength(s.begin() + byteStart, to - from);
-    return s.substr(byteStart, byteLen);
 }
 
 void ChewingEngine::teachChewing(const std::string &chosen) {
