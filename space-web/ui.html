@@ -118,53 +118,45 @@
   }
   function commit(){$('sl-out').textContent+=composed();cur=['','',''];committed=[];positions=[];renderComposing();}
 
-  // ---- bridge to the hidden Gradio components ----
-  function gset(elemId,val){
-    const el=document.querySelector('#'+elemId+' textarea, #'+elemId+' input');if(!el)return false;
-    const proto=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(proto,'value').set.call(el,val);
-    el.dispatchEvent(new Event('input',{bubbles:true}));return true;
-  }
-  function gget(elemId){const el=document.querySelector('#'+elemId+' textarea, #'+elemId+' input');return el?el.value:'';}
-  function gclick(elemId){const b=document.querySelector('#'+elemId+' button');if(b){b.click();return true;}return false;}
-
+  // ---- call the backend via Gradio's official REST API (stable; no DOM
+  //      manipulation of hidden components). POST returns an event_id; GET
+  //      streams the result. Same endpoint the eval/curl test hits. ----
   let ready=false;
+  async function callGradio(fn, payload){
+    const post=await fetch('gradio_api/call/'+fn,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({data:[payload]})});
+    if(!post.ok) throw new Error('POST '+post.status);
+    const eid=(await post.json()).event_id;
+    const res=await fetch('gradio_api/call/'+fn+'/'+eid);
+    const text=await res.text();
+    let out=null;
+    for(const line of text.split('\n')){
+      if(line.startsWith('data:')){
+        try{const arr=JSON.parse(line.slice(5).trim()); if(Array.isArray(arr)) out=arr[0];}catch(e){}
+      }
+    }
+    return out;
+  }
+
   async function convert(){
     let syls=committed.slice();if(hasPending())syls.push(pending());
     if(!syls.length)return;
     if($('sl-toneless').checked)syls=syls.map(strip);
     $('sl-hint').textContent=ready?'解碼中…':'模型載入中，請稍候…';
-    const before=gget('sl-bridge-out');
-    gset('sl-bridge-in',JSON.stringify({syllables:syls}));
-    await new Promise(r=>setTimeout(r,60));
-    gclick('sl-bridge-btn');
-    // poll up to 90s: the first decode may wait on the model download/load
-    for(let i=0;i<900;i++){
-      await new Promise(r=>setTimeout(r,100));
-      const v=gget('sl-bridge-out');
-      if(v&&v!==before){
-        let d;try{d=JSON.parse(v);}catch(e){continue;}
-        ready=true;
-        positions=d.positions;
-        segSel=positions.map((cands,k)=>{const ch=[...d.sentence][k];const j=cands.indexOf(ch);return j>=0?j:0;});
-        segFocus=segSel.findIndex((_,k)=>positions[k].length>1);if(segFocus<0)segFocus=0;
-        renderSegments();return;
-      }
-    }
-    $('sl-hint').textContent='解碼逾時，請重試';
+    try{
+      const resStr=await callGradio('decode_bridge',JSON.stringify({syllables:syls}));
+      const d=JSON.parse(resStr);
+      ready=true;
+      positions=d.positions;
+      segSel=positions.map((cands,k)=>{const ch=[...d.sentence][k];const j=cands.indexOf(ch);return j>=0?j:0;});
+      segFocus=segSel.findIndex((_,k)=>positions[k].length>1);if(segFocus<0)segFocus=0;
+      renderSegments();
+    }catch(e){$('sl-hint').textContent='解碼失敗：'+e.message;}
   }
 
-  // Warm the model at page load and flip to ready when it responds, so the
-  // first real convert isn't a cold-load timeout.
+  // Warm the model at page load so the first real convert isn't a cold-load.
   (async function warm(){
-    for(let tries=0;tries<3&&!ready;tries++){
-      const before=gget('sl-ready-out');
-      gclick('sl-ready-btn');
-      for(let i=0;i<900&&!ready;i++){
-        await new Promise(r=>setTimeout(r,100));
-        if(gget('sl-ready-out')!==before && gget('sl-ready-out')){ready=true;break;}
-      }
-    }
+    try{await callGradio('ready_ping','');ready=true;}catch(e){}
     if(ready&&!choosing&&!hasPending()&&!committed.length)
       $('sl-hint').textContent='在鍵盤上輸入注音（實體鍵盤也可）';
   })();
