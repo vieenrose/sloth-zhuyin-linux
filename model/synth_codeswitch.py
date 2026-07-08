@@ -56,6 +56,19 @@ TEMPLATES = [
     "我用 {} 做簡報", "他傳訊息到 {}", "我在 {} 追蹤你", "這題要用 {} 解",
 ]
 
+# Pure-English lines so the model has seen standalone English (grammar
+# passthrough already forces exact English output, but this keeps English in
+# the plain-LM distribution so mixed context stays natural).
+PURE_EN = [
+    "hello world", "thank you very much", "see you tomorrow", "good morning",
+    "how are you", "let me know", "sounds good to me", "I will send it later",
+    "please check your email", "the meeting is at three", "no problem",
+    "let's get started", "talk to you soon", "have a nice day",
+    "I am working on it", "can you help me", "just a moment please",
+    "the file is ready", "call me back", "I agree with you",
+    "what do you think", "on my way", "almost done", "not sure yet",
+]
+
 
 def bucket(s, salt):
     return hashlib.sha1((salt + s).encode()).digest()[0]
@@ -67,6 +80,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--replace-limit", type=int, default=300000)
     ap.add_argument("--templates-per-term", type=int, default=400)
+    ap.add_argument("--pure-en-repeat", type=int, default=200)
     args = ap.parse_args()
 
     # longest terms first so 電子郵件 wins over 郵件
@@ -96,9 +110,16 @@ def main():
             out.write(TEMPLATES[i % len(TEMPLATES)].format(term) + "\n")
             n_tmpl += 1
 
+    # pure-English lines, repeated a few times so they register
+    n_en = 0
+    for _ in range(args.pure_en_repeat):
+        for s in PURE_EN:
+            out.write(s + "\n")
+            n_en += 1
+
     out.close()
-    print(f"wrote {n_repl} replacement + {n_tmpl} template code-switch lines "
-          f"to {args.out}")
+    print(f"wrote {n_repl} replacement + {n_tmpl} template + {n_en} pure-English "
+          f"code-switch lines to {args.out}")
 
 
 if __name__ == "__main__":
