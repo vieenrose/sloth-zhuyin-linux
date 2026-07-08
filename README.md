@@ -24,6 +24,7 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
   the GGUF model. Not vendored in git (see `.gitignore`); see setup below.
 - `RESEARCH.md` — notes on how LLMs are used to improve input methods
   elsewhere, gathered before designing the reranker.
+- `ARCHITECTURE.md` — how the engine, daemon, model, and eval fit together.
 - `MODEL_BENCHMARKS.md` — comparison of candidate reranker models; see
   `MODEL_BENCHMARKS.md` for why **LFM2.5-230M (Q4_0 quant)** was picked.
 
