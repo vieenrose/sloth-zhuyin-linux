@@ -180,15 +180,50 @@ private:
     std::vector<Text> labels_;
 };
 
+// Renders `sentence` with only the characters that differ from `reference`
+// (the typed buffer) carrying the HighLight flag, so the proposed change
+// (e.g. 再→在) pops out of an otherwise identical sentence. Sentence and
+// buffer normally have the same char count (both are built from the same
+// interval spans), but walk defensively in case one runs short.
+Text diffHighlightText(const std::string &sentence,
+                       const std::string &reference) {
+    Text out;
+    size_t sentOff = 0;
+    size_t refOff = 0;
+    while (sentOff < sentence.size()) {
+        const size_t sentLen =
+            utf8::ncharByteLength(sentence.begin() + sentOff, 1);
+        const size_t refLen =
+            refOff < reference.size()
+                ? utf8::ncharByteLength(reference.begin() + refOff, 1)
+                : 0;
+        const bool same = refLen > 0 && sentLen == refLen &&
+                          sentence.compare(sentOff, sentLen, reference, refOff,
+                                           refLen) == 0;
+        out.append(sentence.substr(sentOff, sentLen),
+                   same ? TextFormatFlag::NoFlag : TextFormatFlag::HighLight);
+        sentOff += sentLen;
+        refOff += refLen;
+    }
+    return out;
+}
+
 // One LLM-proposed full sentence in the conversion candidate list. Selecting
 // it hands the sentence to the engine, which commits it and (optionally)
 // teaches chewing. Held in a CommonCandidateList, so paging/labels/cursor are
-// handled for us.
+// handled for us. The display text highlights only the characters that
+// differ from the typed buffer; chewing's own sentence is tagged 「原」.
 class SlothingCandidateWord : public CandidateWord {
 public:
-    SlothingCandidateWord(ChewingEngine *engine, std::string sentence)
-        : CandidateWord(Text(sentence)), engine_(engine),
-          sentence_(std::move(sentence)) {}
+    SlothingCandidateWord(ChewingEngine *engine, std::string sentence,
+                          const std::string &buffer, bool isOriginal)
+        : engine_(engine), sentence_(std::move(sentence)) {
+        Text display = diffHighlightText(sentence_, buffer);
+        if (isOriginal) {
+            display.append("（原）");
+        }
+        setText(std::move(display));
+    }
 
     void select(InputContext *inputContext) const override {
         engine_->acceptConversion(inputContext, sentence_);
@@ -352,19 +387,33 @@ std::string buildRerankRequest(const std::vector<std::vector<std::string>> &posi
     return req.dump() + "\n";
 }
 
+// Why a query came back empty, so the UI can tell the user instead of
+// silently dropping back to composing (the old behaviour, which read as
+// "the key did nothing").
+enum class RerankError {
+    None,    // got sentences
+    Connect, // socket/connect failed: daemon not running
+    Io,      // connected but send/recv failed or timed out
+    Empty,   // daemon answered but offered no usable sentence
+};
+
 // Talks to slothingd over its Unix socket. Publishes the connected fd into
 // `fdSlot` so the engine's destructor can shutdown() it to unblock this
 // thread at teardown; clears it again before returning. Returns an empty
-// list on any failure (daemon absent, timeout, malformed/partial response).
+// list on any failure (daemon absent, timeout, malformed/partial response)
+// and reports which kind through `err`.
 std::vector<std::string> queryReranker(const std::vector<std::vector<std::string>> &positions,
                                        int n, const std::string &context,
-                                       std::atomic<int> &fdSlot) {
+                                       std::atomic<int> &fdSlot,
+                                       RerankError &err) {
+    err = RerankError::Empty;
     if (positions.empty()) {
         return {};
     }
 
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
+        err = RerankError::Connect;
         return {};
     }
     struct timeval tv;
@@ -380,6 +429,7 @@ std::vector<std::string> queryReranker(const std::vector<std::vector<std::string
     strncpy(addr.sun_path, sockPath.c_str(), sizeof(addr.sun_path) - 1);
     if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) != 0) {
         close(fd);
+        err = RerankError::Connect;
         return {};
     }
     fdSlot.store(fd);
@@ -395,6 +445,7 @@ std::vector<std::string> queryReranker(const std::vector<std::vector<std::string
     while (off < req.size()) {
         ssize_t w = send(fd, req.data() + off, req.size() - off, MSG_NOSIGNAL);
         if (w <= 0) {
+            err = RerankError::Io;
             return finish({});
         }
         off += static_cast<size_t>(w);
@@ -408,6 +459,7 @@ std::vector<std::string> queryReranker(const std::vector<std::vector<std::string
         resp.append(buf, static_cast<size_t>(r));
     }
     if (resp.empty()) {
+        err = RerankError::Io;
         return finish({});
     }
     // Parse with the same library the daemon dumped with; a truncated or
@@ -415,7 +467,12 @@ std::vector<std::string> queryReranker(const std::vector<std::vector<std::string
     try {
         json parsed = json::parse(resp);
         if (parsed.contains("sentences")) {
-            return finish(parsed["sentences"].get<std::vector<std::string>>());
+            auto sentences =
+                parsed["sentences"].get<std::vector<std::string>>();
+            if (!sentences.empty()) {
+                err = RerankError::None;
+            }
+            return finish(std::move(sentences));
         }
     } catch (const std::exception &) {
     }
@@ -472,8 +529,11 @@ void ChewingEngine::stopWorker() {
     workerStop_.store(false);
 }
 
-void ChewingEngine::cancelConversion(InputContext *ic) {
+void ChewingEngine::cancelConversion(InputContext *ic, std::string notice) {
     stopWorker();
+    convertTimer_.reset();
+    convertTicks_ = 0;
+    convertNotice_ = std::move(notice);
     convertState_ = ConvertState::Composing;
     convertGeneration_++;
     convertBuffer_.clear();
@@ -506,6 +566,8 @@ void ChewingEngine::startConversion(InputContext *ic) {
     if (positions.empty() || !matchesPositions(buffer, positions)) {
         CHEWING_DEBUG() << "startConversion: harvest unusable (positions="
                         << positions.size() << " buffer='" << buffer << "')";
+        convertNotice_ = "無法轉換此句";
+        updateUI(ic);
         return;
     }
     CHEWING_DEBUG() << "startConversion: buffer='" << buffer << "' positions="
@@ -573,6 +635,8 @@ void ChewingEngine::startConversion(InputContext *ic) {
     }
     if (!anyAlternative) {
         CHEWING_DEBUG() << "startConversion: window offers no alternative";
+        convertNotice_ = "此句無其他候選";
+        updateUI(ic);
         return;
     }
 
@@ -589,15 +653,37 @@ void ChewingEngine::startConversion(InputContext *ic) {
     const int n = std::max(*config_.LlmCandidateCount, 4);
     auto icRef = ic->watch();
 
+    convertNotice_.clear();
+    convertTicks_ = 0;
+    convertIc_ = ic->watch();
     updateUI(ic); // show the "converting" indicator
+
+    // Repaint the indicator twice a second while the worker runs: animated
+    // dots + elapsed time make it obvious the IME is alive, and keep the
+    // Esc-to-cancel hint in front of the user.
+    convertTimer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + 500000, 10000,
+        [this](EventSourceTime *source, uint64_t) {
+            if (convertState_ == ConvertState::Converting) {
+                if (auto *timerIc = convertIc_.get()) {
+                    convertTicks_++;
+                    updateUI(timerIc);
+                }
+                source->setNextInterval(500000);
+                source->setOneShot();
+            }
+            return true;
+        });
 
     worker_ = std::thread([this, icRef, generation, n,
                            buffer = std::move(buffer),
                            positions = std::move(llmPositions),
                            prefixText = std::move(prefixText),
                            context = std::move(context)]() {
+        RerankError err = RerankError::None;
         std::vector<std::string> verified;
-        for (auto &sentence : queryReranker(positions, n, context, inflightFd_)) {
+        for (auto &sentence :
+             queryReranker(positions, n, context, inflightFd_, err)) {
             // Keep only sentences provably built from real chewing candidates
             // for the converted window, then re-attach the untouched front so
             // every choice is a full replacement for the buffer.
@@ -620,8 +706,25 @@ void ChewingEngine::startConversion(InputContext *ic) {
         if (workerStop_.load()) {
             return; // engine tearing down; don't touch it
         }
+        // Never end a conversion silently: name the reason in the panel so
+        // an idle daemon or a dry reply doesn't read as a dead key.
+        std::string failNotice;
+        if (verified.empty()) {
+            switch (err) {
+            case RerankError::Connect:
+                failNotice = "slothingd 未執行";
+                break;
+            case RerankError::Io:
+                failNotice = "slothingd 無回應";
+                break;
+            default:
+                failNotice = "無建議";
+                break;
+            }
+        }
         dispatcher_.schedule([this, icRef, generation,
-                              verified = std::move(verified)]() {
+                              verified = std::move(verified),
+                              failNotice = std::move(failNotice)]() {
             if (generation != convertGeneration_ ||
                 convertState_ != ConvertState::Converting) {
                 return; // cancelled / superseded
@@ -632,7 +735,8 @@ void ChewingEngine::startConversion(InputContext *ic) {
                 return;
             }
             if (verified.empty()) {
-                cancelConversion(ic); // nothing to offer; back to composing
+                // nothing to offer; back to composing, but say why
+                cancelConversion(ic, failNotice);
                 return;
             }
             showConversionChoices(ic, verified);
@@ -643,10 +747,19 @@ void ChewingEngine::startConversion(InputContext *ic) {
 void ChewingEngine::showConversionChoices(InputContext *ic,
                                           const std::vector<std::string> &sentences) {
     convertState_ = ConvertState::Choosing;
+    convertTimer_.reset();
+    convertTicks_ = 0;
 
     auto list = std::make_unique<CommonCandidateList>();
     list->setPageSize(*config_.PageSize);
-    list->setLayoutHint(*config_.CandidateLayout);
+    // Full-sentence candidates are long; unless the user forced a layout,
+    // stack them vertically so the per-character highlights line up and the
+    // sentences stay comparable at a glance.
+    auto layout = *config_.CandidateLayout;
+    if (layout == CandidateLayoutHint::NotSet) {
+        layout = CandidateLayoutHint::Vertical;
+    }
+    list->setLayoutHint(layout);
     const char *selkeys =
         builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];
     KeyList selectionKeys;
@@ -658,7 +771,8 @@ void ChewingEngine::showConversionChoices(InputContext *ic,
     list->setSelectionKey(selectionKeys);
     list->setLabels(labels);
     for (const auto &s : sentences) {
-        list->append(std::make_unique<SlothingCandidateWord>(this, s));
+        list->append(std::make_unique<SlothingCandidateWord>(
+            this, s, convertBuffer_, /*isOriginal=*/s == convertBuffer_));
     }
     list->setGlobalCursorIndex(0);
 
@@ -675,6 +789,8 @@ void ChewingEngine::showConversionChoices(InputContext *ic,
         ic->inputPanel().setPreedit(preedit);
     }
     ic->inputPanel().setCandidateList(std::move(list));
+    // Make the modal keys discoverable; the highlighted chars carry the diff.
+    ic->inputPanel().setAuxUp(Text("↑↓ 選擇　Enter 確認　Esc 取消"));
     ic->updatePreedit();
     ic->updateUserInterface(UserInterfaceComponent::InputPanel);
     CHEWING_DEBUG() << "showing " << sentences.size() << " LLM candidate(s)";
@@ -788,6 +904,9 @@ void ChewingEngine::doReset(InputContextEvent &event) {
     ChewingContext *ctx = context_.get();
     chewing_handle_Esc(ctx);
     stopWorker();
+    convertTimer_.reset();
+    convertTicks_ = 0;
+    convertNotice_.clear();
     convertState_ = ConvertState::Composing;
     convertGeneration_++;
     convertBuffer_.clear();
@@ -893,7 +1012,10 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         ic->updateUserInterface(UserInterfaceComponent::InputPanel);
         return; // all other keys swallowed while choosing
     }
-    // Composing: the convert key starts a conversion -- but only when there is
+    // Composing: any keystroke clears a lingering conversion notice (it is
+    // one-shot feedback, not a status line).
+    convertNotice_.clear();
+    // The convert key starts a conversion -- but only when there is
     // a settled buffer to convert. With no preedit (or a pending syllable /
     // open candidate window) the key is NOT consumed, so a modifier combo like
     // Ctrl+Return still reaches the application (e.g. "send message").
@@ -1059,7 +1181,17 @@ void ChewingEngine::updateUI(InputContext *ic) {
         } else {
             ic->inputPanel().setPreedit(preedit);
         }
-        ic->inputPanel().setAuxUp(Text("轉換中…"));
+        // Animated dots (repainted by convertTimer_) show the request is
+        // alive; elapsed seconds appear once it stops feeling instant.
+        std::string aux = "轉換中";
+        for (int i = 0; i <= convertTicks_ % 3; i++) {
+            aux += "·";
+        }
+        if (convertTicks_ >= 2) {
+            aux += " " + std::to_string(convertTicks_ / 2) + "s";
+        }
+        aux += "（Esc 取消）";
+        ic->inputPanel().setAuxUp(Text(aux));
         ic->updatePreedit();
         ic->updateUserInterface(UserInterfaceComponent::InputPanel);
         return;
@@ -1067,6 +1199,11 @@ void ChewingEngine::updateUI(InputContext *ic) {
 
     // clean up window asap
     ic->inputPanel().reset();
+    // A pending conversion-outcome notice ("無建議", "slothingd 未執行", ...)
+    // rides on top of the normal composing panel until the next keystroke.
+    if (!convertNotice_.empty()) {
+        ic->inputPanel().setAuxUp(Text(convertNotice_));
+    }
     ic->updateUserInterface(UserInterfaceComponent::InputPanel);
 
     UniqueCPtr<char, chewing_free> buf_str(chewing_buffer_String(ctx));

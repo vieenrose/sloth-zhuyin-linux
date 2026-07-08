@@ -13,7 +13,9 @@
 #include <fcitx-config/configuration.h>
 #include <fcitx-config/enum.h>
 #include <fcitx-config/iniparser.h>
+#include <fcitx-utils/event.h>
 #include <fcitx-utils/eventdispatcher.h>
+#include <fcitx-utils/trackableobject.h>
 #include <fcitx-utils/i18n.h>
 #include <fcitx-utils/key.h>
 #include <fcitx/addonfactory.h>
@@ -167,7 +169,9 @@ private:
     void showConversionChoices(InputContext *ic,
                                const std::vector<std::string> &sentences);
     // Abandon an in-progress/shown conversion, keep the composing buffer.
-    void cancelConversion(InputContext *ic);
+    // A non-empty `notice` is shown as a brief auxUp message (e.g. why the
+    // conversion produced nothing) and clears on the next keystroke.
+    void cancelConversion(InputContext *ic, std::string notice = {});
     // Best-effort: register each changed phrase+bopomofo with libchewing so
     // it learns the correction. No-op unless LlmLearn is on and a clean
     // bopomofo was captured for the interval.
@@ -195,6 +199,17 @@ private:
     // wrote a wrong-pronunciation userphrase that crashed libchewing's
     // decoder.
     std::vector<std::string> convertBopomofo_;
+
+    // One-shot feedback line (auxUp) shown after a conversion ends without
+    // choices -- "無建議", "slothingd 未執行", ... Cleared on the next
+    // keystroke so it never lingers.
+    std::string convertNotice_;
+    // Repaints the "轉換中" indicator every 500ms while Converting, so the
+    // user sees progress (animated dots + elapsed seconds) instead of a
+    // frozen label. Destroyed on any state exit.
+    std::unique_ptr<EventSourceTime> convertTimer_;
+    int convertTicks_ = 0;
+    TrackableObjectReference<InputContext> convertIc_;
 
     // Single background worker for the in-flight request. The joinable thread
     // + stop flag + shared socket fd let the destructor tear down safely
