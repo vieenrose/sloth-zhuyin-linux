@@ -350,15 +350,26 @@ int main(int argc, char ** argv) {
                 }
                 for (const auto & syl : syllables) {
                     // exact (tonal) lookup first; a syllable with no tone mark
-                    // falls back to the toneless union of all its tones
+                    // falls back to the toneless union of all its tones.
+                    const std::vector<std::string> * cands = nullptr;
                     auto it = table.tonal.find(syl);
-                    if (it == table.tonal.end()) {
-                        it = table.toneless.find(strip_tones(syl));
-                        if (it == table.toneless.end()) {
-                            throw std::runtime_error("unknown syllable: " + syl);
+                    if (it != table.tonal.end()) {
+                        cands = &it->second;
+                    } else {
+                        auto it2 = table.toneless.find(strip_tones(syl));
+                        if (it2 != table.toneless.end()) {
+                            cands = &it2->second;
                         }
                     }
-                    positions.push_back(it->second);
+                    if (cands) {
+                        positions.push_back(*cands);
+                    } else {
+                        // Not a bopomofo syllable: a code-switch English token
+                        // (React, Python, ...). Pass it through as a literal
+                        // single-candidate position so the grammar keeps it
+                        // verbatim while the model decodes the zhuyin around it.
+                        positions.push_back({syl});
+                    }
                 }
             } else {
                 positions =

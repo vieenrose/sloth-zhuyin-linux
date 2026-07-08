@@ -70,6 +70,44 @@ def toneless(syls):
     return " ".join("".join(c for c in syl if c not in TONES) for syl in syls)
 
 
+import re
+
+# A run of latin letters/digits/word-punct kept verbatim in code-switch input
+# (React, Python, C++, unit-test, v0.4 ...).
+LATIN_RUN = re.compile(r"[A-Za-z][A-Za-z0-9+.#_-]*")
+
+
+def mixed_input(s, tone=True):
+    """Code-switch user message: Han chars -> bopomofo syllables, latin runs
+    passed through verbatim, original order preserved. Returns None unless the
+    sentence is genuinely zh/en mixed and every Han char bopomofo-izes -- the
+    exact input the daemon's decode grammar reconstructs (English literal,
+    zhuyin decoded)."""
+    if not LATIN_RUN.search(s):
+        return None
+    parts, i, has_han = [], 0, False
+    while i < len(s):
+        m = LATIN_RUN.match(s, i)
+        if m:
+            parts.append(m.group(0))
+            i = m.end()
+            continue
+        ch = s[i]
+        if ch.isspace():
+            i += 1
+            continue
+        syl = bopomofo(ch)
+        if syl is None:
+            return None
+        has_han = True
+        one = syl[0]
+        if not tone:
+            one = "".join(c for c in one if c not in TONES)
+        parts.append(one)
+        i += 1
+    return " ".join(parts) if has_han else None
+
+
 def harvest_positions(k):
     r = subprocess.run([HARVEST, k], capture_output=True, text=True)
     if r.returncode != 0:
@@ -115,7 +153,7 @@ def main():
 
     ids = []
     stats = {"plain": 0, "select": 0, "select1": 0, "z2t": 0, "t2z": 0,
-             "toneless": 0, "with_ctx": 0}
+             "toneless": 0, "with_ctx": 0, "codeswitch": 0}
 
     def emit(text):
         ids.extend(tok(text, add_special_tokens=False)["input_ids"])
@@ -130,7 +168,10 @@ def main():
     prev = ""  # preceding corpus sentence (adjacent lines are same-doc)
     for line in open(args.corpus, encoding="utf-8"):
         s = line.strip()
-        if not s or s in hold or not (2 <= len(s) <= 18):
+        # Allow longer lines when they carry latin (code-switch sentences run
+        # longer because an English word is several chars); plain zh stays <=18.
+        maxlen = 30 if LATIN_RUN.search(s) else 18
+        if not s or s in hold or not (2 <= len(s) <= maxlen):
             prev = ""
             continue
         n += 1
@@ -145,6 +186,15 @@ def main():
         # plain LM
         emit(s)
         stats["plain"] += 1
+        # Code-switch: zh/en mixed sentences (Han -> bopomofo, English kept
+        # verbatim). These fail full-sentence bopomofo() below, so emit here.
+        mi = mixed_input(s)
+        if mi:
+            emit(chatml("注音轉繁體中文。", ctx + mi, s)); stats["codeswitch"] += 1
+            mi_tl = mixed_input(s, tone=False)
+            if mi_tl and mi_tl != mi:
+                emit(chatml("注音轉繁體中文。", ctx + mi_tl, s))
+                stats["codeswitch"] += 1
         syls = bopomofo(s)
         if syls is None:
             prev = s
