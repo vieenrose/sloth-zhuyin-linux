@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Slothing IME icon: a cute sloth face in the sloth-brown brand palette.
+       Bold dark eye-mask + big eyes stay legible down to 16px. -->
+  <defs>
+    <radialGradient id="face" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#f6e4cb"/>
+      <stop offset="100%" stop-color="#e8caa2"/>
+    </radialGradient>
+  </defs>
+
+  <!-- badge -->
+  <circle cx="128" cy="128" r="120" fill="url(#face)" stroke="#8b5a2b" stroke-width="10"/>
+
+  <!-- fur tufts on top -->
+  <path d="M74 44 q14 -26 34 -8 q-8 6 -14 20 z" fill="#a9743f"/>
+  <path d="M182 44 q-14 -26 -34 -8 q8 6 14 20 z" fill="#a9743f"/>
+
+  <!-- rosy cheeks -->
+  <ellipse cx="64" cy="160" rx="18" ry="13" fill="#e0a170" opacity="0.55"/>
+  <ellipse cx="192" cy="160" rx="18" ry="13" fill="#e0a170" opacity="0.55"/>
+
+  <!-- signature sloth eye-mask (dark teardrop patches), well separated so
+       the two eyes stay distinct even at 16px -->
+  <path d="M84 86 q34 4 34 38 q0 32 -34 42 q-34 -10 -34 -42 q0 -34 34 -38 z" fill="#6e4a2c"/>
+  <path d="M172 86 q-34 4 -34 38 q0 32 34 42 q34 -10 34 -42 q0 -34 -34 -38 z" fill="#6e4a2c"/>
+
+  <!-- big friendly eyes -->
+  <circle cx="84" cy="126" r="21" fill="#2e1d12"/>
+  <circle cx="172" cy="126" r="21" fill="#2e1d12"/>
+  <circle cx="91" cy="118" r="7" fill="#fff8f0"/>
+  <circle cx="179" cy="118" r="7" fill="#fff8f0"/>
+  <circle cx="78" cy="133" r="3.5" fill="#fff8f0" opacity="0.85"/>
+  <circle cx="166" cy="133" r="3.5" fill="#fff8f0" opacity="0.85"/>
+
+  <!-- nose -->
+  <path d="M128 152 q17 0 13 13 q-4 9 -13 9 q-9 0 -13 -9 q-4 -13 13 -13 z" fill="#4a2f1e"/>
+
+  <!-- content little smile -->
+  <path d="M106 184 q22 17 44 0" fill="none" stroke="#4a2f1e"
+        stroke-width="7" stroke-linecap="round"/>
+</svg>
