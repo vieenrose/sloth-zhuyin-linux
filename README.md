@@ -35,7 +35,64 @@ security/lifetime/UX bugs in the first async-suggestion design; it is now a
 **pull-model conversion** (convert key → native candidate list) with a
 hardened daemon (per-user socket, SIGPIPE-safe, read-timeout) and a
 lifetime-safe background worker. Example: type ㄨㄛˇㄗㄞˋㄔㄨㄥˊㄒㄧㄣㄎㄠˇㄌㄩˋ,
-press F9 → 我在重新考慮 offered where raw chewing produces 我再重新考慮.
+press Ctrl+Enter → 我在重新考慮 offered where raw chewing produces
+我再重新考慮.
+
+## Roadmap
+
+Informed by a verified research pass over the LLM-IME literature and the
+zhuyin open-source ecosystem (`RESEARCH-LLM-IME.md`). As far as we could
+verify, no other open-source zhuyin IME has an LLM component — McBopomofo,
+vChewing, and libchewing are all purely statistical — so the goal is to keep
+the "local, private, provably-safe" positioning while closing the accuracy
+gap to commercial cloud systems (iFlytek's GeneInput reports P@1 88.4 vs ~71
+for traditional conversion, with a 2.6B cloud model; we target the on-device
+niche they left open).
+
+**Done**
+- [x] fcitx5 engine (fork of fcitx5-chewing, side-by-side installable)
+- [x] `slothingd`: local llama.cpp daemon, grammar-constrained decoding
+      (output provably built from real libchewing candidates)
+- [x] Pull-model conversion UX: convert key → native candidate list
+- [x] Model selection by benchmark: LFM2.5-230M Q4_0 (95% char accuracy,
+      ~200-350ms/request; see `MODEL_BENCHMARKS.md`)
+- [x] Surrounding-text context: the LLM sees the document before the cursor
+- [x] Tail-window conversion for long sentences (front becomes context)
+- [x] Learning on accept: tone-correct `chewing_userphrase_add` so chewing
+      itself converges
+- [x] Hardened daemon (per-user `$XDG_RUNTIME_DIR` socket, SIGPIPE-safe,
+      read timeouts) and lifetime-safe worker threading
+
+**Next (v0.3) — accuracy**
+- [ ] Fine-tune the 230M model on zhuyin↔text conversion tasks. Rationale:
+      off-the-shelf LLMs align phonetic and text representations poorly until
+      explicitly trained on conversion (Huawei PY-GEC: cosine 0.26 → 0.82);
+      this is likely the single biggest quality lever available.
+- [ ] Evaluation harness: a scored zhuyin→sentence test set (per-char and
+      per-sentence accuracy, latency) run against the daemon in CI, so model
+      and prompt changes are measured instead of eyeballed.
+
+**Then (v0.4) — personalization, kept local**
+- [ ] Log accepted vs. shown-but-rejected conversion candidates on-device
+      (opt-in) and use them as preference signal — the GeneInput RLHF recipe,
+      but private: nothing leaves the machine.
+- [ ] Per-user phrase bias in reranking (beyond what chewing's own learning
+      captures).
+
+**Later (v0.5+) — looser input**
+- [ ] Tone-free zhuyin mode: type without tone keys, let the LLM disambiguate
+      (research shows abbreviated/noisy input is where generation beats
+      reranking — this likely needs constrained *generation* over syllable
+      lattices, not just candidate reranking).
+- [ ] Typo tolerance for adjacent-key zhuyin mistakes.
+- [ ] Packaging: .deb + a one-command setup script (llama.cpp build + model
+      download), so non-developers can install.
+
+**Non-goals**
+- Cloud inference of any kind; telemetry. The daemon binds a per-user socket
+  and everything runs locally, always.
+- Replacing libchewing: the hybrid (statistical hot path + LLM on demand) is
+  also the shipped pattern across the industry (PERT + n-gram + lexicon).
 
 ## Build & install the fcitx5 addon
 
