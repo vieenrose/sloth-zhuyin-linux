@@ -119,6 +119,15 @@ Restart fcitx5 (`fcitx5 -r -d`) and add "Slothing" (懶) as an input method via
 
 ## Set up the local LLM runtime and build slothingd
 
+One command — clones and builds llama.cpp, downloads the model, and builds
+`slothingd` (idempotent, safe to re-run):
+
+```sh
+sh scripts/setup-llm.sh
+```
+
+<details><summary>...or the equivalent manual steps</summary>
+
 ```sh
 mkdir -p llm && cd llm
 git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
@@ -132,6 +141,13 @@ cd ..
 cmake -B engine/slothingd/build -S engine/slothingd -DCMAKE_BUILD_TYPE=Release
 cmake --build engine/slothingd/build -j"$(nproc)"
 ```
+</details>
 
 Run it with `packaging/run-slothingd.sh` (manual start; no auto-start/systemd
 unit by design — run it yourself when you want the reranker active).
+
+## Development
+
+`.github/workflows/ci.yml` builds the addon + daemon and runs the evaluation
+harness (`eval/`) on every push, gating on LLM top-1 character accuracy so a
+model or prompt change that breaks the pipeline fails CI.

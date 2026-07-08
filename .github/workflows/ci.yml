@@ -1,0 +1,57 @@
+name: build-and-eval
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-eval:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config git \
+            libchewing3-dev libfcitx5core-dev libfcitx5config-dev \
+            libfcitx5utils-dev extra-cmake-modules gettext libfmt-dev \
+            python3 python3-pip
+
+      - name: Set up LLM runtime (llama.cpp + model + slothingd)
+        run: |
+          pip install --break-system-packages huggingface_hub
+          export PATH="$HOME/.local/bin:$PATH"
+          sh scripts/setup-llm.sh
+
+      - name: Build the fcitx5 addon
+        run: |
+          cmake -B engine/fcitx5-chewing/build -S engine/fcitx5-chewing \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build engine/fcitx5-chewing/build -j"$(nproc)"
+
+      - name: Build eval harvest tool
+        run: gcc eval/harvest.c -o eval/harvest $(pkg-config --cflags --libs chewing)
+
+      - name: Run the evaluation harness (regression gate)
+        run: |
+          export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+          ./engine/slothingd/build/slothingd \
+            -m llm/models/lfm2.5-230m-q4/LFM2.5-230M-Q4_0.gguf \
+            -s "$XDG_RUNTIME_DIR/slothingd.sock" &
+          # wait for the socket to appear (model load)
+          for i in $(seq 1 60); do
+            [ -S "$XDG_RUNTIME_DIR/slothingd.sock" ] && break
+            sleep 2
+          done
+          python3 eval/run_eval.py --socket "$XDG_RUNTIME_DIR/slothingd.sock" \
+            | tee eval-result.txt
+          # Gate: LLM top-1 char accuracy must not fall below 90%
+          # (baseline 95.8%; generous floor guards against a broken pipeline,
+          # not model-quality micro-regressions).
+          acc=$(grep -oP 'LLM top-1:.*char \d+/\d+ \(\K[0-9.]+' eval-result.txt)
+          echo "LLM char accuracy: ${acc}%"
+          awk -v a="$acc" 'BEGIN { exit (a+0 >= 90.0) ? 0 : 1 }'
