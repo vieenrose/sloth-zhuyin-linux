@@ -47,7 +47,13 @@ vChewing, and libchewing are all purely statistical — so the goal is to keep
 the "local, private, provably-safe" positioning while closing the accuracy
 gap to commercial cloud systems (iFlytek's GeneInput reports P@1 88.4 vs ~71
 for traditional conversion, with a 2.6B cloud model; we target the on-device
-niche they left open).
+niche they left open). Notably, even Apple Intelligence's Traditional
+Chinese debut (iOS 26.1, Nov 2025) only layers post-typing assistance
+(Writing Tools, translation) *around* the keyboard — the zhuyin
+conversion/選字 step itself remains unimproved by every major vendor, and
+the one commercial local-first AI zhuyin keyboard we found (Keyly) is
+closed-source and iOS-only. That conversion step, on desktop Linux, in the
+open, is exactly Slothing's lane.
 
 **Done**
 - [x] fcitx5 engine (fork of fcitx5-chewing, side-by-side installable)
@@ -87,6 +93,10 @@ niche they left open).
 - [ ] Typo tolerance for adjacent-key zhuyin mistakes.
 - [ ] Packaging: .deb + a one-command setup script (llama.cpp build + model
       download), so non-developers can install.
+- [ ] (Exploratory) Writing-tools actions on the preedit — a second key that
+      offers rewrite/formalize variants of the composed sentence, Keyly-style
+      but local and open; only worth pursuing once conversion accuracy is
+      where we want it.
 
 **Non-goals**
 - Cloud inference of any kind; telemetry. The daemon binds a per-user socket
