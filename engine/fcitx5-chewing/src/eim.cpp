@@ -11,6 +11,8 @@
 #include <cstdarg>
 #include <cstdlib>
 #include <cstring>
+#include <fcitx-utils/standardpath.h>
+#include <fstream>
 #include <fcitx-utils/utf8.h>
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputcontext.h>
@@ -380,6 +382,20 @@ std::string buildRerankRequest(const std::vector<std::vector<std::string>> &posi
     return req.dump() + "\n";
 }
 
+// Decode-mode request: the typed bopomofo syllables themselves, for the
+// daemon's libchewing-free path (-t phonetic_table.tsv). The LLM decodes the
+// sentence directly rather than reranking libchewing's candidates.
+std::string buildDecodeRequest(const std::vector<std::string> &syllables,
+                               int n, const std::string &context) {
+    json req;
+    req["syllables"] = syllables;
+    req["n"] = n;
+    if (!context.empty()) {
+        req["context"] = context;
+    }
+    return req.dump() + "\n";
+}
+
 // Why a query came back empty, so the UI can tell the user instead of
 // silently dropping back to composing (the old behaviour, which read as
 // "the key did nothing").
@@ -395,14 +411,12 @@ enum class RerankError {
 // thread at teardown; clears it again before returning. Returns an empty
 // list on any failure (daemon absent, timeout, malformed/partial response)
 // and reports which kind through `err`.
-std::vector<std::string> queryReranker(const std::vector<std::vector<std::string>> &positions,
-                                       int n, const std::string &context,
-                                       std::atomic<int> &fdSlot,
-                                       RerankError &err) {
+// Sends a pre-built request string to slothingd and returns its "sentences".
+// Shared by rerank and decode paths; see queryReranker/queryDecoder.
+std::vector<std::string> sendDaemonRequest(const std::string &req,
+                                           std::atomic<int> &fdSlot,
+                                           RerankError &err) {
     err = RerankError::Empty;
-    if (positions.empty()) {
-        return {};
-    }
 
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -433,7 +447,6 @@ std::vector<std::string> queryReranker(const std::vector<std::vector<std::string
         return result;
     };
 
-    std::string req = buildRerankRequest(positions, n, context);
     size_t off = 0;
     while (off < req.size()) {
         ssize_t w = send(fd, req.data() + off, req.size() - off, MSG_NOSIGNAL);
@@ -472,6 +485,30 @@ std::vector<std::string> queryReranker(const std::vector<std::vector<std::string
     return finish({});
 }
 
+std::vector<std::string> queryReranker(const std::vector<std::vector<std::string>> &positions,
+                                       int n, const std::string &context,
+                                       std::atomic<int> &fdSlot,
+                                       RerankError &err) {
+    if (positions.empty()) {
+        err = RerankError::Empty;
+        return {};
+    }
+    return sendDaemonRequest(buildRerankRequest(positions, n, context), fdSlot,
+                             err);
+}
+
+std::vector<std::string> queryDecoder(const std::vector<std::string> &syllables,
+                                      int n, const std::string &context,
+                                      std::atomic<int> &fdSlot,
+                                      RerankError &err) {
+    if (syllables.empty()) {
+        err = RerankError::Empty;
+        return {};
+    }
+    return sendDaemonRequest(buildDecodeRequest(syllables, n, context), fdSlot,
+                             err);
+}
+
 // Verifies `sentence` is exactly the concatenation of one candidate from each
 // entry of `positions`, in order -- so it can only be a combination of real
 // libchewing alternatives, never arbitrary LLM output. Longest-match per
@@ -504,6 +541,49 @@ ChewingEngine::ChewingEngine(Instance *instance)
     }
     dispatcher_.attach(&instance_->eventLoop());
     reloadConfig();
+    loadPhoneticTable();
+}
+
+void ChewingEngine::loadPhoneticTable() {
+    // Env override (dev/testing), else the installed data location.
+    std::string path;
+    if (const char *env = std::getenv("SLOTHING_PHONETIC_TABLE")) {
+        path = env;
+    } else {
+        path = StandardPath::global().locate(StandardPath::Type::Data,
+                                             "slothing/phonetic_table.tsv");
+    }
+    if (path.empty()) {
+        CHEWING_DEBUG() << "phonetic table not found; DecodeMode unavailable";
+        return;
+    }
+    std::ifstream f(path);
+    std::string line;
+    while (std::getline(f, line)) {
+        auto tab = line.find('\t');
+        if (tab == std::string::npos) {
+            continue;
+        }
+        std::string syl = line.substr(0, tab);
+        std::vector<std::string> chars;
+        // one Han character per UTF-8 codepoint (3 bytes in the BMP, but read
+        // the lead byte to stay correct for any width)
+        const std::string &rest = line.substr(tab + 1);
+        for (size_t i = 0; i < rest.size();) {
+            unsigned char c = rest[i];
+            size_t len = (c & 0xF8) == 0xF0   ? 4
+                         : (c & 0xF0) == 0xE0 ? 3
+                         : (c & 0xE0) == 0xC0 ? 2
+                                              : 1;
+            chars.push_back(rest.substr(i, len));
+            i += len;
+        }
+        if (!chars.empty()) {
+            phoneticTable_.emplace(std::move(syl), std::move(chars));
+        }
+    }
+    CHEWING_DEBUG() << "loaded phonetic table: " << phoneticTable_.size()
+                    << " syllables from " << path;
 }
 
 ChewingEngine::~ChewingEngine() {
@@ -838,6 +918,159 @@ void ChewingEngine::startConversion(InputContext *ic) {
                 cancelConversion(ic, failNotice);
                 return;
             }
+            showConversionChoices(ic, verified);
+        });
+    });
+}
+
+void ChewingEngine::startDecodeConversion(InputContext *ic) {
+    ChewingContext *ctx = context_.get();
+    clearHint();
+    // Same settled-buffer preconditions as startConversion.
+    const char *zuin = chewing_bopomofo_String_static(ctx);
+    if (chewing_buffer_Len(ctx) < 1 || (zuin && zuin[0]) ||
+        chewing_cand_TotalChoice(ctx) > 0) {
+        return;
+    }
+
+    // The typed syllables, one bopomofo string (with tone) per syllable --
+    // exactly chewing's phone sequence. libchewing is used here only as the
+    // zhuyin keyboard parser; its sentence decode is discarded.
+    std::vector<std::string> syllables;
+    int phoneLen = chewing_get_phoneSeqLen(ctx);
+    if (unsigned short *phones = chewing_get_phoneSeq(ctx)) {
+        for (int i = 0; i < phoneLen; i++) {
+            char pb[24] = {0};
+            if (chewing_phone_to_bopomofo(phones[i], pb, sizeof(pb)) == 0 &&
+                pb[0]) {
+                syllables.emplace_back(pb);
+            } else {
+                syllables.clear();
+                break;
+            }
+        }
+        chewing_free(phones);
+    }
+    if (syllables.empty()) {
+        convertNotice_ = "無法轉換此句";
+        updateUI(ic);
+        return;
+    }
+
+    // Each syllable becomes a 1-char segment; its candidates are the phonetic
+    // table's legal characters for that reading (frequency-ordered). A
+    // syllable missing from the table aborts decode for this buffer.
+    std::vector<std::vector<std::string>> positions;
+    std::vector<std::pair<int, int>> intervals;
+    for (size_t i = 0; i < syllables.size(); i++) {
+        auto it = phoneticTable_.find(syllables[i]);
+        if (it == phoneticTable_.end() || it->second.empty()) {
+            convertNotice_ = "此音無候選";
+            updateUI(ic);
+            return;
+        }
+        positions.push_back(it->second);
+        intervals.emplace_back(static_cast<int>(i), static_cast<int>(i + 1));
+    }
+
+    // Document context (same as startConversion).
+    std::string context;
+    if (ic->capabilityFlags().test(CapabilityFlag::SurroundingText) &&
+        ic->surroundingText().isValid()) {
+        const auto &st = ic->surroundingText();
+        const std::string &t = st.text();
+        auto tLen = utf8::lengthValidated(t);
+        if (tLen != utf8::INVALID_LENGTH && st.cursor() <= tLen) {
+            context = t.substr(0, utf8::ncharByteLength(t.begin(), st.cursor()));
+        }
+    }
+
+    stopWorker();
+    convertState_ = ConvertState::Converting;
+    // convertBuffer_ is seeded to the daemon's decoded sentence once it
+    // returns; until then use chewing's own decode as a placeholder so the
+    // "converting" indicator has something to show.
+    UniqueCPtr<char, chewing_free> buf(chewing_buffer_String(ctx));
+    convertBuffer_ = buf.get();
+    convertPositions_ = positions;
+    convertIntervals_ = intervals;
+    convertBopomofo_ = syllables; // 1 syllable per char; aligns for teaching
+    const uint64_t generation = ++convertGeneration_;
+    const int n = std::max(*config_.LlmCandidateCount, 4);
+    auto icRef = ic->watch();
+    convertNotice_.clear();
+    convertTicks_ = 0;
+    convertIc_ = ic->watch();
+    updateUI(ic);
+
+    convertTimer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + 500000, 10000,
+        [this](EventSourceTime *source, uint64_t) {
+            if (convertState_ == ConvertState::Converting) {
+                if (auto *timerIc = convertIc_.get()) {
+                    convertTicks_++;
+                    updateUI(timerIc);
+                }
+                source->setNextInterval(500000);
+                source->setOneShot();
+            }
+            return true;
+        });
+
+    worker_ = std::thread([this, icRef, generation, n,
+                           syllables = std::move(syllables),
+                           positions = std::move(positions),
+                           context = std::move(context)]() {
+        RerankError err = RerankError::None;
+        std::vector<std::string> verified;
+        for (auto &sentence :
+             queryDecoder(syllables, n, context, inflightFd_, err)) {
+            // The grammar restricts output to table chars, but verify anyway:
+            // every char must be one of its segment's candidates.
+            if (!matchesPositions(sentence, positions)) {
+                continue;
+            }
+            if (std::find(verified.begin(), verified.end(), sentence) ==
+                verified.end()) {
+                verified.push_back(std::move(sentence));
+            }
+        }
+        if (workerStop_.load()) {
+            return;
+        }
+        std::string failNotice;
+        if (verified.empty()) {
+            switch (err) {
+            case RerankError::Connect:
+                failNotice = "slothingd 未執行";
+                break;
+            case RerankError::Io:
+                failNotice = "slothingd 無回應";
+                break;
+            default:
+                failNotice = "無法解碼";
+                break;
+            }
+        }
+        dispatcher_.schedule([this, icRef, generation,
+                              verified = std::move(verified),
+                              failNotice = std::move(failNotice)]() {
+            if (generation != convertGeneration_ ||
+                convertState_ != ConvertState::Converting) {
+                return;
+            }
+            auto *ic = icRef.get();
+            if (!ic) {
+                convertState_ = ConvertState::Composing;
+                return;
+            }
+            if (verified.empty()) {
+                cancelConversion(ic, failNotice);
+                return;
+            }
+            // Seed convertBuffer_ to the best decode so segment defaults and
+            // the "original" fallback track the LLM, not chewing.
+            convertBuffer_ = verified.front();
             showConversionChoices(ic, verified);
         });
     });
@@ -1206,7 +1439,14 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         if (chewing_buffer_Len(ctx) >= 1 && !(cz && cz[0]) &&
             chewing_cand_TotalChoice(ctx) == 0) {
             keyEvent.filterAndAccept();
-            startConversion(keyEvent.inputContext());
+            // DecodeMode bypasses libchewing's decode entirely (LLM decodes
+            // the syllables) when the phonetic table is available; otherwise
+            // fall back to reranking libchewing's candidates.
+            if (*config_.DecodeMode && !phoneticTable_.empty()) {
+                startDecodeConversion(keyEvent.inputContext());
+            } else {
+                startConversion(keyEvent.inputContext());
+            }
             return;
         }
     }

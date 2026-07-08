@@ -26,6 +26,7 @@
 #include <string>
 #include <thread>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 namespace fcitx {
@@ -114,7 +115,14 @@ FCITX_CONFIGURATION(
     Option<bool> LlmLearn{
         this, "LlmLearn",
         _("Teach chewing the phrase when an LLM candidate is accepted"),
-        true};);
+        true};
+    Option<bool> DecodeMode{
+        this, "DecodeMode",
+        _("Libchewing-free decode (experimental): the convert key sends your "
+          "zhuyin syllables to the LLM to decode directly, instead of "
+          "reranking libchewing's candidates. Needs slothingd started with "
+          "-t phonetic_table.tsv."),
+        false};);
 
 class ChewingEngine final : public InputMethodEngine {
 public:
@@ -169,6 +177,16 @@ private:
 
     // Begin a conversion for the current buffer (harvest + spawn worker).
     void startConversion(InputContext *ic);
+    // Libchewing-free variant (DecodeMode): send the typed bopomofo syllables
+    // to the daemon's decode path; each syllable becomes a 1-char segment
+    // whose candidates are the phonetic table's legal characters. Reuses the
+    // same segment-conversion UI. No-op (falls back to startConversion) if the
+    // phonetic table failed to load.
+    void startDecodeConversion(InputContext *ic);
+    // Load model/phonetic_table.tsv (syllable -> legal chars) once, for
+    // DecodeMode's per-segment candidate lists. Best-effort: an empty table
+    // just means DecodeMode falls back to reranking.
+    void loadPhoneticTable();
     // Enter segment-conversion for the returned sentences (the best sets the
     // initial per-segment selection); the user then tweaks segments.
     void showConversionChoices(InputContext *ic,
@@ -223,6 +241,11 @@ private:
     // interval of convertPositions_, and which segment the arrows act on.
     std::vector<int> segSel_;
     int segFocus_ = 0;
+
+    // DecodeMode phonetic table: bopomofo syllable -> legal Traditional
+    // characters (frequency-ordered), loaded once from phonetic_table.tsv.
+    // Empty if not found; DecodeMode then falls back to reranking.
+    std::unordered_map<std::string, std::vector<std::string>> phoneticTable_;
 
     // One-shot feedback line (auxUp) shown after a conversion ends without
     // choices -- "無建議", "slothingd 未執行", ... Cleared on the next
