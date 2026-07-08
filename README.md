@@ -12,7 +12,7 @@ An LLM-enhanced Zhuyin (Bopomofo) input method for fcitx5 on Ubuntu/Kubuntu.
   Python bindings) that reranks libchewing's candidate list using
   grammar-constrained decoding, fixing the classic homophone-disambiguation
   weakness of n-gram based engines. It runs on a **pull** model: type your
-  whole sentence as usual, then press the **convert key** (default **F9**) to
+  whole sentence as usual, then press the **convert key** (default **Ctrl+Enter**) to
   get the LLM's alternatives in a normal fcitx5 candidate list — number keys /
   arrows select, Enter/Space commits the highlighted one, Esc cancels. Nothing
   runs during ordinary typing, and the LLM never rewrites text on its own; you
@@ -71,15 +71,15 @@ open, is exactly Slothing's lane.
       read timeouts) and lifetime-safe worker threading
 
 **Next (v0.3) — accuracy**
-- [ ] Fine-tune the 230M model on zhuyin↔text conversion tasks. **Necessary,
-      not optional**: on the 80-case eval the *un-fine-tuned* base model's
-      top-1 pick (58% sentence) is actually a slight regression vs chewing
-      alone (62%) — it wins only on recall (right answer somewhere in the
-      list: 76% vs 62%). Fine-tuning's job is to convert that recall headroom
-      into a reliable top-1 ranking. Off-the-shelf LLMs align phonetic and
-      text representations poorly until explicitly trained on conversion
-      (Huawei PY-GEC: cosine 0.26 → 0.82). Pipeline staged in `finetune/`;
-      awaiting a GPU workstation.
+- [~] Task-specialise the conversion model. **Necessary, not optional**: on
+      the 159-case eval the *un-fine-tuned* LFM2.5-230M top-1 (53% sentence)
+      is a net regression vs chewing (61%); it wins only on recall (right
+      answer in the list: 73% vs 61%). The job is to convert that recall
+      headroom into reliable top-1. Two tracks: **SlothLM** — a ~34M
+      from-scratch zhuyin-native model (`model/DESIGN.md`, primary), and a
+      LoRA fine-tune of LFM2.5 (`finetune/`, fallback). Off-the-shelf LLMs
+      align phonetics poorly until trained on conversion (Huawei PY-GEC:
+      cosine 0.26 → 0.82). SlothLM training in progress on GPU.
 - [x] Evaluation harness: a scored zhuyin→sentence test set (per-char and
       per-sentence accuracy, latency) run against the daemon in CI, so model
       and prompt changes are measured instead of eyeballed.
