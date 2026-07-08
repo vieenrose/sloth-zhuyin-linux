@@ -508,17 +508,6 @@ void ChewingEngine::startConversion(InputContext *ic) {
                         << positions.size() << " buffer='" << buffer << "')";
         return;
     }
-    bool anyAlternative = false;
-    for (const auto &cands : positions) {
-        if (cands.size() > 1) {
-            anyAlternative = true;
-            break;
-        }
-    }
-    if (!anyAlternative) {
-        CHEWING_DEBUG() << "startConversion: no interval offers an alternative";
-        return;
-    }
     CHEWING_DEBUG() << "startConversion: buffer='" << buffer << "' positions="
                     << positions.size();
 
@@ -557,6 +546,36 @@ void ChewingEngine::startConversion(InputContext *ic) {
         }
     }
 
+    // Long sentences: convert only a tail window of intervals and hand the
+    // untouched front of the buffer to the LLM as context instead. This keeps
+    // the choice set (and thus latency) bounded, and concentrates the
+    // alternatives where the user is still working -- the end of the
+    // sentence. The window always ends at the last interval.
+    constexpr size_t kMaxLlmIntervals = 4;
+    std::string prefixText;
+    std::vector<std::vector<std::string>> llmPositions = positions;
+    if (intervals.size() > kMaxLlmIntervals) {
+        size_t firstIdx = intervals.size() - kMaxLlmIntervals;
+        int splitChar = intervals[firstIdx].first;
+        prefixText = utf8CharSlice(buffer, 0, splitChar);
+        llmPositions.assign(positions.begin() + firstIdx, positions.end());
+        context += prefixText;
+        CHEWING_DEBUG() << "startConversion: tail window of "
+                        << llmPositions.size() << " intervals, prefix='"
+                        << prefixText << "'";
+    }
+    bool anyAlternative = false;
+    for (const auto &cands : llmPositions) {
+        if (cands.size() > 1) {
+            anyAlternative = true;
+            break;
+        }
+    }
+    if (!anyAlternative) {
+        CHEWING_DEBUG() << "startConversion: window offers no alternative";
+        return;
+    }
+
     // Tear down any prior worker, then start fresh.
     stopWorker();
     convertState_ = ConvertState::Converting;
@@ -565,22 +584,30 @@ void ChewingEngine::startConversion(InputContext *ic) {
     convertIntervals_ = intervals;
     convertBopomofo_ = std::move(bopomofo);
     const uint64_t generation = ++convertGeneration_;
-    const int n = *config_.LlmCandidateCount;
+    // Ask for enough passes that, after dedup, at least a few real
+    // alternatives usually survive.
+    const int n = std::max(*config_.LlmCandidateCount, 4);
     auto icRef = ic->watch();
 
     updateUI(ic); // show the "converting" indicator
 
     worker_ = std::thread([this, icRef, generation, n,
                            buffer = std::move(buffer),
-                           positions = std::move(positions),
+                           positions = std::move(llmPositions),
+                           prefixText = std::move(prefixText),
                            context = std::move(context)]() {
         std::vector<std::string> verified;
         for (auto &sentence : queryReranker(positions, n, context, inflightFd_)) {
-            // Keep only sentences provably built from real chewing candidates.
-            if (matchesPositions(sentence, positions) &&
-                std::find(verified.begin(), verified.end(), sentence) ==
-                    verified.end()) {
-                verified.push_back(std::move(sentence));
+            // Keep only sentences provably built from real chewing candidates
+            // for the converted window, then re-attach the untouched front so
+            // every choice is a full replacement for the buffer.
+            if (!matchesPositions(sentence, positions)) {
+                continue;
+            }
+            std::string full = prefixText + sentence;
+            if (std::find(verified.begin(), verified.end(), full) ==
+                verified.end()) {
+                verified.push_back(std::move(full));
             }
         }
         // Always offer chewing's own sentence too (as the last entry when the
