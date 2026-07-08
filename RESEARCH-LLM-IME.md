@@ -67,6 +67,31 @@ open-source precedent in the zhuyin ecosystem.** Even iFlytek's commercial
 system couldn't yet run on-device at 2.6B in 2023 — a local 230M model on
 desktop Linux is precisely the gap they named as future work.
 
+## Apple Intelligence & zh-TW (follow-up pass, July 2026)
+
+- **Apple Intelligence gained Traditional Chinese in iOS 26.1 (Nov 2025)**
+  ([Apple TW newsroom](https://www.apple.com/tw/newsroom/2025/11/apple-intelligence-features-are-now-available-in-traditional-chinese/),
+  [TechNews](https://technews.tw/2025/09/16/apple-intelligence-traditional-chinese/)):
+  Writing Tools (rewrite/summarize), Live Translation, Image Playground,
+  photo search, Siri — on iPhone 15 Pro+ in the 中文（國語－台灣） locale.
+  Crucially, these operate on text *after* it is typed. No evidence surfaced
+  that Apple Intelligence improves the **zhuyin conversion/選字 step itself**.
+- **iOS 17's transformer autocorrect** (the "transformer language model"
+  keyboard feature, [MacRumors](https://www.macrumors.com/guide/ios-17-keyboard/))
+  was English-centric; no verified zhuyin conversion improvement.
+- **Keyly** ([keylyapp.com](https://keylyapp.com/en/)) — a third-party
+  commercial **AI zhuyin keyboard for iPhone/iPad**: offline-capable
+  (privacy-first) with optional cloud models, AI rewrite/translate inside the
+  typing flow. Validates the "AI zhuyin, local-first" product thesis
+  commercially; closed-source, iOS-only.
+
+**Positioning takeaway:** even Apple's zh-TW AI push is post-typing writing
+assistance layered *around* the IME — the conversion step Taiwanese users
+fight daily (homophone 選字) remains unimproved by Apple. Slothing attacks
+exactly that step, on desktop Linux, open source; Keyly's existence shows
+there is commercial appetite for local-first AI zhuyin, with no open-source
+or Linux equivalent.
+
 ## Coverage gaps (absence of evidence ≠ evidence of absence)
 No claims survived (or were found) on: Sogou/Baidu/WeChat-keyboard *shipped*
 LLM features; ASUS 智慧輸入法 internals; Apple/Google zh-TW; RIME/librime LLM
