@@ -95,7 +95,8 @@
     choosing=false;$('sl-segs').innerHTML='';$('sl-cands').innerHTML='';
     const p=preedit();$('sl-pre').textContent=p||'​';
     $('sl-pre').classList.toggle('empty',!p);
-    $('sl-hint').textContent=p?'空白鍵 / 轉換 → 讓 SlothLM 解碼':'在鍵盤上輸入注音（實體鍵盤也可）';
+    $('sl-hint').textContent=p?'空白鍵 / 轉換 → 讓 SlothLM 解碼'
+      :(ready?'在鍵盤上輸入注音（實體鍵盤也可）':'模型載入中…（首次約 20MB）');
   }
   function composed(){return positions.map((c,i)=>c[segSel[i]]).join('');}
   function renderSegments(){
@@ -127,21 +128,23 @@
   function gget(elemId){const el=document.querySelector('#'+elemId+' textarea, #'+elemId+' input');return el?el.value:'';}
   function gclick(elemId){const b=document.querySelector('#'+elemId+' button');if(b){b.click();return true;}return false;}
 
+  let ready=false;
   async function convert(){
     let syls=committed.slice();if(hasPending())syls.push(pending());
     if(!syls.length)return;
     if($('sl-toneless').checked)syls=syls.map(strip);
-    $('sl-hint').textContent='解碼中…';
+    $('sl-hint').textContent=ready?'解碼中…':'模型載入中，請稍候…';
     const before=gget('sl-bridge-out');
     gset('sl-bridge-in',JSON.stringify({syllables:syls}));
     await new Promise(r=>setTimeout(r,60));
     gclick('sl-bridge-btn');
-    // poll for the result to change
-    for(let i=0;i<200;i++){
+    // poll up to 90s: the first decode may wait on the model download/load
+    for(let i=0;i<900;i++){
       await new Promise(r=>setTimeout(r,100));
       const v=gget('sl-bridge-out');
       if(v&&v!==before){
         let d;try{d=JSON.parse(v);}catch(e){continue;}
+        ready=true;
         positions=d.positions;
         segSel=positions.map((cands,k)=>{const ch=[...d.sentence][k];const j=cands.indexOf(ch);return j>=0?j:0;});
         segFocus=segSel.findIndex((_,k)=>positions[k].length>1);if(segFocus<0)segFocus=0;
@@ -150,6 +153,21 @@
     }
     $('sl-hint').textContent='解碼逾時，請重試';
   }
+
+  // Warm the model at page load and flip to ready when it responds, so the
+  // first real convert isn't a cold-load timeout.
+  (async function warm(){
+    for(let tries=0;tries<3&&!ready;tries++){
+      const before=gget('sl-ready-out');
+      gclick('sl-ready-btn');
+      for(let i=0;i<900&&!ready;i++){
+        await new Promise(r=>setTimeout(r,100));
+        if(gget('sl-ready-out')!==before && gget('sl-ready-out')){ready=true;break;}
+      }
+    }
+    if(ready&&!choosing&&!hasPending()&&!committed.length)
+      $('sl-hint').textContent='在鍵盤上輸入注音（實體鍵盤也可）';
+  })();
 
   // keyboard
   const kb=$('sl-kb');

@@ -89,13 +89,31 @@ def decode_bridge(payload):
                        "positions": positions})
 
 
-with gr.Blocks(title="Slothing — Web Zhuyin IME",
-               css="footer{display:none!important}") as demo:
+def ready_ping(_):
+    # forces the model to load (blocks until warm), then reports ready
+    _model()
+    return "ready"
+
+
+# Keep the bridge components MOUNTED (hidden via CSS, not visible=False --
+# a visible=False button may not be in the DOM for the JS to click). The JS
+# sets sl-bridge-in, clicks sl-bridge-btn, and polls sl-bridge-out.
+BRIDGE_CSS = """
+footer{display:none!important}
+#sl-bridge-in,#sl-bridge-out,#sl-bridge-btn,#sl-ready-btn,#sl-ready-out{
+  position:absolute!important;left:-9999px!important;height:0!important;
+  overflow:hidden!important;opacity:0!important;pointer-events:auto!important}
+"""
+
+with gr.Blocks(title="Slothing — Web Zhuyin IME", css=BRIDGE_CSS) as demo:
     gr.HTML(UI)
-    bridge_in = gr.Textbox(visible=False, elem_id="sl-bridge-in")
-    bridge_out = gr.Textbox(visible=False, elem_id="sl-bridge-out")
-    bridge_btn = gr.Button(visible=False, elem_id="sl-bridge-btn")
+    bridge_in = gr.Textbox(elem_id="sl-bridge-in")
+    bridge_out = gr.Textbox(elem_id="sl-bridge-out")
+    bridge_btn = gr.Button(elem_id="sl-bridge-btn")
+    ready_out = gr.Textbox(elem_id="sl-ready-out")
+    ready_btn = gr.Button(elem_id="sl-ready-btn")
     bridge_btn.click(decode_bridge, bridge_in, bridge_out)
+    ready_btn.click(ready_ping, ready_btn, ready_out)
 
 # Load the phonetic table and warm the model at import time -- NOT on demo.load
 # -- so a decode works regardless of how the app is invoked (browser session,
