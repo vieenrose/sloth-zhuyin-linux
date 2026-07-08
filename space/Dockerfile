@@ -26,4 +26,6 @@ COPY --chown=user static ./static
 
 USER user
 EXPOSE 7860
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860", "--log-level", "info"]
+# Diagnostic boot: print markers so we can see exactly where startup dies
+# (import hang vs uvicorn hang) in the Space run logs.
+CMD ["sh", "-c", "echo BOOT_MARKER; python -c 'import sys; print(\"PY\", sys.version, flush=True)'; python -c 'import app; print(\"APP_IMPORT_OK\", flush=True)'; echo LAUNCHING_UVICORN; exec uvicorn app:app --host 0.0.0.0 --port 7860 --log-level info"]
