@@ -16,6 +16,8 @@
   .tag{color:var(--muted);font-size:.85rem;margin:.2rem 0 0}
   .out{width:100%;min-height:3.2rem;border:2px solid var(--border);border-radius:10px;background:var(--panel);padding:.6rem .8rem;font-size:1.3rem;line-height:1.6;margin-bottom:.7rem;white-space:pre-wrap;word-break:break-all}
   .ime{background:var(--panel);border:2px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem}
+  .preview{min-height:1.6rem;font-size:1.35rem;color:var(--muted);letter-spacing:.05em;word-break:break-all}
+  .preview:not(:empty){margin-bottom:.2rem}
   .pre{min-height:2rem;font-size:1.5rem;letter-spacing:.1em;color:var(--brown);border-bottom:2px dashed var(--border);padding-bottom:.4rem;margin-bottom:.5rem;word-break:break-all}
   .pre.empty{color:var(--muted)}
   .segs{display:flex;flex-wrap:wrap;gap:.35rem}.segs:not(:empty){margin-bottom:.5rem}
@@ -49,6 +51,7 @@
   </header>
   <div class="out" id="out"></div>
   <div class="ime">
+    <div class="preview" id="preview"></div>
     <div class="pre empty" id="pre">​</div>
     <div class="segs" id="segs"></div>
     <div class="cands" id="cands"></div>

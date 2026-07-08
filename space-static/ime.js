@@ -74,12 +74,44 @@ function renderComposing(){
   choosing=false;$('segs').innerHTML='';$('cands').innerHTML='';
   const p=preText();$('pre').textContent=p||'​';$('pre').classList.toggle('empty',!p);
   if(ready) $('hint').textContent=p?'空白鍵 / 轉換 → 解碼（中英自動切換）':'直接打注音或英文，會自動辨識';
+  schedulePreview();
+}
+
+// ---- live prediction (chewing-style): after each change, decode the closed
+// syllables in the background and show the predicted sentence above the
+// bopomofo. Debounced + serialized; results for a stale buffer are dropped.
+let previewTimer=null, previewBusy=false, previewGen=0;
+function schedulePreview(){
+  if(!ready){$('preview').textContent='';return;}
+  clearTimeout(previewTimer);
+  if(!committed.length){$('preview').textContent='';return;}
+  previewTimer=setTimeout(runPreview,250);
+}
+async function runPreview(){
+  if(previewBusy||choosing) return;
+  previewBusy=true;
+  const gen=++previewGen;
+  try{
+    const tokens=committed.map(t=>({t:t.t,v:t.t==='en'?t.v:($('toneless').checked?strip(t.v):t.v)}));
+    const zh=tokens.filter(t=>t.t==='zh').map(t=>t.v);
+    const r=zh.length?await decodeZh(zh):{chars:[]};
+    if(gen===previewGen&&!choosing){
+      let out='';let zc=0;
+      for(const tok of tokens){
+        if(tok.t==='zh') out+=r.chars[zc++]||'';
+        else out+=(out&&!out.endsWith(' ')?' ':'')+tok.v+' ';
+      }
+      $('preview').textContent=out.trim();
+    }
+  }catch(e){/* preview is best-effort */}
+  previewBusy=false;
+  if(gen!==previewGen) schedulePreview(); // buffer changed while decoding
 }
 function composed(){
   return positions.map((c,i)=>{const v=c[segSel[i]];return v;}).join('');
 }
 function renderSegments(){
-  choosing=true;$('pre').textContent='​';
+  choosing=true;$('pre').textContent='​';$('preview').textContent='';
   $('hint').textContent='點字改詞　←→ 換詞　↑↓ 換字　⏎ 確認　Esc 取消';
   const wrap=$('segs');wrap.innerHTML='';
   positions.forEach((cands,i)=>{const seg=document.createElement('div');
