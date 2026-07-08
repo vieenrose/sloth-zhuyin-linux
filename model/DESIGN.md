@@ -102,8 +102,8 @@ intentional and cheap at this scale.
 ## Gates & risks (honest)
 
 **Ship gates** (same harness, `eval/run_eval.py`):
-1. top-1 sentence ≥ chewing's 62% (LFM2.5 base fails this today)
-2. recall ≥ 76% (LFM2.5's current value)
+1. top-1 sentence >= chewing's 61% (159-case baseline; LFM2.5 base is 53%, a net regression)
+2. recall >= 73% (LFM2.5 base value on the 159-case set)
 3. latency: median conversion < 500ms end-to-end
 Else iterate (more task data, +params to ~50M) or stay on LFM2.5.
 
