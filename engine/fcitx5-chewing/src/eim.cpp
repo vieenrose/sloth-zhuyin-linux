@@ -1300,13 +1300,9 @@ void ChewingEngine::updateUI(InputContext *ic) {
         return;
     }
 
-    // clean up window asap
+    // clean up window asap. The conversion notice / debounced hint are drawn
+    // below (as auxDown) so they never collide with the preedit on one line.
     ic->inputPanel().reset();
-    // A pending conversion-outcome notice ("無建議", "slothingd 未執行", ...)
-    // rides on top of the normal composing panel until the next keystroke.
-    if (!convertNotice_.empty()) {
-        ic->inputPanel().setAuxUp(Text(convertNotice_));
-    }
     ic->updateUserInterface(UserInterfaceComponent::InputPanel);
 
     UniqueCPtr<char, chewing_free> buf_str(chewing_buffer_String(ctx));
@@ -1352,21 +1348,18 @@ void ChewingEngine::updateUI(InputContext *ic) {
     preedit.append(std::string(zuin), {TextFormatFlag::HighLight, format});
     preedit.append(text.substr(rcur), format);
 
-    if (chewing_aux_Check(ctx)) {
-        const char *aux_str = chewing_aux_String_static(ctx);
-        std::string aux = aux_str;
-        ic->inputPanel().setAuxDown(Text(aux));
-    }
-
-    // Debounced hint: if a background check found a better sentence for this
-    // exact buffer, show it as a passive auxUp marker (changed chars
-    // highlighted). Stale hints (buffer moved on) are dropped. Never shown
-    // over chewing's own aux message.
+    // Drop a stale hint (buffer moved on) before deciding what to show.
     if (!hintText_.empty() && hintForBuffer_ != text) {
         hintText_.clear();
         hintForBuffer_.clear();
     }
-    if (!hintText_.empty() && hintForBuffer_ == text) {
+    // One auxDown line, drawn below the preedit so it never collides with it.
+    // Priority: chewing's own message > conversion-outcome notice > hint.
+    if (chewing_aux_Check(ctx)) {
+        ic->inputPanel().setAuxDown(Text(chewing_aux_String_static(ctx)));
+    } else if (!convertNotice_.empty()) {
+        ic->inputPanel().setAuxDown(Text(convertNotice_));
+    } else if (!hintText_.empty() && hintForBuffer_ == text) {
         Text hint;
         hint.append("建議 ", TextFormatFlag::NoFlag);
         Text diff = diffHighlightText(hintText_, text);
@@ -1374,7 +1367,7 @@ void ChewingEngine::updateUI(InputContext *ic) {
             hint.append(diff.stringAt(i), diff.formatAt(i));
         }
         hint.append("　⏎轉換", TextFormatFlag::NoFlag);
-        ic->inputPanel().setAuxUp(hint);
+        ic->inputPanel().setAuxDown(hint);
     }
 
     if (useClientPreedit) {
