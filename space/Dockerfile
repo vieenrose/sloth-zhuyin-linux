@@ -12,7 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN useradd -m -u 1000 user
 ENV HOME=/home/user \
     HF_HOME=/home/user/.cache/huggingface \
-    PATH=/home/user/.local/bin:$PATH
+    PATH=/home/user/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 COPY --chown=user requirements.txt .
@@ -24,4 +26,4 @@ COPY --chown=user static ./static
 
 USER user
 EXPOSE 7860
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860", "--log-level", "info"]

@@ -14,7 +14,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from huggingface_hub import hf_hub_download
-from llama_cpp import Llama, LlamaGrammar
+# NOTE: llama_cpp is imported lazily inside _model()/decode(), NOT at module
+# top level -- importing it loads the native library and must not sit on
+# uvicorn's `app` import path (a slow/hanging import there means the port never
+# opens and the Space is stuck APP_STARTING with no logs).
 
 REPO = "Luigi/slothlm-34m-zhuyin"
 GGUF = "slothlm-34m-zhuyin-Q4_0.gguf"
@@ -51,8 +54,11 @@ def _model():
     if _llm is None:
         with _llm_lock:
             if _llm is None:  # double-checked: only one thread loads
+                from llama_cpp import Llama  # lazy: keep off the import path
+                print("[slothing] downloading + loading model…", flush=True)
                 path = hf_hub_download(REPO, GGUF)
                 _llm = Llama(model_path=path, n_ctx=2048, verbose=False)
+                print("[slothing] model ready", flush=True)
     return _llm
 
 
@@ -109,6 +115,7 @@ def decode(req: DecodeReq):
         f"<|im_start|>user\n{user}<|im_end|>\n"
         "<|im_start|>assistant\n"
     )
+    from llama_cpp import LlamaGrammar  # lazy: matches _model()
     grammar = LlamaGrammar.from_string(_gbnf(positions), verbose=False)
     out = _model()(prompt, grammar=grammar, max_tokens=128, temperature=0.0,
                    stop=["<|im_end|>"])
