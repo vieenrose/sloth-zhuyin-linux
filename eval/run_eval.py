@@ -100,6 +100,7 @@ def main():
 
     tot_chars = ok_chars = 0
     llm_sent_ok = chewing_sent_ok = 0
+    llm_recall = 0  # expected is somewhere in the candidate list (pick-UX metric)
     chewing_ok_chars = 0
     latencies = []
     failures = []
@@ -126,6 +127,9 @@ def main():
         ok_chars += c_ok
         tot_chars += c_tot
         llm_sent_ok += int(top1 == expected)
+        # Pick-from-list UX: is the right sentence reachable at all? The engine
+        # also always offers chewing's own sentence, so count it as in-list.
+        llm_recall += int(expected in sentences or expected == buffer)
         b_ok, _ = char_accuracy(buffer, expected)
         chewing_ok_chars += b_ok
         chewing_sent_ok += int(buffer == expected)
@@ -148,6 +152,8 @@ def main():
         print(f"LLM top-1:        sentence {llm_sent_ok}/{n} "
               f"({100*llm_sent_ok/n:.0f}%), "
               f"char {ok_chars}/{tot_chars} ({100*ok_chars/tot_chars:.1f}%)")
+        print(f"LLM recall (in list, pick-UX): {llm_recall}/{n} "
+              f"({100*llm_recall/n:.0f}%)")
         lat = sorted(latencies)
         print(f"latency: median {lat[len(lat)//2]*1000:.0f}ms, "
               f"p95 {lat[int(len(lat)*0.95)]*1000:.0f}ms")

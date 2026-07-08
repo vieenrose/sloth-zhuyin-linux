@@ -70,10 +70,15 @@ open, is exactly Slothing's lane.
       read timeouts) and lifetime-safe worker threading
 
 **Next (v0.3) — accuracy**
-- [ ] Fine-tune the 230M model on zhuyin↔text conversion tasks. Rationale:
-      off-the-shelf LLMs align phonetic and text representations poorly until
-      explicitly trained on conversion (Huawei PY-GEC: cosine 0.26 → 0.82);
-      this is likely the single biggest quality lever available.
+- [ ] Fine-tune the 230M model on zhuyin↔text conversion tasks. **Necessary,
+      not optional**: on the 80-case eval the *un-fine-tuned* base model's
+      top-1 pick (58% sentence) is actually a slight regression vs chewing
+      alone (62%) — it wins only on recall (right answer somewhere in the
+      list: 76% vs 62%). Fine-tuning's job is to convert that recall headroom
+      into a reliable top-1 ranking. Off-the-shelf LLMs align phonetic and
+      text representations poorly until explicitly trained on conversion
+      (Huawei PY-GEC: cosine 0.26 → 0.82). Pipeline staged in `finetune/`;
+      awaiting a GPU workstation.
 - [x] Evaluation harness: a scored zhuyin→sentence test set (per-char and
       per-sentence accuracy, latency) run against the daemon in CI, so model
       and prompt changes are measured instead of eyeballed.
