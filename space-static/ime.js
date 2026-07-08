@@ -155,7 +155,14 @@ sp.onclick=()=>{
   if(hasPending()||rawWord) feedKey(' ');
   else if(committed.length) convert();
 };
-r.appendChild(sp);kb.appendChild(r);
+r.appendChild(sp);
+const bs=document.createElement('button');bs.className='key';bs.style.width='64px';
+bs.innerHTML='<span class="s">⌫</span>';
+bs.onclick=()=>{
+  if(choosing){renderComposing();return;}          // exit choosing back to edit
+  if(committed.length||hasPending()||rawWord) backspace();
+};
+r.appendChild(bs);kb.appendChild(r);
 
 document.addEventListener('keydown',e=>{
   if(e.ctrlKey||e.altKey||e.metaKey)return;const k=e.key;
