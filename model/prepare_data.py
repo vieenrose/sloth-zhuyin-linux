@@ -89,6 +89,8 @@ def main():
     ap.add_argument("--tokenizer", default="model/tokenizer")
     ap.add_argument("--out", default="model/train.bin")
     ap.add_argument("--max-sentences", type=int, default=0, help="0 = all")
+    ap.add_argument("--select-limit", type=int, default=200000,
+                    help="cap SELECT examples (each needs a slow harvest call)")
     args = ap.parse_args()
     if not os.path.exists(HARVEST):
         sys.exit("build eval/harvest first")
@@ -128,11 +130,12 @@ def main():
         emit(chatml("注音轉繁體中文。", " ".join(syls), s)); stats["z2t"] += 1
         emit(chatml("繁體中文轉注音。", s, " ".join(syls))); stats["t2z"] += 1
         emit(chatml("注音轉繁體中文。", toneless(syls), s)); stats["toneless"] += 1
-        buf, positions = harvest_positions(keys(syls))
-        if buf == s and positions and any(len(p) > 1 for p in positions):
-            user = " ".join(f"第{i+1}字選(" + "/".join(p) + ")"
-                            for i, p in enumerate(positions))
-            emit(chatml("選字。", user, s)); stats["select"] += 1
+        if stats["select"] < args.select_limit:
+            buf, positions = harvest_positions(keys(syls))
+            if buf == s and positions and any(len(p) > 1 for p in positions):
+                user = " ".join(f"第{i+1}字選(" + "/".join(p) + ")"
+                                for i, p in enumerate(positions))
+                emit(chatml("選字。", user, s)); stats["select"] += 1
         if n % 20000 == 0:
             print(f"  {n} sentences, {len(ids)/1e6:.1f}M tokens", file=sys.stderr)
 
