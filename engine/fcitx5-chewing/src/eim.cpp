@@ -208,35 +208,23 @@ Text diffHighlightText(const std::string &sentence,
     return out;
 }
 
-// One LLM-proposed full sentence in the conversion candidate list. Selecting
-// it hands the sentence to the engine, which commits it and (optionally)
-// teaches chewing. Held in a CommonCandidateList, so paging/labels/cursor are
-// handled for us. The display text highlights only the characters that
-// differ from the typed buffer; chewing's own sentence is tagged 「原」.
-class SlothingCandidateWord : public CandidateWord {
+// One alternative for the *focused segment* in segment-conversion. Selecting
+// it (number key or click) sets that segment's character and advances focus.
+// The candidate list holds the focused phrase's candidates, so paging/labels
+// are handled for us.
+class SegmentCandidateWord : public CandidateWord {
 public:
-    SlothingCandidateWord(ChewingEngine *engine, std::string sentence,
-                          const std::string &buffer, bool isOriginal)
-        : engine_(engine), sentence_(std::move(sentence)) {
-        // Label each row so "what you typed" (原) and "what's proposed" (建議)
-        // are never confused; the changed characters are highlighted too.
-        Text display;
-        display.append(isOriginal ? "原 " : "建議 ",
-                       TextFormatFlag::NoFlag);
-        Text diff = diffHighlightText(sentence_, buffer);
-        for (size_t i = 0; i < diff.size(); i++) {
-            display.append(diff.stringAt(i), diff.formatAt(i));
-        }
-        setText(std::move(display));
-    }
+    SegmentCandidateWord(ChewingEngine *engine, int index, std::string text)
+        : CandidateWord(Text(std::move(text))), engine_(engine),
+          index_(index) {}
 
     void select(InputContext *inputContext) const override {
-        engine_->acceptConversion(inputContext, sentence_);
+        engine_->pickSegment(inputContext, index_);
     }
 
 private:
     ChewingEngine *engine_;
-    std::string sentence_;
+    int index_;
 };
 
 void logger(void *, int, const char *fmt, ...) {
@@ -648,6 +636,8 @@ void ChewingEngine::cancelConversion(InputContext *ic, std::string notice) {
     convertPositions_.clear();
     convertIntervals_.clear();
     convertBopomofo_.clear();
+    segSel_.clear();
+    segFocus_ = 0;
     updateUI(ic);
 }
 
@@ -857,18 +847,87 @@ void ChewingEngine::showConversionChoices(InputContext *ic,
                                           const std::vector<std::string> &sentences) {
     convertState_ = ConvertState::Choosing;
     convertTimer_.reset();
-    convertTicks_ = 0;
 
+    // Seed each segment's selection from the LLM's best sentence: for every
+    // interval, pick the candidate whose text matches that sentence's span.
+    // Defaults to chewing's own choice (index that reconstructs the buffer)
+    // when no match is found.
+    segSel_.assign(convertPositions_.size(), 0);
+    const std::string &best = sentences.empty() ? convertBuffer_ : sentences[0];
+    for (size_t i = 0; i < convertPositions_.size(); i++) {
+        int from = convertIntervals_[i].first, to = convertIntervals_[i].second;
+        std::string span = utf8CharSlice(best, from, to);
+        std::string bufSpan = utf8CharSlice(convertBuffer_, from, to);
+        int fallback = 0;
+        for (size_t j = 0; j < convertPositions_[i].size(); j++) {
+            if (convertPositions_[i][j] == span) {
+                segSel_[i] = static_cast<int>(j);
+                span.clear();
+                break;
+            }
+            if (convertPositions_[i][j] == bufSpan) {
+                fallback = static_cast<int>(j);
+            }
+        }
+        if (!span.empty()) { // no LLM match; keep chewing's own char
+            segSel_[i] = fallback;
+        }
+    }
+    // Focus the first segment that actually offers a choice.
+    segFocus_ = 0;
+    for (size_t i = 0; i < convertPositions_.size(); i++) {
+        if (convertPositions_[i].size() > 1) {
+            segFocus_ = static_cast<int>(i);
+            break;
+        }
+    }
+    renderSegments(ic);
+    CHEWING_DEBUG() << "segment-convert: " << convertPositions_.size()
+                    << " segments, composed '" << composedSentence() << "'";
+}
+
+std::string ChewingEngine::composedSentence() const {
+    std::string out;
+    for (size_t i = 0; i < convertPositions_.size(); i++) {
+        int sel = (i < segSel_.size()) ? segSel_[i] : 0;
+        if (sel >= 0 && sel < static_cast<int>(convertPositions_[i].size())) {
+            out += convertPositions_[i][sel];
+        }
+    }
+    return out;
+}
+
+void ChewingEngine::renderSegments(InputContext *ic) {
+    ic->inputPanel().reset();
+
+    // Preedit: the whole composed sentence, focused segment highlighted.
+    const auto useClientPreedit =
+        ic->capabilityFlags().test(CapabilityFlag::Preedit);
+    const auto base =
+        useClientPreedit ? TextFormatFlag::Underline : TextFormatFlag::NoFlag;
+    Text preedit;
+    for (size_t i = 0; i < convertPositions_.size(); i++) {
+        int sel = segSel_[i];
+        const std::string &seg = convertPositions_[i][sel];
+        if (static_cast<int>(i) == segFocus_) {
+            preedit.append(seg, {TextFormatFlag::HighLight, base});
+        } else {
+            preedit.append(seg, base);
+        }
+    }
+    if (useClientPreedit) {
+        ic->inputPanel().setClientPreedit(preedit);
+    } else {
+        ic->inputPanel().setPreedit(preedit);
+    }
+
+    // Candidate list = the focused segment's alternatives, cursor on current.
     auto list = std::make_unique<CommonCandidateList>();
     list->setPageSize(*config_.PageSize);
-    // Full-sentence candidates are long; unless the user forced a layout,
-    // stack them vertically so the per-character highlights line up and the
-    // sentences stay comparable at a glance.
     auto layout = *config_.CandidateLayout;
-    if (layout == CandidateLayoutHint::NotSet) {
-        layout = CandidateLayoutHint::Vertical;
-    }
-    list->setLayoutHint(layout);
+    list->setLayoutHint(layout == CandidateLayoutHint::NotSet
+                            ? CandidateLayoutHint::Horizontal
+                            : layout);
     const char *selkeys =
         builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];
     KeyList selectionKeys;
@@ -879,23 +938,36 @@ void ChewingEngine::showConversionChoices(InputContext *ic,
     }
     list->setSelectionKey(selectionKeys);
     list->setLabels(labels);
-    for (const auto &s : sentences) {
-        list->append(std::make_unique<SlothingCandidateWord>(
-            this, s, convertBuffer_, /*isOriginal=*/s == convertBuffer_));
+    const auto &cands = convertPositions_[segFocus_];
+    for (size_t j = 0; j < cands.size(); j++) {
+        list->append(std::make_unique<SegmentCandidateWord>(
+            this, static_cast<int>(j), cands[j]));
     }
-    list->setGlobalCursorIndex(0);
-
-    ic->inputPanel().reset();
-    // No preedit while choosing: the candidate list already shows every
-    // sentence (chewing's own is tagged （原）), and a leftover preedit
-    // collides with the aux hint on one line in most themes. The aux line is
-    // the only header.
+    list->setGlobalCursorIndex(segSel_[segFocus_]);
     ic->inputPanel().setCandidateList(std::move(list));
-    // Make the modal keys discoverable; the highlighted chars carry the diff.
-    ic->inputPanel().setAuxUp(Text("↑↓ 選擇　Enter 確認　Esc 取消"));
+
+    ic->inputPanel().setAuxDown(Text("←→ 選詞　↑↓ 換字　⏎ 確認　Esc 取消"));
     ic->updatePreedit();
     ic->updateUserInterface(UserInterfaceComponent::InputPanel);
-    CHEWING_DEBUG() << "showing " << sentences.size() << " LLM candidate(s)";
+}
+
+void ChewingEngine::pickSegment(InputContext *ic, int candIdx) {
+    if (segFocus_ < 0 || segFocus_ >= static_cast<int>(convertPositions_.size())) {
+        return;
+    }
+    if (candIdx >= 0 &&
+        candIdx < static_cast<int>(convertPositions_[segFocus_].size())) {
+        segSel_[segFocus_] = candIdx;
+    }
+    // Advance to the next segment that offers a choice; if none, stay.
+    for (int i = segFocus_ + 1; i < static_cast<int>(convertPositions_.size());
+         i++) {
+        if (convertPositions_[i].size() > 1) {
+            segFocus_ = i;
+            break;
+        }
+    }
+    renderSegments(ic);
 }
 
 void ChewingEngine::teachChewing(const std::string &chosen) {
@@ -962,6 +1034,8 @@ void ChewingEngine::acceptConversion(InputContext *ic, const std::string &senten
     convertPositions_.clear();
     convertIntervals_.clear();
     convertBopomofo_.clear();
+    segSel_.clear();
+    segFocus_ = 0;
     updateUI(ic);
 }
 
@@ -1016,6 +1090,8 @@ void ChewingEngine::doReset(InputContextEvent &event) {
     convertPositions_.clear();
     convertIntervals_.clear();
     convertBopomofo_.clear();
+    segSel_.clear();
+    segFocus_ = 0;
     updateUI(event.inputContext());
 }
 
@@ -1068,51 +1144,53 @@ void ChewingEngine::keyEvent(const InputMethodEntry &entry,
         return; // swallow everything else while the worker runs
     }
     if (convertState_ == ConvertState::Choosing) {
+        // Segment-conversion: ←/→ pick which phrase segment, ↑/↓ (and Space)
+        // cycle the focused segment's candidate with the sentence updating
+        // live, number keys pick directly, Enter commits, Esc cancels. This
+        // unifies "whole-sentence LLM convert" and "per-phrase fix" into one
+        // modal flow (Japanese-henkan / Sogou style).
         auto ic = keyEvent.inputContext();
-        auto candList = ic->inputPanel().candidateList();
-        if (!candList) { // shouldn't happen; fail safe to composing
+        keyEvent.filterAndAccept();
+        if (segFocus_ < 0 || convertPositions_.empty()) {
             cancelConversion(ic);
             return;
         }
-        keyEvent.filterAndAccept();
         if (keyEvent.key().check(FcitxKey_Escape)) {
             cancelConversion(ic);
             return;
         }
-        // Selection keys (same set as chewing's own window).
-        const char *selkeys =
-            builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];
-        if (keyEvent.key().isSimple()) {
+        if (keyEvent.key().check(FcitxKey_Return)) {
+            acceptConversion(ic, composedSentence());
+            return;
+        }
+        const int nseg = static_cast<int>(convertPositions_.size());
+        auto &foc = segSel_[segFocus_];
+        const int ncand = static_cast<int>(convertPositions_[segFocus_].size());
+        if (keyEvent.key().check(FcitxKey_Right)) {
+            for (int i = segFocus_ + 1; i < nseg; i++) {
+                if (convertPositions_[i].size() > 1) { segFocus_ = i; break; }
+            }
+        } else if (keyEvent.key().check(FcitxKey_Left)) {
+            for (int i = segFocus_ - 1; i >= 0; i--) {
+                if (convertPositions_[i].size() > 1) { segFocus_ = i; break; }
+            }
+        } else if (keyEvent.key().check(FcitxKey_Down) ||
+                   keyEvent.key().check(FcitxKey_space)) {
+            foc = (foc + 1) % ncand;
+        } else if (keyEvent.key().check(FcitxKey_Up)) {
+            foc = (foc - 1 + ncand) % ncand;
+        } else if (keyEvent.key().isSimple()) {
+            const char *selkeys =
+                builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];
             char sym = static_cast<char>(keyEvent.key().sym() & 0xff);
             for (int i = 0; i < 10 && selkeys[i]; i++) {
-                if (selkeys[i] == sym && i < candList->size()) {
-                    candList->candidate(i).select(ic);
+                if (selkeys[i] == sym && i < ncand) {
+                    pickSegment(ic, i); // sets segment + advances focus
                     return;
                 }
             }
         }
-        auto *movable = candList->toCursorMovable();
-        auto *pageable = candList->toPageable();
-        if (keyEvent.key().check(FcitxKey_Down) && movable) {
-            movable->nextCandidate();
-        } else if (keyEvent.key().check(FcitxKey_Up) && movable) {
-            movable->prevCandidate();
-        } else if (keyEvent.key().check(FcitxKey_Page_Down) && pageable &&
-                   pageable->hasNext()) {
-            pageable->next();
-        } else if (keyEvent.key().check(FcitxKey_Page_Up) && pageable &&
-                   pageable->hasPrev()) {
-            pageable->prev();
-        } else if (keyEvent.key().check(FcitxKey_Return) ||
-                   keyEvent.key().check(FcitxKey_space)) {
-            // Commit the highlighted candidate.
-            int idx = candList->cursorIndex();
-            if (idx >= 0 && idx < candList->size()) {
-                candList->candidate(idx).select(ic);
-                return;
-            }
-        }
-        ic->updateUserInterface(UserInterfaceComponent::InputPanel);
+        renderSegments(ic);
         return; // all other keys swallowed while choosing
     }
     // Composing: any keystroke clears a lingering conversion notice (it is

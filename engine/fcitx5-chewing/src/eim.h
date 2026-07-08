@@ -150,6 +150,10 @@ public:
     // Accept an LLM candidate: commit it, optionally teach chewing, reset.
     // Called from the candidate word's select().
     void acceptConversion(InputContext *ic, const std::string &sentence);
+    // Segment-conversion: set the focused segment to candidate `candIdx` and
+    // advance focus. Called from a segment candidate word's select() (number
+    // key or click).
+    void pickSegment(InputContext *ic, int candIdx);
 
 private:
     FCITX_ADDON_DEPENDENCY_LOADER(chttrans, instance_->addonManager());
@@ -165,9 +169,15 @@ private:
 
     // Begin a conversion for the current buffer (harvest + spawn worker).
     void startConversion(InputContext *ic);
-    // Show the returned sentences as a native candidate list.
+    // Enter segment-conversion for the returned sentences (the best sets the
+    // initial per-segment selection); the user then tweaks segments.
     void showConversionChoices(InputContext *ic,
                                const std::vector<std::string> &sentences);
+    // The sentence currently composed from the per-segment selections.
+    std::string composedSentence() const;
+    // Repaint the segment view: full sentence with the focused segment
+    // highlighted (preedit) + the focused segment's candidates (list).
+    void renderSegments(InputContext *ic);
     // Abandon an in-progress/shown conversion, keep the composing buffer.
     // A non-empty `notice` is shown as a brief auxUp message (e.g. why the
     // conversion produced nothing) and clears on the next keystroke.
@@ -209,6 +219,10 @@ private:
     // wrote a wrong-pronunciation userphrase that crashed libchewing's
     // decoder.
     std::vector<std::string> convertBopomofo_;
+    // Segment-conversion state (Choosing): one selected candidate index per
+    // interval of convertPositions_, and which segment the arrows act on.
+    std::vector<int> segSel_;
+    int segFocus_ = 0;
 
     // One-shot feedback line (auxUp) shown after a conversion ends without
     // choices -- "無建議", "slothingd 未執行", ... Cleared on the next
