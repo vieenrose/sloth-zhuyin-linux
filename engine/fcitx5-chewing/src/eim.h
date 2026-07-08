@@ -179,6 +179,16 @@ private:
     // Join the background worker (if any) after unblocking its socket.
     void stopWorker();
 
+    // Debounced typing-time hint. While Composing, after a short pause,
+    // fireHint() runs ONE background check asking whether the LLM would offer
+    // a better sentence than chewing's current buffer; if so, a passive auxUp
+    // marker appears. It never opens the candidate list or intercepts keys --
+    // the user still presses the convert key to act. Reuses worker_/stopWorker
+    // and convertGeneration_ so at most one background request runs at a time.
+    void armHintTimer(InputContext *ic);
+    void fireHint(InputContext *ic);
+    void clearHint();
+
     Instance *instance_;
     ChewingConfig config_;
     UniqueCPtr<ChewingContext, chewing_delete> context_;
@@ -218,6 +228,12 @@ private:
     std::atomic<bool> workerStop_{false};
     std::atomic<int> inflightFd_{-1};
     uint64_t convertGeneration_ = 0;
+
+    // Debounced-hint state (main thread only).
+    std::unique_ptr<EventSourceTime> hintTimer_;
+    std::string hintText_;           // suggested sentence, better than buffer
+    std::string hintForBuffer_;      // buffer hintText_ applies to
+    std::string hintInflightBuffer_; // buffer a hint request is in flight for
 };
 
 class ChewingEngineFactory : public AddonFactory {

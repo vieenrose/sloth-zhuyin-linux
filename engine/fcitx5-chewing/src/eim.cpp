@@ -518,7 +518,10 @@ ChewingEngine::ChewingEngine(Instance *instance)
     reloadConfig();
 }
 
-ChewingEngine::~ChewingEngine() { stopWorker(); }
+ChewingEngine::~ChewingEngine() {
+    hintTimer_.reset();
+    stopWorker();
+}
 
 void ChewingEngine::stopWorker() {
     // Unblock the worker's socket I/O (if any) and join it, so no background
@@ -532,6 +535,106 @@ void ChewingEngine::stopWorker() {
         worker_.join();
     }
     workerStop_.store(false);
+}
+
+void ChewingEngine::clearHint() {
+    hintTimer_.reset();
+    hintText_.clear();
+    hintForBuffer_.clear();
+}
+
+// Re-armed from updateUI on every Composing repaint, so it only fires after
+// the user pauses. Cheap pre-checks here; the real harvest is in fireHint().
+void ChewingEngine::armHintTimer(InputContext *ic) {
+    if (!*config_.LlmConvert) {
+        return;
+    }
+    ChewingContext *ctx = context_.get();
+    const char *zuin = chewing_bopomofo_String_static(ctx);
+    if (chewing_buffer_Len(ctx) < 2 || (zuin && zuin[0]) ||
+        chewing_cand_TotalChoice(ctx) > 0) {
+        clearHint();
+        return;
+    }
+    UniqueCPtr<char, chewing_free> buf(chewing_buffer_String(ctx));
+    std::string buffer = buf ? buf.get() : "";
+    // Nothing to do if we already have (or are fetching) a hint for this exact
+    // buffer -- avoids re-arming on cursor moves / repeated repaints.
+    if (buffer == hintForBuffer_ || buffer == hintInflightBuffer_) {
+        return;
+    }
+    convertIc_ = ic->watch();
+    hintTimer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + 400000, 10000,
+        [this](EventSourceTime *, uint64_t) {
+            if (convertState_ == ConvertState::Composing) {
+                if (auto *ic = convertIc_.get()) {
+                    fireHint(ic);
+                }
+            }
+            return true;
+        });
+}
+
+void ChewingEngine::fireHint(InputContext *ic) {
+    hintTimer_.reset();
+    ChewingContext *ctx = context_.get();
+    const char *zuin = chewing_bopomofo_String_static(ctx);
+    if (chewing_buffer_Len(ctx) < 2 || (zuin && zuin[0]) ||
+        chewing_cand_TotalChoice(ctx) > 0) {
+        return;
+    }
+    std::vector<std::pair<int, int>> intervals;
+    auto positions = collectCandidatePositions(ctx, intervals);
+    UniqueCPtr<char, chewing_free> buf(chewing_buffer_String(ctx));
+    std::string buffer = buf ? buf.get() : "";
+    if (positions.empty() || !matchesPositions(buffer, positions)) {
+        return;
+    }
+    bool anyAlt = false;
+    for (const auto &p : positions) {
+        if (p.size() > 1) {
+            anyAlt = true;
+            break;
+        }
+    }
+    if (!anyAlt) {
+        return;
+    }
+    stopWorker(); // serialise: at most one background request at a time
+    hintInflightBuffer_ = buffer;
+    const uint64_t generation = ++convertGeneration_;
+    auto icRef = ic->watch();
+    workerStop_.store(false);
+    worker_ = std::thread([this, icRef, generation, buffer,
+                           positions = std::move(positions)]() {
+        std::string top;
+        RerankError err = RerankError::None;
+        for (auto &s : queryReranker(positions, 1, "", inflightFd_, err)) {
+            if (matchesPositions(s, positions)) {
+                top = s;
+                break;
+            }
+        }
+        if (workerStop_.load()) {
+            return;
+        }
+        dispatcher_.schedule([this, icRef, generation, buffer, top]() {
+            if (generation != convertGeneration_ ||
+                convertState_ != ConvertState::Composing) {
+                return;
+            }
+            hintInflightBuffer_.clear();
+            if (top.empty() || top == buffer) {
+                return; // chewing's own sentence is already the top pick
+            }
+            hintText_ = top;
+            hintForBuffer_ = buffer;
+            if (auto *ic = icRef.get()) {
+                updateUI(ic);
+            }
+        });
+    });
 }
 
 void ChewingEngine::cancelConversion(InputContext *ic, std::string notice) {
@@ -550,6 +653,7 @@ void ChewingEngine::cancelConversion(InputContext *ic, std::string notice) {
 
 void ChewingEngine::startConversion(InputContext *ic) {
     ChewingContext *ctx = context_.get();
+    clearHint(); // leaving Composing; drop any pending/shown hint
     // Only convert a settled multi-char buffer: nothing mid-syllable, no open
     // candidate window.
     const char *zuin = chewing_bopomofo_String_static(ctx);
@@ -902,6 +1006,7 @@ void ChewingEngine::doReset(InputContextEvent &event) {
     ChewingContext *ctx = context_.get();
     chewing_handle_Esc(ctx);
     stopWorker();
+    clearHint();
     convertTimer_.reset();
     convertTicks_ = 0;
     convertNotice_.clear();
@@ -1253,6 +1358,25 @@ void ChewingEngine::updateUI(InputContext *ic) {
         ic->inputPanel().setAuxDown(Text(aux));
     }
 
+    // Debounced hint: if a background check found a better sentence for this
+    // exact buffer, show it as a passive auxUp marker (changed chars
+    // highlighted). Stale hints (buffer moved on) are dropped. Never shown
+    // over chewing's own aux message.
+    if (!hintText_.empty() && hintForBuffer_ != text) {
+        hintText_.clear();
+        hintForBuffer_.clear();
+    }
+    if (!hintText_.empty() && hintForBuffer_ == text) {
+        Text hint;
+        hint.append("建議 ", TextFormatFlag::NoFlag);
+        Text diff = diffHighlightText(hintText_, text);
+        for (size_t i = 0; i < diff.size(); i++) {
+            hint.append(diff.stringAt(i), diff.formatAt(i));
+        }
+        hint.append("　⏎轉換", TextFormatFlag::NoFlag);
+        ic->inputPanel().setAuxUp(hint);
+    }
+
     if (useClientPreedit) {
         ic->inputPanel().setClientPreedit(preedit);
     } else {
@@ -1260,6 +1384,12 @@ void ChewingEngine::updateUI(InputContext *ic) {
     }
 
     ic->updatePreedit();
+
+    // Arm (or re-arm) the debounced hint for the buffer now on screen. Fires
+    // only after the user pauses; a no-op for empty/mid-syllable buffers.
+    if (convertState_ == ConvertState::Composing) {
+        armHintTimer(ic);
+    }
 }
 
 void ChewingEngine::flushBuffer(InputContextEvent &event) {
