@@ -13,7 +13,24 @@
 // Irreducibly ambiguous cases (ni = ㄋㄧ vs "ni") default to the cheaper side;
 // the Shift English-mode toggle remains the escape hatch, as in every IME.
 
-export function makeSegmenter(DACHEN, TONEK, validBase){
+// A small set of common English words (+ loanwords used in zh/en code-switch)
+// so the DP keeps real words whole even when they contain a valid zhuyin
+// substring (code=ㄏㄟ+de, api=ㄇㄣ+i). Not exhaustive — the Shift English mode
+// covers the rest.
+export const WORDS = new Set(('a about after all also am an and any api app are as at back be '+
+'because been best big but buy by call can code come could data day deal do does done down '+
+'driving each email end even every file find first for free from get go good google great '+
+'group had happy has have he help her here hey hi him his hot hour how i if in info is issue it '+
+'its just keyword know last let like line link list live login look mail make man many may me '+
+'meeting more most my need new next no not note now number of off ok on one online only open or '+
+'order other our out over page part people php play please post python read really right run '+
+'same say search see server service she should show sir site so some sorry sound support sure '+
+'system take team tech test text than thank thanks that the their them then there these they '+
+'thing think this those time to today too tool top try two up us use user very video want was '+
+'way we web week well what when where which who why will with word work would year yes you your'
+).split(' '));
+
+export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
   const isAlnum = c => c>='0'&&c<='9' || c>='A'&&c<='Z' || c>='a'&&c<='z';
   // all legal zhuyin syllables starting at i: {len, v(bopomofo±tone), syms}
   function zhAt(keys,i){
@@ -39,10 +56,14 @@ export function makeSegmenter(DACHEN, TONEK, validBase){
       for(const s of zhAt(keys,i))                       // zhuyin syllable
         relax(i+s.len, dp[i].cost + (s.syms>=2 ? 1.0 : 2.6), {t:'zh',v:s.v}, i);
       if(isAlnum(keys[i]))                               // English run (each length)
-        for(let j=i+1;j<=n && isAlnum(keys[j-1]);j++)
-          // per-char cost + a penalty on lone letters (a 1-char English token
-          // sandwiched in zhuyin is almost always a mis-segmentation, e.g. api)
-          relax(j, dp[i].cost + 1 + 0.6*(j-i) + ((j-i)===1?1.5:0), {t:'en',v:keys.slice(i,j)}, i);
+        for(let j=i+1;j<=n && isAlnum(keys[j-1]);j++){
+          const seg=keys.slice(i,j);
+          // per-char cost; lone letters penalized (a 1-char English token in
+          // zhuyin is almost always a mis-segmentation, e.g. api); known words
+          // discounted so they stay whole despite a valid zhuyin substring (code).
+          const cost=dp[i].cost + 1 + 0.6*(j-i) + ((j-i)===1?1.5:0) - (words.has(seg.toLowerCase())?3:0);
+          relax(j, cost, {t:'en',v:seg}, i);
+        }
       if(!isAlnum(keys[i]) && !DACHEN[keys[i]] && !TONEK[keys[i]]) // stray symbol
         relax(i+1, dp[i].cost + 1.5, {t:'en',v:keys[i]}, i);
     }

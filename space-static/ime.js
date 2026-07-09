@@ -7,7 +7,7 @@
 //    number keys 1-9 select (chewing-style)
 //  * punctuation: Shift+, Shift+. Shift+/ Shift+1 Shift+; → ，。？！：
 //  * session learning: your picks become the default for that syllable
-//  * auto zh/en: impossible-zhuyin keystrokes flip the run to English
+//  * auto zh/en: continuous DP re-segmentation of the keystream (segment.js)
 import { AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList, Tensor, env }
   from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
 
@@ -16,6 +16,7 @@ import { AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorLi
 // no worker-proxy -> the plain WASM path that loads reliably on mobile Safari.
 env.backends.onnx.wasm.numThreads = 1;
 env.backends.onnx.wasm.proxy = false;
+import { makeSegmenter } from './segment.js';
 
 const REPO = 'Luigi/slothlm-34m-zhuyin-ONNX';
 const TONES = 'ˊˇˋ˙';
@@ -47,15 +48,16 @@ const $ = id => document.getElementById(id);
 
 // ---- buffer state ----
 // committed: [{t:'zh'|'en'|'punct', v}]; cursor = insertion index into it.
-// cur/rawWord: the run being typed (lives at the cursor).
+// rawKeys: the raw keys of the current composing run, segmented live by the
+// continuous re-segmenter (segment.js) into zh/en tokens.
 let committed = [], overrides = [], cursor = 0;
-let cur = ['','',''], rawWord = '', enRun = false, enMode = false;
+let rawKeys = '', enMode = false;
 let pvChars = [], pvCands = [], pvKey = null;
 let fix = -1, fixPage = 0;              // char being corrected
-const numSym = () => (cur[0]?1:0)+(cur[1]?1:0)+(cur[2]?1:0);
-const hasPending = () => cur[0]||cur[1]||cur[2];
-const pending = () => cur[0]+cur[1]+cur[2];
-const hasRun = () => hasPending()||rawWord;
+const validBase = new Set();           // legal syllable bases, filled from the table
+const segment = makeSegmenter(DACHEN, TONEK, validBase);
+const runToks = () => enMode ? (rawKeys ? [{t:'en',v:rawKeys}] : []) : segment(rawKeys);
+const hasRun = () => rawKeys.length>0;
 const bufKey = () => committed.map(t=>t.t+':'+t.v).join('|')+($('toneless').checked?'#TL':'');
 
 // session learning (persisted): syllable -> last picked char
@@ -63,26 +65,9 @@ let learn = {};
 try{ learn = JSON.parse(localStorage.getItem('slothing-learn')||'{}'); }catch(e){}
 const saveLearn = ()=>{ try{localStorage.setItem('slothing-learn',JSON.stringify(learn));}catch(e){} };
 
-const validBase=new Set();   // toneless syllable bases, filled from the table
-// Longest trailing run of keys (<=3) that forms a valid zhuyin syllable, so an
-// English run followed by zhuyin (no space) can be split: 'python5k' + tone ->
-// ['python', 'ㄓㄜ'].  Returns [englishPrefix, syllableBopomofo] or null.
-function splitTrailingSyllable(raw){
-  for(let L=Math.min(3,raw.length);L>=1;L--){
-    let bopo='',ok=true;
-    for(const c of raw.slice(-L)){ if(!DACHEN[c]){ok=false;break;} bopo+=DACHEN[c][0]; }
-    if(ok && validBase.has(bopo)) return [raw.slice(0,raw.length-L), bopo];
-  }
-  return null;
-}
-function resetRun(){ cur=['','','']; rawWord=''; enRun=false; }
+function resetRun(){ rawKeys=''; }
 function insertTok(tok){ committed.splice(cursor,0,tok); overrides.splice(cursor,0,null); cursor++; }
-function commitRun(){
-  if(enRun && rawWord) insertTok({t:'en',v:rawWord});
-  else if(hasPending()) insertTok({t:'zh',v:pending()});
-  else if(rawWord) insertTok({t:'en',v:rawWord});
-  resetRun();
-}
+function commitRun(){ for(const t of runToks()) insertTok(t); resetRun(); }
 function clearAll(){ committed=[];overrides=[];cursor=0;resetRun();pvKey=null;fix=-1; }
 
 // insert a literal symbol/punctuation directly (、 / and English symbols),
@@ -90,49 +75,22 @@ function clearAll(){ committed=[];overrides=[];cursor=0;resetRun();pvKey=null;fi
 function directPunct(ch){ fix=-1; if(hasRun())commitRun(); insertTok({t:'punct',v:ch}); render(); }
 function feedKey(k){
   fix=-1;
-  // Forced-English mode: every key is a literal English char (no zhuyin
-  // parsing). Fixes short words that look like valid zhuyin ("is he"), English
-  // symbols (<>#@$), and clean typo editing. Space ends the word.
+  // Forced-English mode: literal chars, no zhuyin parsing (short words like
+  // "is he", symbols, clean typo editing). Space ends the word.
   if(enMode){
-    if(k===' '&&!fullWidth){ if(hasRun())commitRun(); return true; }
-    rawWord+=(fullWidth&&FW[k]?FW[k]:k); enRun=true; render(); return true;
+    if(k===' '&&!fullWidth){ if(hasRun())commitRun(); render(); return true; }
+    rawKeys+=(fullWidth&&FW[k]?FW[k]:k); render(); return true;
   }
   if(k in PUNCT){ if(hasRun())commitRun(); insertTok({t:'punct',v:PUNCT[k]}); render(); return true; }
-  if(k===' '){
-    // space also splits a zhuyin syllable off an English run (tone-1 / neutral
-    // particles: happy吧, happy啊). Require >=2 bopomofo symbols so 'happy'+space
-    // isn't wrongly split into happ+ㄗ (a lone final/initial is too ambiguous).
-    if(enRun){ const sp=splitTrailingSyllable(rawWord);
-      if(sp && [...sp[1]].length>=2){
-        if(sp[0]) insertTok({t:'en',v:sp[0]});
-        insertTok({t:'zh',v:sp[1]}); resetRun(); render(); return true; } }
-    if(hasRun()){commitRun();render();} return true;
-  }
-  if(k in TONEK){
-    if(!enRun && hasPending()){ insertTok({t:'zh',v:pending()+TONEK[k]}); resetRun(); render(); return true; }
-    if(enRun){
-      // English run then a tone => the trailing keys were zhuyin (tones only
-      // exist in zhuyin). Split so 'python這個' works with no space between.
-      const sp=splitTrailingSyllable(rawWord);
-      if(sp){
-        if(sp[0]) insertTok({t:'en',v:sp[0]});
-        insertTok({t:'zh',v:sp[1]+TONEK[k]}); resetRun(); render(); return true;
-      }
-    }
-    rawWord+=k; enRun=true; render(); return true;
-  }
-  if(enRun){ rawWord+=k; render(); return true; }
-  if(DACHEN[k]){ cur[DACHEN[k][1]]=DACHEN[k][0]; rawWord+=k;
-    if(rawWord.length>numSym()) enRun=true; render(); return true; }
-  rawWord+=k; enRun=true; render(); return true;
+  if(k===' '){ if(hasRun()){commitRun();render();} return true; }   // space finalizes the run (segmenter handled tone-1)
+  if(k in TONEK){ rawKeys+=k; commitRun(); render(); return true; } // a tone completes the last syllable -> finalize run
+  // any other key just extends the run; the segmenter re-decides zh/en live
+  rawKeys+=k; render(); return true;
 }
 function backspace(){
   fix=-1;
-  if(rawWord){ rawWord=rawWord.slice(0,-1);
-    if(!enRun){ cur=['','','']; for(const c of rawWord) if(DACHEN[c]) cur[DACHEN[c][1]]=DACHEN[c][0]; }
-    else if(rawWord.length<=numSym()) enRun=false;
-    if(!rawWord) resetRun();
-  } else if(cursor>0){ committed.splice(cursor-1,1); overrides.splice(cursor-1,1); cursor--; }
+  if(rawKeys){ rawKeys=rawKeys.slice(0,-1); }
+  else if(cursor>0){ committed.splice(cursor-1,1); overrides.splice(cursor-1,1); cursor--; }
   render();
 }
 function moveCursor(d){
@@ -265,16 +223,18 @@ function render(){
   });
   if(!committed.length && !hasRun()) pre.appendChild(caret());
   if(hasRun()){
-    // the run renders at the cursor position
+    // the run renders at the cursor position, live-segmented into zh/en tokens
     const nodes=[...pre.childNodes];
-    const tail=document.createElement('span'); tail.className='ptail';
-    tail.textContent=(enRun?' ':'')+(enRun?rawWord:pending());
-    // insert after cursor-1 tokens
+    const frag=document.createDocumentFragment();
+    for(const t of runToks()){
+      const s=document.createElement('span'); s.className='ptail'+(t.t==='en'?' en':'');
+      s.textContent=(t.t==='en'?' '+t.v+' ':t.v); frag.appendChild(s);
+    }
     let anchor=null, count=0;
     for(const n of nodes){ if(n.classList&&n.classList.contains('pchar')){count++; if(count===cursor){anchor=n;break;}} }
-    if(cursor===0) pre.insertBefore(tail,pre.firstChild);
-    else if(anchor&&anchor.nextSibling) pre.insertBefore(tail,anchor.nextSibling);
-    else pre.appendChild(tail);
+    if(cursor===0) pre.insertBefore(frag,pre.firstChild);
+    else if(anchor&&anchor.nextSibling) pre.insertBefore(frag,anchor.nextSibling);
+    else pre.appendChild(frag);
   }
   pre.classList.toggle('empty',!committed.length&&!hasRun());
 
@@ -497,7 +457,7 @@ $('toneless').onchange=()=>{ pvKey=null; render(); };
 (async function init(){
   const txt=await (await fetch('./phonetic_table.tsv')).text();
   for(const line of txt.split('\n')){const t=line.indexOf('\t');if(t<0)continue;tonal[line.slice(0,t)]=[...line.slice(t+1)];}
-  for(const k in tonal) validBase.add(strip(k));   // for splitTrailingSyllable
+  for(const k in tonal) validBase.add(strip(k));   // for the segmenter
   tokenizer=await AutoTokenizer.from_pretrained(REPO);
   model=await AutoModelForCausalLM.from_pretrained(REPO,{dtype:'q8'});
   ready=true; render();
