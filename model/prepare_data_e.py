@@ -75,12 +75,45 @@ def main():
     print(f"syllable vocab: {len(syl_vocab)}; char vocab: {tok.vocab_size}",
           file=sys.stderr)
 
+    IGNORE = 65535  # char label at English positions -> loss ignored (passthrough)
+
     def char_id(c):
         i = tok.convert_tokens_to_ids(c)
         return i if i is not None else tok.unk_token_id
 
+    def aligned(s, toneless):
+        """Return (syl_ids, char_ids) or None. Han runs -> (syllable, char);
+        English runs -> one <en> input position with IGNORE label (the encoder
+        sees English as bidirectional context; English is passthrough at
+        serving). toneless=True strips tone marks from the input syllable."""
+        syl_ids, char_ids, i = [], [], 0
+        while i < len(s):
+            m = LATIN.match(s, i)
+            if m:
+                syl_ids.append(EN)
+                char_ids.append(IGNORE)
+                i = m.end()
+                continue
+            if s[i].isspace():
+                i += 1
+                continue
+            syl = bopomofo_syls(s[i])
+            if syl is None:
+                return None
+            y = syl[0]
+            if toneless:
+                y = "".join(c for c in y if c not in TONES)
+            syl_ids.append(syl_vocab.get(y, UNK))
+            char_ids.append(char_id(s[i]))
+            i += 1
+        # need at least one decoded (Han) position
+        if not any(c != IGNORE for c in char_ids):
+            return None
+        return syl_ids, char_ids
+
     rec = []
-    n = kept = 0
+    stats = {"tonal": 0, "toneless": 0, "codeswitch": 0}
+    n = 0
     for line in open(args.corpus, encoding="utf-8"):
         s = line.strip()
         if not s or not (2 <= len(s) <= 30):
@@ -88,28 +121,24 @@ def main():
         n += 1
         if args.max_sentences and n > args.max_sentences:
             break
-        # Build aligned syllable/char sequences; English runs = one <en> input
-        # position mapping to... skip code-switch here (encoder passthrough is
-        # handled at serving); train on pure-Han sentences for clean alignment.
-        if LATIN.search(s):
-            continue
-        syls = bopomofo_syls(s)
-        if syls is None:
-            continue
-        syl_ids = [syl_vocab.get(y, UNK) for y in syls]
-        char_ids = [char_id(c) for c in s]
-        if len(syl_ids) != len(char_ids) or not syl_ids:
-            continue
-        rec.append(len(syl_ids))
-        rec.extend(syl_ids)
-        rec.extend(char_ids)
-        kept += 1
-        if kept % 100000 == 0:
-            print(f"  {kept} aligned pairs", file=sys.stderr)
+        mixed = bool(LATIN.search(s))
+        for toneless in (False, True):          # every objective: tonal + toneless
+            a = aligned(s, toneless)
+            if a is None:
+                continue
+            syl_ids, char_ids = a
+            rec.append(len(syl_ids))
+            rec.extend(syl_ids)
+            rec.extend(char_ids)
+            k = "toneless" if toneless else ("codeswitch" if mixed else "tonal")
+            stats[k] += 1
+        if n % 100000 == 0:
+            print(f"  {n} sentences", file=sys.stderr)
 
     arr = np.array(rec, dtype=np.uint16)
     arr.tofile(args.out)
-    print(f"wrote {kept} aligned pairs ({len(arr)} uint16) to {args.out}")
+    print(f"wrote {sum(stats.values())} aligned records "
+          f"({len(arr)} uint16) to {args.out}; by type: {stats}")
 
 
 if __name__ == "__main__":

@@ -42,6 +42,7 @@ class AlignedBin(Dataset):
         s, n = self.idx[k]
         syl = self.data[s:s + n].astype(np.int64)
         chr_ = self.data[s + n:s + 2 * n].astype(np.int64)
+        chr_[chr_ == 65535] = -100          # English positions: passthrough, no loss
         return torch.from_numpy(syl), torch.from_numpy(chr_)
 
 
