@@ -14,6 +14,14 @@ prepare_data_e (aligned syllable-id / char-id, tonal + toneless, English=<en>).
 """
 import argparse, json, os, sys
 import numpy as np
+# GPU: g2pw's onnx session defaults to CPU-only; force the CUDA provider when
+# G2PW_CUDA=1 (also set LD_LIBRARY_PATH to torch's nvidia libs). ~15x faster
+# (batched BERT on GPU ~3000 sent/s vs ~200 on CPU).
+if os.environ.get("G2PW_CUDA"):
+    import onnxruntime as _ort
+    _orig_sess = _ort.InferenceSession
+    _ort.InferenceSession = lambda *a, **k: _orig_sess(
+        *a, **{**k, "providers": ["CUDAExecutionProvider", "CPUExecutionProvider"]})
 from transformers import AutoTokenizer
 from g2pw import G2PWConverter
 
