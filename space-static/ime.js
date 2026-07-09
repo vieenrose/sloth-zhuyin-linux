@@ -8,7 +8,7 @@
 //  * punctuation: Shift+, Shift+. Shift+/ Shift+1 Shift+; → ，。？！：
 //  * session learning: your picks become the default for that syllable
 //  * auto zh/en: impossible-zhuyin keystrokes flip the run to English
-import { AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList }
+import { AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList, Tensor }
   from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
 
 const REPO = 'Luigi/slothlm-34m-zhuyin-ONNX';
@@ -93,31 +93,52 @@ function openFix(i){
   buildPhrases(i);                   // async: 2-char phrase alternatives
 }
 
-// Phrase-level candidates: for the focused zh char, for each of its top
-// single-char options, re-decode with that char forced so the model chooses
-// the best *following* char conditioned on it -> coherent 2-char phrases
-// (重新 / 從新 / 重心 ...). Only when a zh char follows the focus.
+// Phrase-level candidates (LLM-only, ranked by the model's joint probability,
+// noise tail thresholded out): score every 2-char phrase for the focused
+// syllable + the next by P(first)·P(second|first) from direct forward passes,
+// keep only phrases clearly above the tail -> real words like chewing, no
+// lexicon. Context-free on the syllable pair (like a phrase dictionary).
 let phrase=null, phraseBusy=false, phraseFor=-1;
+async function forwardLogits(ids){
+  const n=ids.length;
+  const input=new Tensor('int64',ids.map(BigInt),[1,n]);
+  const attn=new Tensor('int64',new Array(n).fill(1n),[1,n]);
+  const pos=new Tensor('int64',ids.map((_,i)=>BigInt(i)),[1,n]);
+  const out=await model({input_ids:input,attention_mask:attn,position_ids:pos});
+  return out.logits;
+}
+function softmaxOver(data,base,ids){let mx=-Infinity;for(const id of ids)if(data[base+id]>mx)mx=data[base+id];
+  let z=0;const e={};for(const id of ids){e[id]=Math.exp(data[base+id]-mx);z+=e[id];}return{e,z};}
 async function buildPhrases(i){
   const next=i+1;
   if(next>=committed.length||committed[next].t!=='zh'){ return; }
-  const zhIdx=committed.slice(0,committed.length).map((t,k)=>k).filter(k=>committed[k].t==='zh');
-  const posInZh=zhIdx.indexOf(i), nextInZh=zhIdx.indexOf(next);
-  // only the top few first-chars (frequency-ranked) -> the word-like ones;
-  // forcing rare first-chars just yields nonsense completions.
-  const cands=(pvCands[i]||[]).slice(0,4);
-  const toneless=$('toneless').checked;
-  const zhSyls=committed.filter(t=>t.t==='zh').map(t=>toneless?strip(t.v):t.v);
-  phraseBusy=true; phraseFor=i;
-  const out=[];
-  for(const c of cands){
-    if(phraseFor!==i) return;                // focus moved; abandon
-    try{
-      const r=await decodeZh(zhSyls,{[posInZh]:c});
-      out.push(c + (r.chars[nextInZh]||''));
-    }catch(e){}
-  }
-  if(phraseFor===i){ phrase=out; phraseBusy=false; if(fix===i) render(); }
+  const tl=$('toneless').checked;
+  const s0=tl?strip(committed[i].v):committed[i].v, s1=tl?strip(committed[next].v):committed[next].v;
+  const c0=candSet(s0), c1=candSet(s1);
+  if(!c0.ids.length||!c1.ids.length) return;
+  phraseBusy=true; phraseFor=i; if(fix===i) render();
+  try{
+    const prompt='<|im_start|>system\n注音轉繁體中文。<|im_end|>\n<|im_start|>user\n'+s0+' '+s1+'<|im_end|>\n<|im_start|>assistant\n';
+    const pids=[...tokenizer(prompt).input_ids.data].map(Number);
+    const L0=await forwardLogits(pids); if(phraseFor!==i) return;
+    const V=L0.dims[2], q0=(L0.dims[1]-1)*V;
+    const {e:e0,z:z0}=softmaxOver(L0.data,q0,c0.ids);
+    const firsts=c0.ids.map((id,k)=>({id,c:c0.chars[k],p:e0[id]/z0})).sort((a,b)=>b.p-a.p).slice(0,5);
+    const scored=[];
+    for(const f of firsts){
+      if(phraseFor!==i) return;
+      const L1=await forwardLogits([...pids,f.id]); const q1=(L1.dims[1]-1)*V;
+      const {e:e1,z:z1}=softmaxOver(L1.data,q1,c1.ids);
+      let bp=-1,bc=c1.chars[0];
+      c1.ids.forEach((id,k)=>{const pp=e1[id]/z1; if(pp>bp){bp=pp;bc=c1.chars[k];}});
+      scored.push({ph:f.c+bc, j:f.p*bp});
+    }
+    scored.sort((a,b)=>b.j-a.j);
+    const top=scored[0]?scored[0].j:0;
+    const kept=scored.filter(x=>x.j>=Math.max(0.06, 0.15*top)).map(x=>x.ph);
+    if(phraseFor===i){ phrase=[...new Set(kept)]; if(fix===i) render(); }
+  }catch(e){ console.error(e); }
+  finally{ if(phraseFor===i) phraseBusy=false; }
 }
 function pickCand(j){                 // j is index within current page
   const cands=pvCands[fix]||[];
