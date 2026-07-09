@@ -45,6 +45,18 @@ let learn = {};
 try{ learn = JSON.parse(localStorage.getItem('slothing-learn')||'{}'); }catch(e){}
 const saveLearn = ()=>{ try{localStorage.setItem('slothing-learn',JSON.stringify(learn));}catch(e){} };
 
+const validBase=new Set();   // toneless syllable bases, filled from the table
+// Longest trailing run of keys (<=3) that forms a valid zhuyin syllable, so an
+// English run followed by zhuyin (no space) can be split: 'python5k' + tone ->
+// ['python', 'ㄓㄜ'].  Returns [englishPrefix, syllableBopomofo] or null.
+function splitTrailingSyllable(raw){
+  for(let L=Math.min(3,raw.length);L>=1;L--){
+    let bopo='',ok=true;
+    for(const c of raw.slice(-L)){ if(!DACHEN[c]){ok=false;break;} bopo+=DACHEN[c][0]; }
+    if(ok && validBase.has(bopo)) return [raw.slice(0,raw.length-L), bopo];
+  }
+  return null;
+}
 function resetRun(){ cur=['','','']; rawWord=''; enRun=false; }
 function insertTok(tok){ committed.splice(cursor,0,tok); overrides.splice(cursor,0,null); cursor++; }
 function commitRun(){
@@ -61,6 +73,15 @@ function feedKey(k){
   if(k===' '){ if(hasRun()){commitRun();render();} return true; }
   if(k in TONEK){
     if(!enRun && hasPending()){ insertTok({t:'zh',v:pending()+TONEK[k]}); resetRun(); render(); return true; }
+    if(enRun){
+      // English run then a tone => the trailing keys were zhuyin (tones only
+      // exist in zhuyin). Split so 'python這個' works with no space between.
+      const sp=splitTrailingSyllable(rawWord);
+      if(sp){
+        if(sp[0]) insertTok({t:'en',v:sp[0]});
+        insertTok({t:'zh',v:sp[1]+TONEK[k]}); resetRun(); render(); return true;
+      }
+    }
     rawWord+=k; enRun=true; render(); return true;
   }
   if(enRun){ rawWord+=k; render(); return true; }
@@ -376,6 +397,7 @@ $('toneless').onchange=()=>{ pvKey=null; render(); };
 (async function init(){
   const txt=await (await fetch('./phonetic_table.tsv')).text();
   for(const line of txt.split('\n')){const t=line.indexOf('\t');if(t<0)continue;tonal[line.slice(0,t)]=[...line.slice(t+1)];}
+  for(const k in tonal) validBase.add(strip(k));   // for splitTrailingSyllable
   tokenizer=await AutoTokenizer.from_pretrained(REPO);
   model=await AutoModelForCausalLM.from_pretrained(REPO,{dtype:'q8'});
   ready=true; render();
