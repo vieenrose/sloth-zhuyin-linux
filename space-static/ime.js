@@ -8,17 +8,17 @@
 //  * punctuation: Shift+, Shift+. Shift+/ Shift+1 Shift+; → ，。？！：
 //  * session learning: your picks become the default for that syllable
 //  * auto zh/en: continuous DP re-segmentation of the keystream (segment.js)
-import { AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList, Tensor, env }
-  from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
-
+// SlothLM-E (bidirectional encoder) served directly via onnxruntime-web: one
+// non-autoregressive forward pass, per-position argmax over each syllable's
+// legal char-ids. No transformers.js, no autoregression (so no truncation).
+import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.wasm.min.mjs';
 // iOS Safari has no SharedArrayBuffer here (HF static Spaces send no COOP/COEP),
-// so threaded WASM fails to instantiate ("Internal error"). Force single-thread,
-// no worker-proxy -> the plain WASM path that loads reliably on mobile Safari.
-env.backends.onnx.wasm.numThreads = 1;
-env.backends.onnx.wasm.proxy = false;
+// so single-thread WASM is the path that loads reliably on mobile Safari.
+ort.env.wasm.numThreads = 1;
+ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
 import { makeSegmenter } from './segment.js';
 
-const REPO = 'Luigi/slothlm-34m-zhuyin-ONNX';
+const ENC = './enc/';   // model_quantized.onnx + syl_vocab.json + char2id.json
 const TONES = 'ˊˇˋ˙';
 const DACHEN = {'1':['ㄅ',0],'q':['ㄆ',0],'a':['ㄇ',0],'z':['ㄈ',0],'2':['ㄉ',0],'w':['ㄊ',0],
   's':['ㄋ',0],'x':['ㄌ',0],'e':['ㄍ',0],'d':['ㄎ',0],'c':['ㄏ',0],'r':['ㄐ',0],'f':['ㄑ',0],
@@ -109,20 +109,10 @@ function openFix(i){
   buildPhrases(i);                   // async: 2-char phrase alternatives
 }
 
-// Phrase-level candidates (LLM-only, ranked by the model's joint probability,
-// noise tail thresholded out): score every 2-char phrase for the focused
-// syllable + the next by P(first)·P(second|first) from direct forward passes,
-// keep only phrases clearly above the tail -> real words like chewing, no
-// lexicon. Context-free on the syllable pair (like a phrase dictionary).
+// Phrase-level candidates from the encoder: one forward pass over the syllable
+// pair gives per-position marginals; rank 2-char phrases by P(c0|pos0)·P(c1|pos1)
+// and keep those clearly above the noise tail -> real words, no lexicon.
 let phrase=null, phraseBusy=false, phraseFor=-1;
-async function forwardLogits(ids){
-  const n=ids.length;
-  const input=new Tensor('int64',ids.map(BigInt),[1,n]);
-  const attn=new Tensor('int64',new Array(n).fill(1n),[1,n]);
-  const pos=new Tensor('int64',ids.map((_,i)=>BigInt(i)),[1,n]);
-  const out=await model({input_ids:input,attention_mask:attn,position_ids:pos});
-  return out.logits;
-}
 function softmaxOver(data,base,ids){let mx=-Infinity;for(const id of ids)if(data[base+id]>mx)mx=data[base+id];
   let z=0;const e={};for(const id of ids){e[id]=Math.exp(data[base+id]-mx);z+=e[id];}return{e,z};}
 async function buildPhrases(i){
@@ -134,21 +124,13 @@ async function buildPhrases(i){
   if(!c0.ids.length||!c1.ids.length) return;
   phraseBusy=true; phraseFor=i; if(fix===i) render();
   try{
-    const prompt='<|im_start|>system\n注音轉繁體中文。<|im_end|>\n<|im_start|>user\n'+s0+' '+s1+'<|im_end|>\n<|im_start|>assistant\n';
-    const pids=[...tokenizer(prompt).input_ids.data].map(Number);
-    const L0=await forwardLogits(pids); if(phraseFor!==i) return;
-    const V=L0.dims[2], q0=(L0.dims[1]-1)*V;
-    const {e:e0,z:z0}=softmaxOver(L0.data,q0,c0.ids);
-    const firsts=c0.ids.map((id,k)=>({id,c:c0.chars[k],p:e0[id]/z0})).sort((a,b)=>b.p-a.p).slice(0,5);
+    const {data,V}=await encForward([s0,s1]); if(phraseFor!==i) return;
+    const {e:e0,z:z0}=softmaxOver(data,0,c0.ids);
+    const {e:e1,z:z1}=softmaxOver(data,V,c1.ids);
+    const p0=c0.ids.map((id,k)=>({c:c0.chars[k],p:e0[id]/z0})).sort((a,b)=>b.p-a.p).slice(0,5);
+    const p1=c1.ids.map((id,k)=>({c:c1.chars[k],p:e1[id]/z1})).sort((a,b)=>b.p-a.p).slice(0,5);
     const scored=[];
-    for(const f of firsts){
-      if(phraseFor!==i) return;
-      const L1=await forwardLogits([...pids,f.id]); const q1=(L1.dims[1]-1)*V;
-      const {e:e1,z:z1}=softmaxOver(L1.data,q1,c1.ids);
-      let bp=-1,bc=c1.chars[0];
-      c1.ids.forEach((id,k)=>{const pp=e1[id]/z1; if(pp>bp){bp=pp;bc=c1.chars[k];}});
-      scored.push({ph:f.c+bc, j:f.p*bp});
-    }
+    for(const a of p0){ let bp=-1,bc=p1[0].c; for(const b of p1) if(b.p>bp){bp=b.p;bc=b.c;} scored.push({ph:a.c+bc, j:a.p*bp}); }
     scored.sort((a,b)=>b.j-a.j);
     const top=scored[0]?scored[0].j:0;
     const kept=scored.filter(x=>x.j>=Math.max(0.06, 0.15*top)).map(x=>x.ph);
@@ -347,27 +329,34 @@ async function commitSentence(){
   clearAll(); render();
 }
 
-// ---- model + decode ----
-let tokenizer, model, ready=false;
+// ---- model + decode (SlothLM-E encoder, onnxruntime-web) ----
+let session, sylVocab, char2id, ready=false;
 const tonal={};
-function tid(ch){const ids=tokenizer.encode(ch,{add_special_tokens:false});return ids.length===1?ids[0]:null;}
 function candChars(syl){let chars=tonal[syl];
   if(!chars){const base=strip(syl);chars=[];for(const k in tonal)if(strip(k)===base)for(const c of tonal[k])if(!chars.includes(c))chars.push(c);}
   return chars.length?chars:[syl];}
-function candSet(syl){const out=[],ids=[];for(const c of candChars(syl)){const i=tid(c);if(i!=null&&!ids.includes(i)){ids.push(i);out.push(c);}}return{chars:out,ids};}
-class Masker extends LogitsProcessor{constructor(p,s){super();this.p=p;this.s=s;}
-  _call(ii,l){const st=ii[0].length-this.s;if(st>=0&&st<this.p.length){const a=new Set(this.p[st]);const d=l.data;for(let i=0;i<d.length;i++)if(!a.has(i))d[i]=-Infinity;}return l;}}
+// candidate chars + their output token-ids (from char2id) for a syllable
+function candSet(syl){const out=[],ids=[];for(const c of candChars(syl)){const i=char2id[c];if(i!=null&&!ids.includes(i)){ids.push(i);out.push(c);}}return{chars:out,ids};}
+// one bidirectional forward pass over the syllable sequence -> per-position logits
+async function encForward(syls){
+  const ids=syls.map(s=>sylVocab[s]??1), T=ids.length;
+  const out=await session.run({
+    syl:new ort.Tensor('int64',BigInt64Array.from(ids.map(BigInt)),[1,T]),
+    amask:new ort.Tensor('bool',Uint8Array.from(new Array(T).fill(1)),[1,T]),
+  });
+  return {data:out.logits.data, V:out.logits.dims[2], T};
+}
 async function decodeZh(syls, forced={}){
-  const sets=syls.map(candSet), posIds=sets.map(s=>s.ids);
-  for(const [i,ch] of Object.entries(forced)){
-    const t=tid(ch); if(t!=null) posIds[i]=[t];   // pin this position
+  const sets=syls.map(candSet);
+  const {data,V,T}=await encForward(syls);
+  const chars=[];
+  for(let i=0;i<T;i++){
+    if(forced[i]!=null){ chars.push(forced[i]); continue; }
+    const {chars:cc,ids}=sets[i]; let best=cc[0], bv=-Infinity;
+    for(let k=0;k<ids.length;k++){ const v=data[i*V+ids[k]]; if(v>bv){bv=v;best=cc[k];} }
+    chars.push(best!=null?best:syls[i]);
   }
-  const prompt='<|im_start|>system\n注音轉繁體中文。<|im_end|>\n<|im_start|>user\n'+syls.join(' ')+'<|im_end|>\n<|im_start|>assistant\n';
-  const enc=tokenizer(prompt);const start=enc.input_ids.dims[1];
-  const out=await model.generate({...enc,max_new_tokens:posIds.length+1,do_sample:false,
-    logits_processor:new LogitsProcessorList([new Masker(posIds,start)])});
-  const dec=tokenizer.decode(out.tolist()[0].slice(start),{skip_special_tokens:true}).replace(/\s/g,'');
-  return{chars:[...dec],cands:sets.map(s=>s.chars)};
+  return{chars,cands:sets.map(s=>s.chars)};
 }
 
 // ---- keyboard UI ----
@@ -458,8 +447,11 @@ $('toneless').onchange=()=>{ pvKey=null; render(); };
   const txt=await (await fetch('./phonetic_table.tsv')).text();
   for(const line of txt.split('\n')){const t=line.indexOf('\t');if(t<0)continue;tonal[line.slice(0,t)]=[...line.slice(t+1)];}
   for(const k in tonal) validBase.add(strip(k));   // for the segmenter
-  tokenizer=await AutoTokenizer.from_pretrained(REPO);
-  model=await AutoModelForCausalLM.from_pretrained(REPO,{dtype:'q8'});
+  [sylVocab, char2id] = await Promise.all([
+    fetch(ENC+'syl_vocab.json').then(r=>r.json()),
+    fetch(ENC+'char2id.json').then(r=>r.json()),
+  ]);
+  session=await ort.InferenceSession.create(ENC+'model_quantized.onnx');
   ready=true; render();
 })().catch(e=>{console.error(e);$('hint').textContent='模型載入失敗：'+(e&&e.name?e.name+' / ':'')+(e&&e.message||e);});
 render();
