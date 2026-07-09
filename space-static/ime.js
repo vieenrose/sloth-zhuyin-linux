@@ -103,7 +103,9 @@ async function buildPhrases(i){
   if(next>=committed.length||committed[next].t!=='zh'){ return; }
   const zhIdx=committed.slice(0,committed.length).map((t,k)=>k).filter(k=>committed[k].t==='zh');
   const posInZh=zhIdx.indexOf(i), nextInZh=zhIdx.indexOf(next);
-  const cands=(pvCands[i]||[]).slice(0,8);   // top-8 first chars
+  // only the top few first-chars (frequency-ranked) -> the word-like ones;
+  // forcing rare first-chars just yields nonsense completions.
+  const cands=(pvCands[i]||[]).slice(0,4);
   const toneless=$('toneless').checked;
   const zhSyls=committed.filter(t=>t.t==='zh').map(t=>toneless?strip(t.v):t.v);
   phraseBusy=true; phraseFor=i;
