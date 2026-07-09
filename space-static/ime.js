@@ -241,7 +241,7 @@ function renderSymbols(){
 }
 function insSym(s){ symbolMode=false; directPunct(s); }
 function toggleSymbols(){ symbolMode=!symbolMode; if(symbolMode){ if(hasRun())commitRun(); fix=-1; } render(); }
-function toggleEnMode(){ if(hasRun())commitRun(); enMode=!enMode; symbolMode=false; paintEn&&paintEn(); render(); }
+function toggleEnMode(){ if(hasRun())commitRun(); enMode=!enMode; symbolMode=false; paintEn&&paintEn(); typeof paintKeys==='function'&&paintKeys(); render(); }
 function render(){
   const pre=$('pre'); pre.innerHTML='';
   const caret=()=>{const c=document.createElement('span');c.className='caret';return c;};
@@ -403,11 +403,16 @@ async function decodeZh(syls, forced={}){
 
 // ---- keyboard UI ----
 const kb=$('kb');
+const keyBtns=[];
 ROWS.forEach(row=>{const r=document.createElement('div');r.className='krow';
   row.forEach(key=>{const b=document.createElement('button');b.className='key';
     const sym=DACHEN[key]?DACHEN[key][0]:(key in TONEK?TONEK[key]:'');
-    b.innerHTML='<span class="k">'+key+'</span><span class="s">'+sym+'</span>';
-    b.onclick=()=>feedKey(key);r.appendChild(b);});kb.appendChild(r);});
+    b.onclick=()=>feedKey(key);r.appendChild(b);keyBtns.push({b,key,sym});});kb.appendChild(r);});
+// In English mode show the QWERTY letter big (zhuyin small); Chinese mode: zhuyin big.
+function paintKeys(){ for(const {b,key,sym} of keyBtns){
+  b.innerHTML=enMode ? '<span class="s">'+key.toUpperCase()+'</span>'
+                     : '<span class="k">'+key+'</span><span class="s">'+sym+'</span>'; } }
+paintKeys();
 const rowP=document.createElement('div');rowP.className='krow';
 // direct-insert punctuation incl. 、(頓號) and / (slash), which have no free
 // zhuyin key; the mapped ones route through feedKey/PUNCT.
