@@ -31,21 +31,30 @@ export const WORDS = new Set(('a about after all also am an and any api app are 
 ).split(' '));
 
 export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
-  const isAlnum = c => c>='0'&&c<='9' || c>='A'&&c<='Z' || c>='a'&&c<='z';
-  // all legal zhuyin syllables starting at i: {len, v(bopomofo±tone), syms}
+  const isDigit = c => c>='0'&&c<='9';
+  const isAlnum = c => isDigit(c) || c>='A'&&c<='Z' || c>='a'&&c<='z';
+  // all legal zhuyin syllables starting at i: {len, v, syms, hard}
+  // hard = carries a tone or a number-row key -> a real zhuyin signal; a
+  // pure-letter syllable (soft) mid letter-run is almost always English.
   function zhAt(keys,i){
-    const res=[]; let bopo='', lastSlot=-1;
+    const res=[]; let bopo='', lastSlot=-1, dig=false;
     for(let L=0; L<3 && i+L<keys.length; L++){
-      const d=DACHEN[keys[i+L]]; if(!d) break;
+      const k=keys[i+L], d=DACHEN[k]; if(!d) break;
       if(d[1]<=lastSlot) break;            // initial < medial < final, each once
-      lastSlot=d[1]; bopo+=d[0];
+      lastSlot=d[1]; bopo+=d[0]; if(isDigit(k)) dig=true;
       if(validBase.has(bopo)){
-        res.push({len:L+1, v:bopo, syms:L+1});
+        res.push({len:L+1, v:bopo, syms:L+1, hard:dig});
         const tk=keys[i+L+1];
-        if(tk && TONEK[tk]) res.push({len:L+2, v:bopo+TONEK[tk], syms:L+1});
+        if(tk && TONEK[tk]) res.push({len:L+2, v:bopo+TONEK[tk], syms:L+1, hard:true});
       }
     }
     return res;
+  }
+  // does the whole key string parse as exactly one syllable? (standalone
+  // pure-letter syllables like ㄍㄜ=ek, ㄋㄧ=su, committed by space/alone)
+  function wholeSyllable(keys){
+    for(const s of zhAt(keys,0)) if(s.len===keys.length) return s.v;
+    return null;
   }
   return function segment(keys){
     const n=keys.length;
@@ -54,7 +63,9 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
     for(let i=0;i<n;i++){
       if(!dp[i]) continue;
       for(const s of zhAt(keys,i))                       // zhuyin syllable
-        relax(i+s.len, dp[i].cost + (s.syms>=2 ? 1.0 : 2.6), {t:'zh',v:s.v}, i);
+        // hard (tone/digit) syllables are cheap; soft (pure-letter) ones are
+        // expensive so they don't get carved out of English words (model, world)
+        relax(i+s.len, dp[i].cost + (s.hard ? (s.syms>=2?1.0:2.6) : (s.syms>=2?3.0:4.2)), {t:'zh',v:s.v}, i);
       if(isAlnum(keys[i]))                               // English run (each length)
         for(let j=i+1;j<=n && isAlnum(keys[j-1]);j++){
           const seg=keys.slice(i,j);
@@ -72,6 +83,12 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
     for(const t of (dp[n]||{toks:[]}).toks){
       const p=out[out.length-1];
       if(t.t==='en' && p && p.t==='en') p.v+=t.v; else out.push({...t});
+    }
+    // a lone English token that is exactly one valid syllable IS zhuyin
+    // (standalone soft syllable: ㄍㄜ=ek, ㄋㄧ=su), which the soft penalty
+    // would otherwise have flipped to English.
+    if(out.length===1 && out[0].t==='en'){
+      const v=wholeSyllable(out[0].v); if(v) return [{t:'zh',v}];
     }
     return out;
   };

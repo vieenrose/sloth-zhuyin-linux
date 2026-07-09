@@ -34,6 +34,10 @@ const T=[
   ['rm,6',           'zh:ㄐㄩㄝˊ',                             '覺 (3-symbol + tone)'],
   ['w8 ',            'zh:ㄊㄚ',                                '他 tone-1 (trailing space stripped by caller)'],
   ['api2u4',         'en:api | zh:ㄉㄧˋ',                      'English then 地/弟'],
+  ['model',          'en:model',                              'unknown English word not chopped (was mod+ㄍㄠ)'],
+  ['world',          'en:world',                              'unknown English word not chopped (was ㄊㄟ+rld)'],
+  ['banana',         'en:banana',                             'unknown English word not chopped'],
+  ['ek',             'zh:ㄍㄜ',                                'standalone pure-letter syllable 哥 (post-process)'],
 ];
 let pass=0,fail=0;
 for(const [keys,exp,desc] of T){
