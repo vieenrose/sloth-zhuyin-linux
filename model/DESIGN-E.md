@@ -118,3 +118,14 @@ phonetic-legality masking stays identical.
 Prototype SlothLM-E at ~16M, train on the existing data, run it through the
 chewing-parity gate against v1 (34M) and libchewing. Ship only if it matches/
 beats v1 while being smaller + faster.
+
+## Accuracy references: floor vs ceiling
+
+`eval/chewing_parity.py` (libchewing) is the **floor** — a purely statistical
+baseline. The real target is **微軟新注音 / 自然輸入法**: intelligent whole-
+sentence conversion with 免選字 (rarely needing manual selection).
+`eval/reference_mspy.tsv` curates everyday sentences those IMEs convert
+correctly without selection — the **ceiling**. Run it with
+`model/eval_slothe.py --testset eval/reference_mspy.tsv`. Baseline: on this set
+both libchewing and SlothLM-E3 score only ~73%, i.e. ~27% below the 免選字 bar
+— beating chewing is table-stakes; matching 微軟/自然 is the goal.

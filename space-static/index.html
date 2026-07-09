@@ -62,7 +62,7 @@
      with iOS-friendly touch height. Rows with fewer keys stay centered. */
   @media (max-width:520px){
     .kb{width:100%}
-    .krow{width:100%;justify-content:center;gap:3px}
+    .krow{width:100%;justify-content:center;gap:3px;flex-wrap:wrap}
     .key{width:calc((100% - 30px)/11);height:44px}
     .key .k{font-size:.5rem}.key .s{font-size:1.05rem}
     .key.wide{width:42%}.key.wide2{width:30%;flex:none}
@@ -95,11 +95,11 @@
   <div class="kb" id="kb"></div>
   <footer>
     完全在你的瀏覽器內執行，不連伺服器。試打 <code>ㄨㄛˇ ㄗㄞˋ ㄔㄨㄥˊ ㄒㄧㄣ ㄎㄠˇ ㄌㄩˋ</code> → 我在重新考慮。<br>
-    實體鍵盤：<code>\</code> = 、頓號 · <code>`</code> = 英/中切換（英文模式可打 is he 及 &lt;&gt;#@$ 等符號） · 空白 = 一聲/上字。<br>
+    鍵盤（微軟/自然慣例）：<code>\</code> = 、頓號 · <code>`</code> = 符號選單 · <code>Shift</code> = 英/中切換 · <code>Shift+空白</code> = 全/半形 · <code>↓</code> = 選字。<br>
     <a href="https://github.com/vieenrose/sloth-zhuyin-linux" target="_blank">GitHub</a> ·
     <a href="https://huggingface.co/Luigi/slothlm-34m-zhuyin" target="_blank">SlothLM</a>
   </footer>
 </main>
-<script type="module" src="./ime.js?v=20260709d"></script>
+<script type="module" src="./ime.js?v=20260709e"></script>
 </body>
 </html>

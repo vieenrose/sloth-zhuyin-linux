@@ -27,6 +27,18 @@ const DACHEN = {'1':['ㄅ',0],'q':['ㄆ',0],'a':['ㄇ',0],'z':['ㄈ',0],'2':['�
   ';':['ㄤ',2],'/':['ㄥ',2],'-':['ㄦ',2]};
 const TONEK = {'6':'ˊ','3':'ˇ','4':'ˋ','7':'˙'};
 const PUNCT = {'<':'，','>':'。','?':'？','!':'！',':':'：','"':'；','(':'（',')':'）','\\':'、'};
+// 微軟新注音 / 自然輸入法-style ` symbol menu (categories from libchewing symbols.dat)
+const SYMBOLS = {
+  '常用':'，、。．？！；：…—～‧「」『』（）',
+  '括號':'（）「」『』〔〕【】《》〈〉｛｝︵︶﹁﹂',
+  '數學':'＋－×÷＝≠≒±√＜＞≦≧∞∩∪∫∵∴',
+  '單位':'℃℉°′″＄％＠＃＆＊§￥',
+  '箭號':'↑↓←→↖↗↙↘',
+  '圖形':'○●△▲☆★◇◆□■▽▼◎⊙※',
+};
+const SYMCATS = Object.keys(SYMBOLS);
+let symbolMode = false, symCat = 0, fullWidth = false;
+const FW = {}; for(let i=33;i<127;i++){ FW[String.fromCharCode(i)]=String.fromCharCode(i+0xFEE0); } FW[' ']='　';
 const ROWS = [['1','2','3','4','5','6','7','8','9','0','-'],['q','w','e','r','t','y','u','i','o','p'],
   ['a','s','d','f','g','h','j','k','l',';'],['z','x','c','v','b','n','m',',','.','/']];
 const PAGE = 9;
@@ -82,8 +94,8 @@ function feedKey(k){
   // parsing). Fixes short words that look like valid zhuyin ("is he"), English
   // symbols (<>#@$), and clean typo editing. Space ends the word.
   if(enMode){
-    if(k===' '){ if(hasRun())commitRun(); return true; }
-    rawWord+=k; enRun=true; render(); return true;
+    if(k===' '&&!fullWidth){ if(hasRun())commitRun(); return true; }
+    rawWord+=(fullWidth&&FW[k]?FW[k]:k); enRun=true; render(); return true;
   }
   if(k in PUNCT){ if(hasRun())commitRun(); insertTok({t:'punct',v:PUNCT[k]}); render(); return true; }
   if(k===' '){ if(hasRun()){commitRun();render();} return true; }
@@ -215,6 +227,21 @@ function sentenceText(){
 }
 
 // ---- rendering ----
+// ` symbol menu: categories in #phrases, symbols in #cands (reuse candidate UI)
+function renderSymbols(){
+  const phEl=$('phrases'); phEl.innerHTML='';
+  SYMCATS.forEach((cat,i)=>{ const b=document.createElement('button');
+    b.className='cand'+(i===symCat?' ph':''); b.textContent=cat;
+    b.onclick=()=>{ symCat=i; render(); }; phEl.appendChild(b); });
+  const el=$('cands'); el.innerHTML='';
+  [...SYMBOLS[SYMCATS[symCat]]].forEach((s,j)=>{ const b=document.createElement('button');
+    b.className='cand'; b.innerHTML=(j<9?'<span class="n">'+(j+1)+'</span>':'')+s;
+    b.onclick=()=>insSym(s); el.appendChild(b); });
+  $('hint').textContent='符號選單　1-9 選　←→ 換類別　Esc 關閉';
+}
+function insSym(s){ symbolMode=false; directPunct(s); }
+function toggleSymbols(){ symbolMode=!symbolMode; if(symbolMode){ if(hasRun())commitRun(); fix=-1; } render(); }
+function toggleEnMode(){ if(hasRun())commitRun(); enMode=!enMode; symbolMode=false; paintEn&&paintEn(); render(); }
 function render(){
   const pre=$('pre'); pre.innerHTML='';
   const caret=()=>{const c=document.createElement('span');c.className='caret';return c;};
@@ -241,6 +268,8 @@ function render(){
     else pre.appendChild(tail);
   }
   pre.classList.toggle('empty',!committed.length&&!hasRun());
+
+  if(symbolMode){ renderSymbols(); return; }
 
   // phrase candidates (2-char), when available
   const phEl=$('phrases'); phEl.innerHTML='';
@@ -401,14 +430,30 @@ bs.innerHTML='<span class="s">⌫</span>';
 bs.onclick=()=>{ if(committed.length||hasRun()) backspace(); };
 // English-mode toggle: escape hatch for what auto-detection can't infer
 // (short English words that look like zhuyin, symbols, clean typo editing).
-const en=document.createElement('button');en.className='key';en.style.width='56px';
+const en=document.createElement('button');en.className='key';en.style.width='52px';
 const paintEn=()=>{ en.innerHTML='<span class="s">'+(enMode?'英':'中')+'</span>'; en.style.background=enMode?'var(--brown)':''; en.style.color=enMode?'var(--hi)':''; };
-en.onclick=()=>{ if(hasRun())commitRun(); enMode=!enMode; paintEn(); render(); };
+en.onclick=()=>toggleEnMode();
 paintEn();
-r.appendChild(sp);r.appendChild(ent);r.appendChild(bs);r.appendChild(en);kb.appendChild(r);
+// ` symbol menu button (微軟/自然-style)
+const symb=document.createElement('button');symb.className='key';symb.style.width='52px';
+symb.innerHTML='<span class="s">符</span>';symb.onclick=()=>toggleSymbols();
+r.appendChild(sp);r.appendChild(ent);r.appendChild(bs);r.appendChild(en);r.appendChild(symb);kb.appendChild(r);
 
+let shiftAlone=false;
 document.addEventListener('keydown',e=>{
+  if(e.key==='Shift'){ shiftAlone=true; return; }        // track lone-Shift (微軟 English toggle)
+  if(e.key!=='Shift') shiftAlone=false;
   if(e.ctrlKey||e.altKey||e.metaKey)return;const k=e.key;
+  // Shift+Space toggles 全形/半形 (微軟/自然 convention)
+  if(k===' '&&e.shiftKey){ fullWidth=!fullWidth; if(ready)$('hint').textContent=fullWidth?'全形':'半形'; e.preventDefault(); return; }
+  // ` symbol menu: number keys pick, ←→ switch category, Esc/` close
+  if(symbolMode){
+    if(k>='1'&&k<='9'){ const arr=[...SYMBOLS[SYMCATS[symCat]]]; if(arr[k.charCodeAt(0)-49])insSym(arr[k.charCodeAt(0)-49]); e.preventDefault(); return; }
+    if(k==='ArrowLeft'){ symCat=(symCat-1+SYMCATS.length)%SYMCATS.length; render(); e.preventDefault(); return; }
+    if(k==='ArrowRight'){ symCat=(symCat+1)%SYMCATS.length; render(); e.preventDefault(); return; }
+    if(k==='Escape'||k==='`'){ symbolMode=false; render(); e.preventDefault(); return; }
+    return;
+  }
   // candidate-fix mode: numbers pick, arrows page, Esc closes
   if(fix>=0){
     if(k>='1'&&k<='9'){ pickCand(k.charCodeAt(0)-49); e.preventDefault(); return; }
@@ -425,11 +470,12 @@ document.addEventListener('keydown',e=>{
   else if(k==='ArrowRight'){ if(committed.length||hasRun()){moveCursor(1);e.preventDefault();} }
   else if(k==='ArrowDown'){ if(cursor>0&&committed[cursor-1]&&committed[cursor-1].t==='zh'){openFix(cursor-1);e.preventDefault();} }
   else if(k==='Escape'){ clearAll(); render(); }
-  else if(k==='`'){ if(hasRun())commitRun(); enMode=!enMode; paintEn(); render(); e.preventDefault(); }  // ` toggles 英/中
-  else if(enMode && k.length===1){ feedKey(k); e.preventDefault(); }   // symbols pass through in English mode
+  else if(k==='`'){ toggleSymbols(); e.preventDefault(); }               // ` opens symbol menu (微軟/自然)
+  else if(enMode && k.length===1){ feedKey(k); e.preventDefault(); }  // English mode: literal (feedKey applies width)
   else if(k in PUNCT){ feedKey(k); e.preventDefault(); }
   else if(k.length===1&&(DACHEN[k]||k in TONEK||/[A-Za-z0-9]/.test(k))){ feedKey(k); e.preventDefault(); }
 });
+document.addEventListener('keyup',e=>{ if(e.key==='Shift'&&shiftAlone){ shiftAlone=false; toggleEnMode(); } });
 $('commit').onclick=()=>commitSentence();
 $('clear').onclick=()=>{ clearAll(); render(); };
 $('toneless').onchange=()=>{ pvKey=null; render(); };
