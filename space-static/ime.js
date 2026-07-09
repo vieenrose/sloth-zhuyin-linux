@@ -284,7 +284,8 @@ async function runPreview(){
       for(const tok of committed){
         if(tok.t==='zh'){
           const syl=toneless?strip(tok.v):tok.v;
-          let ch=r.chars[zc]; const cands=r.cands[zc];
+          const cands=r.cands[zc];
+          let ch=r.chars[zc]; if(ch==null||!cands.includes(ch)) ch=cands[0];  // never fall back to bopomofo
           if(learn[syl]&&cands.includes(learn[syl])) ch=learn[syl];  // learned pick wins
           pvChars.push(ch); pvCands.push(cands); zc++;
         } else { pvChars.push(tok.v); pvCands.push([tok.v]); }
@@ -339,7 +340,8 @@ async function decodeZh(syls, forced={}){
   const enc=tokenizer(prompt);const start=enc.input_ids.dims[1];
   const out=await model.generate({...enc,max_new_tokens:posIds.length+1,do_sample:false,
     logits_processor:new LogitsProcessorList([new Masker(posIds,start)])});
-  return{chars:[...tokenizer.decode(out.tolist()[0].slice(start),{skip_special_tokens:true})],cands:sets.map(s=>s.chars)};
+  const dec=tokenizer.decode(out.tolist()[0].slice(start),{skip_special_tokens:true}).replace(/\s/g,'');
+  return{chars:[...dec],cands:sets.map(s=>s.chars)};
 }
 
 // ---- keyboard UI ----
