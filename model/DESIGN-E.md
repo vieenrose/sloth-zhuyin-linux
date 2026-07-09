@@ -129,3 +129,23 @@ correctly without selection — the **ceiling**. Run it with
 `model/eval_slothe.py --testset eval/reference_mspy.tsv`. Baseline: on this set
 both libchewing and SlothLM-E3 score only ~73%, i.e. ~27% below the 免選字 bar
 — beating chewing is table-stakes; matching 微軟/自然 is the goal.
+
+## Code-switch segmentation: DP now, model-scored next (solution 2)
+
+The zh/en keystream is ambiguous (`is he` is valid zhuyin; `code` contains
+ㄏㄟ). Solution 1 (shipped, `space-static/segment.js`) is a deterministic DP
+that segments by phonetic legality + a cost model + a small word list — one
+principled pass replacing the old per-case FSM patches. But a *deterministic*
+DP can't use sentence context (it needs a hard-coded word list for `code`, and
+can't tell `ni`=ㄋㄧ from "ni" semantically).
+
+**Solution 2 (model-based, downstream of the encoder migration):** the DP
+already enumerates candidate segmentations (it's a lattice); have **SlothLM-E**
+score each by the probability of the decoded sentence and pick the best. The
+LLM's context then resolves what the DP guesses — no growing word list, and
+`is he` vs zhuyin is decided by which reads as real language. This is the same
+grammar-constraint + LM pattern the decoder already uses, applied to
+segmentation. Requires the encoder to be the serving model first (ONNX in the
+browser / onnxruntime on desktop); the code-switch training data (English as
+bidirectional context) is already in place. Shift English mode remains the
+escape hatch for the irreducibly ambiguous.
