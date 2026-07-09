@@ -289,7 +289,13 @@ async function ensureConverted(){
 async function commitSentence(){
   if(!ready) return;
   if(!(await ensureConverted())) return;
-  $('out').textContent+=sentenceText();
+  // insert into the editable output at its cursor (the output is a real
+  // document: click into it to move the caret / fix committed text).
+  const ta=$('out'), t=sentenceText();
+  const a=(ta.selectionStart!=null)?ta.selectionStart:ta.value.length;
+  const b=(ta.selectionEnd!=null)?ta.selectionEnd:a;
+  ta.value=ta.value.slice(0,a)+t+ta.value.slice(b);
+  const c=a+t.length; ta.selectionStart=ta.selectionEnd=c;
   clearAll(); render();
 }
 

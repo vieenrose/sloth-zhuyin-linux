@@ -14,7 +14,8 @@
   h1{margin:0;font-size:1.9rem}
   .sloth{color:var(--brown);font-weight:800;font-family:"Noto Serif TC",serif;margin-right:.2rem}
   .tag{color:var(--muted);font-size:.85rem;margin:.2rem 0 0}
-  .out{width:100%;min-height:3.2rem;border:2px solid var(--border);border-radius:10px;background:var(--panel);padding:.6rem .8rem;font-size:1.3rem;line-height:1.6;margin-bottom:.7rem;white-space:pre-wrap;word-break:break-all}
+  .out{width:100%;min-height:3.2rem;border:2px solid var(--border);border-radius:10px;background:var(--panel);color:var(--ink);padding:.6rem .8rem;font-size:1.3rem;line-height:1.6;margin-bottom:.7rem;white-space:pre-wrap;word-break:break-all;resize:vertical;font-family:inherit}
+  .out:focus{outline:none;border-color:var(--brown)}
   .ime{background:var(--panel);border:2px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem}
   .pre{min-height:2.2rem;font-size:1.6rem;color:var(--ink);border-bottom:2px dashed var(--border);padding-bottom:.4rem;margin-bottom:.5rem;word-break:break-all;line-height:1.5}
   .pre.empty{color:var(--muted)}
@@ -58,7 +59,7 @@
     <h1><span class="sloth">懶</span>Slothing</h1>
     <p class="tag">注音輸入法 · 由 34M SlothLM 在瀏覽器內解碼 · libchewing-free</p>
   </header>
-  <div class="out" id="out"></div>
+  <textarea class="out" id="out" rows="3" placeholder="輸出（可直接點進來編輯、移動游標，輸入會插入游標處）"></textarea>
   <div class="ime">
     <div class="pre empty" id="pre">​</div>
     <div class="cands" id="phrases"></div>
