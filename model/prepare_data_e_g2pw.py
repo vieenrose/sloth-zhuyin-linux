@@ -14,16 +14,6 @@ prepare_data_e (aligned syllable-id / char-id, tonal + toneless, English=<en>).
 """
 import argparse, json, os, sys
 import numpy as np
-# Cap each g2pW onnx session to few threads BEFORE importing g2pw, so N parallel
-# relabel shards fit the cores instead of each grabbing all 32 (thread thrash).
-import onnxruntime as _ort
-_OrigSO = _ort.SessionOptions
-def _CappedSO():
-    o = _OrigSO()
-    o.intra_op_num_threads = int(os.environ.get("G2PW_THREADS", "2"))
-    o.inter_op_num_threads = 1
-    return o
-_ort.SessionOptions = _CappedSO
 from transformers import AutoTokenizer
 from g2pw import G2PWConverter
 
