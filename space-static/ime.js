@@ -37,7 +37,7 @@ const $ = id => document.getElementById(id);
 // committed: [{t:'zh'|'en'|'punct', v}]; cursor = insertion index into it.
 // cur/rawWord: the run being typed (lives at the cursor).
 let committed = [], overrides = [], cursor = 0;
-let cur = ['','',''], rawWord = '', enRun = false;
+let cur = ['','',''], rawWord = '', enRun = false, enMode = false;
 let pvChars = [], pvCands = [], pvKey = null;
 let fix = -1, fixPage = 0;              // char being corrected
 const numSym = () => (cur[0]?1:0)+(cur[1]?1:0)+(cur[2]?1:0);
@@ -73,8 +73,18 @@ function commitRun(){
 }
 function clearAll(){ committed=[];overrides=[];cursor=0;resetRun();pvKey=null;fix=-1; }
 
+// insert a literal symbol/punctuation directly (、 / and English symbols),
+// bypassing zhuyin parsing — for the punctuation buttons.
+function directPunct(ch){ fix=-1; if(hasRun())commitRun(); insertTok({t:'punct',v:ch}); render(); }
 function feedKey(k){
   fix=-1;
+  // Forced-English mode: every key is a literal English char (no zhuyin
+  // parsing). Fixes short words that look like valid zhuyin ("is he"), English
+  // symbols (<>#@$), and clean typo editing. Space ends the word.
+  if(enMode){
+    if(k===' '){ if(hasRun())commitRun(); return true; }
+    rawWord+=k; enRun=true; render(); return true;
+  }
   if(k in PUNCT){ if(hasRun())commitRun(); insertTok({t:'punct',v:PUNCT[k]}); render(); return true; }
   if(k===' '){ if(hasRun()){commitRun();render();} return true; }
   if(k in TONEK){
@@ -283,15 +293,27 @@ async function runPreview(){
   const key=bufKey(), gen=++previewGen;
   try{
     const toneless=$('toneless').checked;
-    const zh=committed.filter(t=>t.t==='zh').map(t=>toneless?strip(t.v):t.v);
-    const r=zh.length?await decodeZh(zh):{chars:[],cands:[]};
+    // Decode each punctuation-delimited segment independently: punctuation
+    // (，。、！？…) marks a semantic boundary, so the model needn't see across
+    // it. Shorter context => faster (decode time ~ segment length, not whole
+    // buffer) and no long-sequence truncation.
+    const zhChars=[], zhCands=[]; let seg=[];
+    const flushSeg=async()=>{
+      const zh=seg.filter(t=>t.t==='zh').map(t=>toneless?strip(t.v):t.v);
+      const r=zh.length?await decodeZh(zh):{chars:[],cands:[]};
+      let zc=0;
+      for(const tok of seg) if(tok.t==='zh'){ zhCands.push(r.cands[zc]); zhChars.push(r.chars[zc]); zc++; }
+      seg=[];
+    };
+    for(const tok of committed){ seg.push(tok); if(tok.t==='punct') await flushSeg(); }
+    await flushSeg();
     if(gen===previewGen && key===bufKey()){
       pvChars=[];pvCands=[];let zc=0;
       for(const tok of committed){
         if(tok.t==='zh'){
           const syl=toneless?strip(tok.v):tok.v;
-          const cands=r.cands[zc];
-          let ch=r.chars[zc]; if(ch==null||!cands.includes(ch)) ch=cands[0];  // never fall back to bopomofo
+          const cands=zhCands[zc];
+          let ch=zhChars[zc]; if(ch==null||!cands.includes(ch)) ch=cands[0];  // never fall back to bopomofo
           if(learn[syl]&&cands.includes(learn[syl])) ch=learn[syl];  // learned pick wins
           pvChars.push(ch); pvCands.push(cands); zc++;
         } else { pvChars.push(tok.v); pvCands.push([tok.v]); }
@@ -358,10 +380,12 @@ ROWS.forEach(row=>{const r=document.createElement('div');r.className='krow';
     b.innerHTML='<span class="k">'+key+'</span><span class="s">'+sym+'</span>';
     b.onclick=()=>feedKey(key);r.appendChild(b);});kb.appendChild(r);});
 const rowP=document.createElement('div');rowP.className='krow';
-[['，','<'],['。','>'],['？','?'],['！','!'],['：',':']].forEach(([label,k])=>{
-  const b=document.createElement('button');b.className='key';b.style.width='40px';
+// direct-insert punctuation incl. 、(頓號) and / (slash), which have no free
+// zhuyin key; the mapped ones route through feedKey/PUNCT.
+[['，','<'],['。','>'],['、',''],['？','?'],['！','!'],['：',':'],['/','']].forEach(([label,k])=>{
+  const b=document.createElement('button');b.className='key';b.style.width='36px';
   b.innerHTML='<span class="s">'+label+'</span>';
-  b.onclick=()=>feedKey(k);rowP.appendChild(b);});
+  b.onclick=()=>{ (k in PUNCT)?feedKey(k):directPunct(label); };rowP.appendChild(b);});
 const bl=document.createElement('button');bl.className='key';bl.style.width='40px';
 bl.innerHTML='<span class="s">←</span>';bl.onclick=()=>moveCursor(-1);rowP.appendChild(bl);
 const br=document.createElement('button');br.className='key';br.style.width='40px';
@@ -372,10 +396,16 @@ const sp=document.createElement('button');sp.className='key wide';sp.textContent
 sp.onclick=()=>{ if(hasRun()) feedKey(' '); };
 const ent=document.createElement('button');ent.className='key wide2';ent.textContent='⏎ 上字';
 ent.onclick=()=>commitSentence();
-const bs=document.createElement('button');bs.className='key';bs.style.width='64px';
+const bs=document.createElement('button');bs.className='key';bs.style.width='56px';
 bs.innerHTML='<span class="s">⌫</span>';
 bs.onclick=()=>{ if(committed.length||hasRun()) backspace(); };
-r.appendChild(sp);r.appendChild(ent);r.appendChild(bs);kb.appendChild(r);
+// English-mode toggle: escape hatch for what auto-detection can't infer
+// (short English words that look like zhuyin, symbols, clean typo editing).
+const en=document.createElement('button');en.className='key';en.style.width='56px';
+const paintEn=()=>{ en.innerHTML='<span class="s">'+(enMode?'英':'中')+'</span>'; en.style.background=enMode?'var(--brown)':''; en.style.color=enMode?'var(--hi)':''; };
+en.onclick=()=>{ if(hasRun())commitRun(); enMode=!enMode; paintEn(); render(); };
+paintEn();
+r.appendChild(sp);r.appendChild(ent);r.appendChild(bs);r.appendChild(en);kb.appendChild(r);
 
 document.addEventListener('keydown',e=>{
   if(e.ctrlKey||e.altKey||e.metaKey)return;const k=e.key;
@@ -395,6 +425,7 @@ document.addEventListener('keydown',e=>{
   else if(k==='ArrowRight'){ if(committed.length||hasRun()){moveCursor(1);e.preventDefault();} }
   else if(k==='ArrowDown'){ if(cursor>0&&committed[cursor-1]&&committed[cursor-1].t==='zh'){openFix(cursor-1);e.preventDefault();} }
   else if(k==='Escape'){ clearAll(); render(); }
+  else if(enMode && k.length===1){ feedKey(k); e.preventDefault(); }   // symbols pass through in English mode
   else if(k in PUNCT){ feedKey(k); e.preventDefault(); }
   else if(k.length===1&&(DACHEN[k]||k in TONEK||/[A-Za-z0-9]/.test(k))){ feedKey(k); e.preventDefault(); }
 });
