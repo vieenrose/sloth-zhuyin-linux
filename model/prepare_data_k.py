@@ -95,7 +95,7 @@ def main():
 
     tok = AutoTokenizer.from_pretrained(args.tokenizer)
     load_tw_table(args.table)
-    print(f"TW table: {len(TW_READINGS)} chars", file=sys.stderr)
+    print(f"TW table: {len(TW_RANK)} chars", file=sys.stderr)
     # key vocab: every printable ASCII keystroke gets an input id
     key_vocab = {"<pad>": PAD, "<unk>": 1}
     for i in range(32, 127):
