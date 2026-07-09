@@ -98,7 +98,16 @@ function feedKey(k){
     rawWord+=(fullWidth&&FW[k]?FW[k]:k); enRun=true; render(); return true;
   }
   if(k in PUNCT){ if(hasRun())commitRun(); insertTok({t:'punct',v:PUNCT[k]}); render(); return true; }
-  if(k===' '){ if(hasRun()){commitRun();render();} return true; }
+  if(k===' '){
+    // space also splits a zhuyin syllable off an English run (tone-1 / neutral
+    // particles: happy吧, happy啊). Require >=2 bopomofo symbols so 'happy'+space
+    // isn't wrongly split into happ+ㄗ (a lone final/initial is too ambiguous).
+    if(enRun){ const sp=splitTrailingSyllable(rawWord);
+      if(sp && [...sp[1]].length>=2){
+        if(sp[0]) insertTok({t:'en',v:sp[0]});
+        insertTok({t:'zh',v:sp[1]}); resetRun(); render(); return true; } }
+    if(hasRun()){commitRun();render();} return true;
+  }
   if(k in TONEK){
     if(!enRun && hasPending()){ insertTok({t:'zh',v:pending()+TONEK[k]}); resetRun(); render(); return true; }
     if(enRun){

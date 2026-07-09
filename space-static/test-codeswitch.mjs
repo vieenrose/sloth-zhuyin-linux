@@ -42,7 +42,10 @@ function run(keys){
   const commitRun=()=>{ if(enRun&&rawWord)push({t:'en',v:rawWord}); else if(hasPending())push({t:'zh',v:pending()}); else if(rawWord)push({t:'en',v:rawWord}); reset(); };
   for(const k of keys){
     if(k in PUNCT){ if(hasPending()||rawWord)commitRun(); push({t:'punct',v:PUNCT[k]}); continue; }
-    if(k===' '){ if(hasPending()||rawWord)commitRun(); continue; }
+    if(k===' '){
+      if(enRun){ const sp=splitTrailingSyllable(rawWord);
+        if(sp && [...sp[1]].length>=2){ if(sp[0])push({t:'en',v:sp[0]}); push({t:'zh',v:sp[1]}); reset(); continue; } }
+      if(hasPending()||rawWord)commitRun(); continue; }
     if(k in TONEK){
       if(!enRun&&hasPending()){ push({t:'zh',v:pending()+TONEK[k]}); reset(); continue; }
       if(enRun){ const sp=splitTrailingSyllable(rawWord); if(sp){ if(sp[0])push({t:'en',v:sp[0]}); push({t:'zh',v:sp[1]+TONEK[k]}); reset(); continue; } }
@@ -68,6 +71,10 @@ const T=[
   ['5k4 rm,6',            'zh:ㄓㄜˋ | zh:ㄐㄩㄝˊ',                   'two zhuyin, space-separated'],
   ['code5j;4',            'en:code | zh:ㄓㄨㄤˋ',                    'short English then zhuyin (狀)'],
   ['api2u4',              'en:api | zh:ㄉㄧˋ',                       'English then 地/弟 (ㄉㄧˋ)'],
+  ['happya87',            'en:happy | zh:ㄇㄚ˙',                     'English then neutral-tone 嗎 (tone split)'],
+  ['happya8 ',            'en:happy | zh:ㄇㄚ',                      'English then tone-1 syllable via space (space split)'],
+  ['happy ',              'en:happy',                               'English + space must NOT split (lone ㄗ too ambiguous)'],
+  ['hello ',              'en:hello',                               'English + space, no valid zhuyin suffix'],
 ];
 
 let pass=0,fail=0;
