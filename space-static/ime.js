@@ -8,8 +8,14 @@
 //  * punctuation: Shift+, Shift+. Shift+/ Shift+1 Shift+; → ，。？！：
 //  * session learning: your picks become the default for that syllable
 //  * auto zh/en: impossible-zhuyin keystrokes flip the run to English
-import { AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList, Tensor }
+import { AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList, Tensor, env }
   from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
+
+// iOS Safari has no SharedArrayBuffer here (HF static Spaces send no COOP/COEP),
+// so threaded WASM fails to instantiate ("Internal error"). Force single-thread,
+// no worker-proxy -> the plain WASM path that loads reliably on mobile Safari.
+env.backends.onnx.wasm.numThreads = 1;
+env.backends.onnx.wasm.proxy = false;
 
 const REPO = 'Luigi/slothlm-34m-zhuyin-ONNX';
 const TONES = 'ˊˇˋ˙';
@@ -403,5 +409,5 @@ $('toneless').onchange=()=>{ pvKey=null; render(); };
   tokenizer=await AutoTokenizer.from_pretrained(REPO);
   model=await AutoModelForCausalLM.from_pretrained(REPO,{dtype:'q8'});
   ready=true; render();
-})().catch(e=>{console.error(e);$('hint').textContent='模型載入失敗：'+e.message;});
+})().catch(e=>{console.error(e);$('hint').textContent='模型載入失敗：'+(e&&e.name?e.name+' / ':'')+(e&&e.message||e);});
 render();
