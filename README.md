@@ -141,6 +141,27 @@ open, is exactly Slothing's lane.
       but local and open; only worth pursuing once conversion accuracy is
       where we want it.
 
+**Model architecture roadmap**
+- [~] **SlothLM-E** (`model/DESIGN-E.md`, `model/train_slothlm_e.py`): the
+      current model is a causal decoder-LM, but zhuyin decode is *aligned
+      sequence labeling* (N syllables → N characters, 1:1, each constrained).
+      A **bidirectional encoder** with non-autoregressive per-position
+      classification fits the task far better: it sees the whole sentence
+      (right-context disambiguation: 行走/銀行, 重新/重心), decodes in **one
+      pass** (faster), and is **~half the size** (~16M vs 34M). Prototyped;
+      to train + parity-gate vs v1 after the GPU frees. Serving moves to
+      onnxruntime (already the web demo's runtime).
+- [ ] **Hybrid Transformer + SSM (Mamba)** — *only* for the deferred
+      **full-document-context decoder**. At today's short sequences (~6–20
+      tokens) attention is trivially cheap and a bidirectional encoder wins;
+      SSMs are a long-context (O(N)) tool whose advantage appears only when
+      each syllable is conditioned on *thousands* of tokens of preceding
+      document text. If Slothing ever decodes with whole-document context, a
+      hybrid (few attention layers + Mamba for the long tail) is the right
+      candidate — but it also gives up the browser/ONNX serving path, so it
+      is explicitly a *future long-document* milestone, not a swap for the
+      current model.
+
 **Non-goals**
 - Cloud inference of any kind; telemetry. The daemon binds a per-user socket
   and everything runs locally, always.
