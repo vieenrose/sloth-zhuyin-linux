@@ -42,10 +42,38 @@ PAD, UNK, BLANK = 0, 1, 1   # key PAD/UNK; label BLANK=1 (labels use tokenizer i
 ASCII_BASE = 2
 
 
+TW_RANK = {}       # char -> {syllable: rank in that syllable's candidate list}
+
+
+def load_tw_table(path):
+    for line in open(path, encoding="utf-8"):
+        syl, _, rest = line.rstrip("\n").partition("\t")
+        if not rest:
+            continue
+        for rank, ch in enumerate(rest):
+            TW_RANK.setdefault(ch, {})[syl] = rank
+
+
+def tw_correct(ch, syl):
+    """pypinyin gives MAINLAND readings. The table is frequency-ordered per
+    syllable (libchewing), with old pypinyin-only entries appended at the tail.
+    Substitute pypinyin's reading when the char ranks FAR better under another
+    reading (微: rank ~2 under ㄨㄟˊ vs tail under ㄨㄟ) -- but keep genuine
+    context-dependent heteronyms (了 ㄌㄜ˙/ㄌㄧㄠˇ both rank well)."""
+    ranks = TW_RANK.get(ch)
+    if not ranks:
+        return syl
+    best_syl = min(ranks, key=ranks.get)
+    cur = ranks.get(syl)
+    if cur is None or cur > ranks[best_syl] + 15:
+        return best_syl
+    return syl
+
+
 def bopomofo_syls(s):
     out = []
-    for g in pinyin(s, style=Style.BOPOMOFO, errors="ignore"):
-        syl = g[0]
+    for ch, g in zip(s, pinyin(s, style=Style.BOPOMOFO, errors="ignore")):
+        syl = tw_correct(ch, g[0]) if g[0] else g[0]
         if not syl or any(c not in KEYMAP for c in syl):
             return None
         out.append(syl)
@@ -56,6 +84,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--tokenizer", default="model/tokenizer")
+    ap.add_argument("--table", default="model/phonetic_table.tsv",
+                    help="TW phonetic table; corrects pypinyin's mainland readings")
     ap.add_argument("--out", default="model/train_k.bin")
     ap.add_argument("--vocab", default="model/key_vocab.json")
     ap.add_argument("--label-base", type=int, default=130,
@@ -64,6 +94,8 @@ def main():
     args = ap.parse_args()
 
     tok = AutoTokenizer.from_pretrained(args.tokenizer)
+    load_tw_table(args.table)
+    print(f"TW table: {len(TW_READINGS)} chars", file=sys.stderr)
     # key vocab: every printable ASCII keystroke gets an input id
     key_vocab = {"<pad>": PAD, "<unk>": 1}
     for i in range(32, 127):

@@ -47,9 +47,10 @@ def main():
         for w, c in freq.most_common():
             if c < args.min_count:
                 break
-            # repeat ~ log-frequency so very common words get more examples,
-            # capped so nothing dominates
-            r = min(args.max_repeat, 1 + int(math.log2(c)))
+            # repeat ~ LINEAR in frequency (capped), so common words get a
+            # genuinely strong signal. NB: the old log2 formula saturated at
+            # ~10-18 regardless of --max-repeat, making the flag inert.
+            r = min(args.max_repeat, 20 + c // 8)
             for _ in range(r):
                 f.write(w + "\n")
             kept += 1
