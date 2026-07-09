@@ -2,13 +2,21 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Slothing — Web Zhuyin IME</title>
 <style>
   :root{--bg:#faf6f0;--panel:#fff;--ink:#3a2e28;--brown:#8b5a2b;--border:#c9a87c;--muted:#8a7a6c;--hi:#fff8f0}
   @media (prefers-color-scheme:dark){:root{--bg:#241d18;--panel:#2e2621;--ink:#f0e8e0;--brown:#b57a44;--border:#5a4636;--muted:#a08e7e}}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans TC",system-ui,sans-serif;display:flex;justify-content:center;padding:1.4rem 1rem}
+  html{-webkit-text-size-adjust:100%}
+  /* iOS: no tap-flash, no long-press callout, no double-tap zoom on controls */
+  button,.key,.pchar,.cand,.seg{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;touch-action:manipulation}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans TC",system-ui,sans-serif;
+    display:flex;justify-content:center;overflow-x:hidden;
+    padding:calc(1rem + env(safe-area-inset-top)) calc(.7rem + env(safe-area-inset-right))
+            calc(1rem + env(safe-area-inset-bottom)) calc(.7rem + env(safe-area-inset-left))}
   main{width:100%;max-width:640px}
   header{text-align:center;margin-bottom:1rem}
   h1{margin:0;font-size:1.9rem}
@@ -50,7 +58,18 @@
   .key.wide2{width:110px;height:38px;font-size:.9rem;background:var(--brown);color:var(--hi)}
   footer{margin-top:1.1rem;color:var(--muted);font-size:.8rem;text-align:center}
   footer a{color:var(--brown)}
-  @media (max-width:480px){.key{width:29px;height:36px}.key.wide{width:100px}.key.wide2{width:80px}.pre{font-size:1.3rem}}
+  /* iPhone / narrow: fluid keys that always fit 11-per-row at any width,
+     with iOS-friendly touch height. Rows with fewer keys stay centered. */
+  @media (max-width:520px){
+    .kb{width:100%}
+    .krow{width:100%;justify-content:center;gap:3px}
+    .key{width:calc((100% - 30px)/11);height:44px}
+    .key .k{font-size:.5rem}.key .s{font-size:1.05rem}
+    .key.wide{width:42%}.key.wide2{width:30%;flex:none}
+    .pre{font-size:1.3rem}
+    .out{font-size:1.05rem}
+    h1{font-size:1.6rem}.tag{font-size:.78rem}
+  }
 </style>
 </head>
 <body>
@@ -59,7 +78,9 @@
     <h1><span class="sloth">懶</span>Slothing</h1>
     <p class="tag">注音輸入法 · 由 34M SlothLM 在瀏覽器內解碼 · libchewing-free</p>
   </header>
-  <textarea class="out" id="out" rows="3" placeholder="輸出（可直接點進來編輯、移動游標，輸入會插入游標處）"></textarea>
+  <textarea class="out" id="out" rows="3" inputmode="none" autocapitalize="off"
+    autocorrect="off" autocomplete="off" spellcheck="false"
+    placeholder="輸出（可點進來移動游標，輸入會插入游標處）"></textarea>
   <div class="ime">
     <div class="pre empty" id="pre">​</div>
     <div class="cands" id="phrases"></div>
