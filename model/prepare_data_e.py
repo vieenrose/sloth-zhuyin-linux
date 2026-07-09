@@ -33,10 +33,32 @@ LATIN = re.compile(r"[A-Za-z][A-Za-z0-9+.#_-]*")
 PAD, UNK, EN = 0, 1, 2
 
 
+TW_RANK = {}       # char -> {syllable: rank}; corrects pypinyin's mainland readings
+
+
+def load_tw_table(path):
+    for line in open(path, encoding="utf-8"):
+        syl, _, rest = line.rstrip("\n").partition("\t")
+        if rest:
+            for rank, ch in enumerate(rest):
+                TW_RANK.setdefault(ch, {})[syl] = rank
+
+
+def tw_correct(ch, syl):
+    """Substitute pypinyin's (mainland) reading when the char ranks FAR better
+    under another Taiwan reading (微: ㄨㄟ -> ㄨㄟˊ); keep genuine heteronyms."""
+    ranks = TW_RANK.get(ch)
+    if not ranks:
+        return syl
+    best = min(ranks, key=ranks.get)
+    cur = ranks.get(syl)
+    return best if (cur is None or cur > ranks[best] + 15) else syl
+
+
 def bopomofo_syls(s):
     out = []
-    for g in pinyin(s, style=Style.BOPOMOFO, errors="ignore"):
-        syl = g[0]
+    for ch, g in zip(s, pinyin(s, style=Style.BOPOMOFO, errors="ignore")):
+        syl = tw_correct(ch, g[0]) if g[0] else g[0]
         if not syl or any(c not in KEYMAP_OK for c in syl):
             return None
         out.append(syl)
@@ -69,6 +91,7 @@ def main():
     args = ap.parse_args()
 
     tok = AutoTokenizer.from_pretrained(args.tokenizer)
+    load_tw_table(args.table)
     syl_vocab = build_syl_vocab(args.table)
     json.dump(syl_vocab, open(args.vocab, "w", encoding="utf-8"),
               ensure_ascii=False)
