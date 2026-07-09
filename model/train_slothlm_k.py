@@ -18,13 +18,21 @@ import os
 import sys
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from train_slothlm_e import AlignedBin, SlothE, collate
 
 LABEL_BASE = 130   # tokenizer id + LABEL_BASE; 0=pad(unused) 1=BLANK 2..129=ASCII
+
+# Multi-GPU: launch with `torchrun --nproc_per_node=N model/train_slothlm_k.py ...`
+# Single-GPU plain `python` runs unchanged.
+DDP = "RANK" in os.environ
+RANK = int(os.environ.get("RANK", 0))
+IS_MAIN = RANK == 0
 
 
 def main():
@@ -48,18 +56,29 @@ def main():
     tok = AutoTokenizer.from_pretrained(args.tokenizer)
     key_vocab = json.load(open(args.vocab, encoding="utf-8"))
     n_label = len(tok) + LABEL_BASE
-    dev = "cuda" if torch.cuda.is_available() else "cpu"
-    if dev == "cuda":
+    if DDP:
+        dist.init_process_group("nccl")
+        torch.cuda.set_device(RANK)
+        dev = f"cuda:{RANK}"
+    else:
+        dev = "cuda" if torch.cuda.is_available() else "cpu"
+    if dev.startswith("cuda"):
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
     ds = AlignedBin(args.data)
-    dl = DataLoader(ds, batch_size=args.batch, shuffle=True, num_workers=8,
+    sampler = DistributedSampler(ds) if DDP else None
+    dl = DataLoader(ds, batch_size=args.batch, shuffle=(sampler is None),
+                    sampler=sampler, num_workers=8,
                     collate_fn=collate, pin_memory=True, drop_last=True)
     model = SlothE(len(key_vocab), n_label, args.dim, args.depth,
                    args.heads, args.kv_heads, args.ffn).to(dev)
-    print(f"SlothLM-K {sum(p.numel() for p in model.parameters())/1e6:.1f}M params "
-          f"(keys {len(key_vocab)} -> labels {n_label})")
+    if DDP:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[RANK])
+    if IS_MAIN:
+        print(f"SlothLM-K {sum(p.numel() for p in model.parameters())/1e6:.1f}M params "
+              f"(keys {len(key_vocab)} -> labels {n_label})"
+              + (f"; DDP x{dist.get_world_size()}" if DDP else ""))
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95),
                             weight_decay=0.1)
     total = int(len(dl) * args.epochs) if not args.steps else args.steps
@@ -67,10 +86,13 @@ def main():
                                                 pct_start=0.03)
     model.train()
     step = 0
-    for _ in range(math.ceil(args.epochs)):
+    for ep in range(math.ceil(args.epochs)):
+        if sampler is not None:
+            sampler.set_epoch(ep)
         for keys, labels, mask in dl:
             keys, labels, mask = keys.to(dev), labels.to(dev), mask.to(dev)
-            with torch.autocast(dev, dtype=torch.bfloat16, enabled=dev == "cuda"):
+            with torch.autocast("cuda" if dev.startswith("cuda") else dev,
+                                dtype=torch.bfloat16, enabled=dev.startswith("cuda")):
                 logits = model(keys, mask)
                 loss = F.cross_entropy(logits.reshape(-1, logits.shape[-1]),
                                        labels.reshape(-1), ignore_index=-100)
@@ -80,23 +102,27 @@ def main():
             opt.step()
             sched.step()
             step += 1
-            if step % 50 == 0:
+            if step % 50 == 0 and IS_MAIN:
                 print(f"step {step}/{total} loss {loss.item():.3f}", flush=True)
             if args.steps and step >= args.steps:
                 break
         if args.steps and step >= args.steps:
             break
 
-    os.makedirs(args.out, exist_ok=True)
-    torch.save({"model": model.state_dict(),
-                "config": {"n_syl": len(key_vocab), "n_char": n_label,
-                           "dim": args.dim, "depth": args.depth,
-                           "heads": args.heads, "kv": args.kv_heads,
-                           "ffn": args.ffn, "label_base": LABEL_BASE}},
-               os.path.join(args.out, "slothe.pt"))
-    json.dump(key_vocab, open(os.path.join(args.out, "key_vocab.json"), "w",
-                              encoding="utf-8"), ensure_ascii=False)
-    print(f"saved to {args.out}")
+    if IS_MAIN:
+        os.makedirs(args.out, exist_ok=True)
+        sd = model.module.state_dict() if DDP else model.state_dict()
+        torch.save({"model": sd,
+                    "config": {"n_syl": len(key_vocab), "n_char": n_label,
+                               "dim": args.dim, "depth": args.depth,
+                               "heads": args.heads, "kv": args.kv_heads,
+                               "ffn": args.ffn, "label_base": LABEL_BASE}},
+                   os.path.join(args.out, "slothe.pt"))
+        json.dump(key_vocab, open(os.path.join(args.out, "key_vocab.json"), "w",
+                                  encoding="utf-8"), ensure_ascii=False)
+        print(f"saved to {args.out}")
+    if DDP:
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":
