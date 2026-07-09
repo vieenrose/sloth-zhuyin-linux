@@ -86,10 +86,36 @@ function moveCursor(d){
 function openFix(i){
   if(i<0||i>=committed.length||committed[i].t!=='zh') return;
   if(pvKey!==bufKey()) return;       // wait for decode
-  fix=i; fixPage=0;
+  fix=i; fixPage=0; phrase=null; phraseBusy=false;
   const sel=displayFor(i), cands=pvCands[i]||[];
   const at=cands.indexOf(sel); if(at>=0) fixPage=Math.floor(at/PAGE);
   render();
+  buildPhrases(i);                   // async: 2-char phrase alternatives
+}
+
+// Phrase-level candidates: for the focused zh char, for each of its top
+// single-char options, re-decode with that char forced so the model chooses
+// the best *following* char conditioned on it -> coherent 2-char phrases
+// (重新 / 從新 / 重心 ...). Only when a zh char follows the focus.
+let phrase=null, phraseBusy=false, phraseFor=-1;
+async function buildPhrases(i){
+  const next=i+1;
+  if(next>=committed.length||committed[next].t!=='zh'){ return; }
+  const zhIdx=committed.slice(0,committed.length).map((t,k)=>k).filter(k=>committed[k].t==='zh');
+  const posInZh=zhIdx.indexOf(i), nextInZh=zhIdx.indexOf(next);
+  const cands=(pvCands[i]||[]).slice(0,8);   // top-8 first chars
+  const toneless=$('toneless').checked;
+  const zhSyls=committed.filter(t=>t.t==='zh').map(t=>toneless?strip(t.v):t.v);
+  phraseBusy=true; phraseFor=i;
+  const out=[];
+  for(const c of cands){
+    if(phraseFor!==i) return;                // focus moved; abandon
+    try{
+      const r=await decodeZh(zhSyls,{[posInZh]:c});
+      out.push(c + (r.chars[nextInZh]||''));
+    }catch(e){}
+  }
+  if(phraseFor===i){ phrase=out; phraseBusy=false; if(fix===i) render(); }
 }
 function pickCand(j){                 // j is index within current page
   const cands=pvCands[fix]||[];
@@ -98,7 +124,19 @@ function pickCand(j){                 // j is index within current page
   overrides[fix]=cands[idx];
   const syl=$('toneless').checked?strip(committed[fix].v):committed[fix].v;
   learn[syl]=cands[idx]; saveLearn();
-  fix=-1; render();
+  fix=-1; phrase=null; render();
+}
+function pickPhrase(p){               // p = 2-char phrase for [fix, fix+1]
+  const chars=[...p];
+  overrides[fix]=chars[0];
+  // next zh token
+  let n=fix+1; while(n<committed.length&&committed[n].t!=='zh') n++;
+  if(n<committed.length&&chars[1]) overrides[n]=chars[1];
+  const tl=$('toneless').checked;
+  learn[tl?strip(committed[fix].v):committed[fix].v]=chars[0];
+  if(n<committed.length&&chars[1]) learn[tl?strip(committed[n].v):committed[n].v]=chars[1];
+  saveLearn();
+  fix=-1; phrase=null; render();
 }
 
 function displayFor(i){
@@ -143,6 +181,19 @@ function render(){
     else pre.appendChild(tail);
   }
   pre.classList.toggle('empty',!committed.length&&!hasRun());
+
+  // phrase candidates (2-char), when available
+  const phEl=$('phrases'); phEl.innerHTML='';
+  if(fix>=0 && phrase && phrase.length){
+    const lbl=document.createElement('span'); lbl.className='pg'; lbl.textContent='詞';
+    phEl.appendChild(lbl);
+    const seen=new Set();
+    phrase.forEach(p=>{ if(seen.has(p))return; seen.add(p);
+      const b=document.createElement('button'); b.className='cand ph';
+      b.textContent=p; b.onclick=()=>pickPhrase(p); phEl.appendChild(b); });
+  } else if(fix>=0 && phraseBusy){
+    const s=document.createElement('span'); s.className='pg'; s.textContent='組詞中…'; phEl.appendChild(s);
+  }
 
   // paged candidate strip
   const stripEl=$('cands'); stripEl.innerHTML='';
@@ -229,8 +280,11 @@ function candChars(syl){let chars=tonal[syl];
 function candSet(syl){const out=[],ids=[];for(const c of candChars(syl)){const i=tid(c);if(i!=null&&!ids.includes(i)){ids.push(i);out.push(c);}}return{chars:out,ids};}
 class Masker extends LogitsProcessor{constructor(p,s){super();this.p=p;this.s=s;}
   _call(ii,l){const st=ii[0].length-this.s;if(st>=0&&st<this.p.length){const a=new Set(this.p[st]);const d=l.data;for(let i=0;i<d.length;i++)if(!a.has(i))d[i]=-Infinity;}return l;}}
-async function decodeZh(syls){
+async function decodeZh(syls, forced={}){
   const sets=syls.map(candSet), posIds=sets.map(s=>s.ids);
+  for(const [i,ch] of Object.entries(forced)){
+    const t=tid(ch); if(t!=null) posIds[i]=[t];   // pin this position
+  }
   const prompt='<|im_start|>system\n注音轉繁體中文。<|im_end|>\n<|im_start|>user\n'+syls.join(' ')+'<|im_end|>\n<|im_start|>assistant\n';
   const enc=tokenizer(prompt);const start=enc.input_ids.dims[1];
   const out=await model.generate({...enc,max_new_tokens:posIds.length+1,do_sample:false,

@@ -29,6 +29,7 @@
   .cand .n{font-size:.7rem;color:var(--muted);margin-right:.25rem}
   .cand.sel .n{color:var(--hi)}
   .cand.nav{font-weight:700}
+  .cand.ph{background:var(--brown);color:var(--hi);border-color:var(--brown);font-size:1.05rem}
   .pg{color:var(--muted);font-size:.8rem;align-self:center;margin-left:.3rem}
   .cands{display:flex;flex-wrap:wrap;gap:.3rem}.cands:not(:empty){margin-bottom:.5rem}
   .cand{font-size:1.15rem;padding:.15rem .5rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
@@ -60,6 +61,7 @@
   <div class="out" id="out"></div>
   <div class="ime">
     <div class="pre empty" id="pre">​</div>
+    <div class="cands" id="phrases"></div>
     <div class="cands" id="cands"></div>
     <p class="hint" id="hint">模型載入中…（首次約下載 33MB，之後離線可用）</p>
     <div class="ctrls">
