@@ -80,8 +80,13 @@ def main():
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr, lr_scheduler_type="cosine", warmup_ratio=0.02,
         weight_decay=0.1, adam_beta1=0.9, adam_beta2=0.95, max_grad_norm=1.0,
-        bf16=True, logging_steps=50, save_strategy="epoch",
-        dataloader_num_workers=4, report_to="none",
+        bf16=True, tf32=True, logging_steps=50, save_strategy="epoch",
+        # torch.compile fuses the tiny model's kernels + uses CUDA graphs; with
+        # fixed-length blocks the shapes are static so it compiles cleanly and
+        # cuts step time on a small (kernel-launch-bound) model.
+        torch_compile=True,
+        dataloader_num_workers=8, dataloader_pin_memory=True,
+        report_to="none",
     )
     trainer = Trainer(model=model, args=targs, train_dataset=ds)
     trainer.train()
