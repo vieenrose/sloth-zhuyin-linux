@@ -68,11 +68,15 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
         relax(i+s.len, dp[i].cost + (s.hard ? (s.syms>=2?1.0:2.6) : (s.syms>=2?3.0:4.2)), {t:'zh',v:s.v}, i);
       if(isAlnum(keys[i]))                               // English run (each length)
         for(let j=i+1;j<=n && isAlnum(keys[j-1]);j++){
-          const seg=keys.slice(i,j);
+          const seg=keys.slice(i,j), L=j-i;
           // per-char cost; lone letters penalized (a 1-char English token in
           // zhuyin is almost always a mis-segmentation, e.g. api); known words
-          // discounted so they stay whole despite a valid zhuyin substring (code).
-          const cost=dp[i].cost + 1 + 0.6*(j-i) + ((j-i)===1?1.5:0) - (words.has(seg.toLowerCase())?3:0);
+          // of length>=3 discounted so they stay whole despite a valid zhuyin
+          // substring (code) — but the cost is floored so short dict words
+          // ('or','is') can't become negative-cost chain fodder that the DP
+          // strings together to undercut honest segmentations (7w|or|ld).
+          const disc=(L>=3 && words.has(seg.toLowerCase()))?3:0;
+          const cost=dp[i].cost + Math.max(0.9, 1 + 0.6*L + (L===1?1.5:0) - disc);
           relax(j, cost, {t:'en',v:seg}, i);
         }
       if(!isAlnum(keys[i]) && !DACHEN[keys[i]] && !TONEK[keys[i]]) // stray symbol
