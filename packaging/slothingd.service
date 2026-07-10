@@ -1,0 +1,21 @@
+# systemd user service for the Slothing decode daemon (SlothLM-E ONNX).
+# Install:  packaging/install-slothingd-service.sh
+# The socket lands on $XDG_RUNTIME_DIR/slothingd.sock, the same path the
+# fcitx5 engine derives (see slothingdSocketPath() in eim.cpp).
+[Unit]
+Description=Slothing zhuyin decode daemon (SlothLM-E)
+
+[Service]
+Type=simple
+# REPO_DIR is substituted by the install script.
+ExecStart=/usr/bin/python3 @REPO_DIR@/engine/slothingd/slothingd_e.py \
+    --model @REPO_DIR@/model/slothe_4m_onnx \
+    --table @REPO_DIR@/model/phonetic_table.tsv
+Restart=on-failure
+RestartSec=2
+# tiny model; keep the daemon lean and out of the way
+MemoryHigh=512M
+Nice=5
+
+[Install]
+WantedBy=default.target
