@@ -160,12 +160,33 @@ function pickPhrase(p){               // p = 2-char phrase for [fix, fix+1]
   fix=-1; phrase=null; render();
 }
 
+let staleToks=[], staleChars=[];      // last successful conversion snapshot
+function staleFor(i){
+  // stable display while a decode is in flight: reuse the previous decoded
+  // char for tokens unchanged at the same position from the start (prefix)
+  // or from the end (suffix — covers mid-sentence edits). New/changed
+  // tokens show bopomofo until their first decode, like chewing's cursor.
+  const n=committed.length, m=staleToks.length;
+  if(i<m && staleToks[i].t===committed[i].t && staleToks[i].v===committed[i].v){
+    let ok=true;                       // prefix must match up to i
+    for(let k=0;k<=i;k++){ if(k>=m||staleToks[k].t!==committed[k].t||staleToks[k].v!==committed[k].v){ok=false;break;} }
+    if(ok) return staleChars[i];
+  }
+  const j=m-(n-i);                     // suffix alignment
+  if(j>=0 && j<m && staleToks[j].t===committed[i].t && staleToks[j].v===committed[i].v){
+    let ok=true;
+    for(let k=i;k<n;k++){ const q=m-(n-k); if(q<0||staleToks[q].t!==committed[k].t||staleToks[q].v!==committed[k].v){ok=false;break;} }
+    if(ok) return staleChars[j];
+  }
+  return null;
+}
 function displayFor(i){
   const tok=committed[i];
   if(tok.t!=='zh') return tok.v;
   if(overrides[i]) return overrides[i];
   if(pvKey===bufKey() && pvChars[i]!=null) return pvChars[i];
-  return tok.v;                        // bopomofo until decode lands
+  const st=staleFor(i); if(st!=null) return st;
+  return tok.v;                        // bopomofo until the first decode
 }
 function sentenceText(){
   let out='';
@@ -299,7 +320,9 @@ async function runPreview(){
           pvChars.push(ch); pvCands.push(cands); zc++;
         } else { pvChars.push(tok.v); pvCands.push([tok.v]); }
       }
-      pvKey=key; render();
+      pvKey=key;
+      staleToks=committed.map(t=>({t:t.t,v:t.v})); staleChars=pvChars.slice();
+      render();
     }
   }catch(e){ console.error(e); }
   previewBusy=false;

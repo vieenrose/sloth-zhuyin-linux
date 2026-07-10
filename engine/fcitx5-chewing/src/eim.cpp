@@ -543,9 +543,30 @@ void ChewingEngine::renderComposing(InputContext *ic) {
                                            segmenter_->segment(rawKeys_)))
                                      : rawKeys_);
     }
-    JoinResult jr = joinDisplay(
-        committedToks_,
-        fresh ? liveDisp_ : std::vector<std::string>(), tokCursor_, tail);
+    // Stale-preserving display (chewing/新注音 never regress to bopomofo):
+    // while a new decode is in flight, reuse the previous conversion for
+    // tokens unchanged from the start (prefix) or the end (suffix — covers
+    // mid-sentence edits); only new tokens show bopomofo until decoded.
+    std::vector<std::string> disp;
+    if (fresh) {
+        disp = liveDisp_;
+    } else if (!liveDisp_.empty()) {
+        const auto &cur = committedToks_;
+        const auto &old = liveToks_;
+        disp.assign(cur.size(), std::string());
+        size_t pre = 0;
+        while (pre < cur.size() && pre < old.size() && cur[pre] == old[pre]) {
+            disp[pre] = liveDisp_[pre];
+            pre++;
+        }
+        size_t suf = 0;
+        while (suf < cur.size() - pre && suf < old.size() - pre &&
+               cur[cur.size() - 1 - suf] == old[old.size() - 1 - suf]) {
+            disp[cur.size() - 1 - suf] = liveDisp_[old.size() - 1 - suf];
+            suf++;
+        }
+    }
+    JoinResult jr = joinDisplay(committedToks_, disp, tokCursor_, tail);
     const std::string &pre = jr.text;
     if (!pre.empty()) {
         const auto useClient = ic->capabilityFlags().test(CapabilityFlag::Preedit);
