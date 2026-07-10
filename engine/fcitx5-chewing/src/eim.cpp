@@ -23,6 +23,7 @@
 #include <fcitx/text.h>
 #include <fcitx/userinterfacemanager.h>
 #include <fstream>
+#include <thread>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
@@ -185,6 +186,16 @@ std::vector<std::string> queryDecoder(const std::vector<std::string> &syllables,
 // Model-ranked 2-char phrase candidates for positions (at, at+1). Synchronous
 // but tiny (one encoder forward, ~2 ms); a dead daemon fails the connect
 // immediately, so the UI thread is never held hostage.
+// Fire-and-forget: persist the user's corrections in the daemon's learn
+// store (detached thread; a dead daemon just drops it).
+void sendLearn(const json &learnBody) {
+    std::thread([req = json{{"learn", learnBody}}.dump() + "\n"]() {
+        std::atomic<int> fd{-1};
+        RerankError err = RerankError::None;
+        sendDaemonRequest(req, fd, err);
+    }).detach();
+}
+
 std::vector<std::string> queryPhrases(const std::vector<std::string> &syllables,
                                       int at, int n) {
     json req;
@@ -211,6 +222,50 @@ public:
 private:
     ChewingEngine *engine_;
     int index_;
+};
+
+// 微軟新注音-style ` symbol menu: categories -> symbols (same set as the
+// web demo's SYMBOLS).
+struct SymbolCat {
+    const char *name;
+    const char *syms;
+};
+inline const std::vector<SymbolCat> &symbolCats() {
+    static const std::vector<SymbolCat> cats = {
+        {"常用", "，、。．？！；：…—～‧「」『』（）"},
+        {"括號", "（）「」『』〔〕【】《》〈〉｛｝︵︶﹁﹂"},
+        {"數學", "＋－×÷＝≠≒±√＜＞≦≧∞∩∪∫∵∴"},
+        {"單位", "℃℉°′″＄％＠＃＆＊§￥"},
+        {"箭號", "↑↓←→↖↗↙↘"},
+        {"圖形", "○●△▲☆★◇◆□■▽▼◎⊙※"},
+    };
+    return cats;
+}
+std::vector<std::string> splitUtf8(const std::string &s) {
+    std::vector<std::string> out;
+    for (size_t i = 0; i < s.size();) {
+        size_t len = 1;
+        unsigned char c = s[i];
+        if (c >= 0xF0) len = 4;
+        else if (c >= 0xE0) len = 3;
+        else if (c >= 0xC0) len = 2;
+        out.push_back(s.substr(i, len));
+        i += len;
+    }
+    return out;
+}
+
+class SymbolCandidateWord : public CandidateWord {
+public:
+    SymbolCandidateWord(ChewingEngine *engine, std::string sym)
+        : CandidateWord(Text(sym)), engine_(engine), sym_(std::move(sym)) {}
+    void select(InputContext *inputContext) const override {
+        engine_->pickSymbol(inputContext, sym_);
+    }
+
+private:
+    ChewingEngine *engine_;
+    std::string sym_;
 };
 
 // A 2-char phrase alternative covering the focused segment and the next one
@@ -240,6 +295,52 @@ ChewingEngine::~ChewingEngine() { stopWorker(); }
 namespace {
 // Display string for a token list: zh -> bopomofo (or a supplied char),
 // en -> the literal with spaces around it. Doubles collapsed at the end.
+struct JoinResult {
+    std::string text;
+    size_t cursorBytes = 0;
+};
+bool isAsciiRun(const std::string &v);
+inline bool isAsciiRunFwd(const std::string &v) { return isAsciiRun(v); }
+// Join per-token display strings with the web demo's spacing rules (ASCII
+// English runs spaced, fullwidth punctuation hugging, zh plain), inserting
+// `tail` at token index `cursorTok` (-1 = end) and reporting the caret's
+// byte offset (after the tail).
+JoinResult joinDisplay(const std::vector<slothing::SegTok> &toks,
+                       const std::vector<std::string> &disp, int cursorTok,
+                       const std::string &tail) {
+    JoinResult r;
+    auto append = [&](const std::string &piece, bool zh) {
+        if (piece.empty()) return;
+        if (zh) {
+            r.text += piece;
+        } else if (isAsciiRunFwd(piece)) {
+            if (!r.text.empty() && r.text.back() != ' ') r.text += ' ';
+            r.text += piece;
+            r.text += ' ';
+        } else { // fullwidth punctuation
+            if (!r.text.empty() && r.text.back() == ' ') r.text.pop_back();
+            r.text += piece;
+        }
+    };
+    const int n = static_cast<int>(toks.size());
+    const int cur = (cursorTok < 0 || cursorTok > n) ? n : cursorTok;
+    for (int i = 0; i <= n; i++) {
+        if (i == cur) {
+            r.text += tail; // already display-formed (mixed zh/en possible)
+            r.cursorBytes = r.text.size();
+        }
+        if (i == n) break;
+        const std::string &d =
+            (i < static_cast<int>(disp.size()) && !disp[i].empty()) ? disp[i]
+                                                                    : toks[i].v;
+        append(d, toks[i].zh);
+    }
+    if (!r.text.empty() && r.text.back() == ' ') {
+        r.text.pop_back();
+        if (r.cursorBytes > r.text.size()) r.cursorBytes = r.text.size();
+    }
+    return r;
+}
 bool isAsciiRun(const std::string &v) {
     for (unsigned char c : v) {
         if (c >= 0x80) return false;
@@ -260,6 +361,22 @@ std::string toksDisplay(const std::vector<slothing::SegTok> &toks) {
     }
     return out;
 }
+// ASCII -> fullwidth (Ｆｕｌｌ　ｗｉｄｔｈ), UTF-8 encoded.
+std::string toFullWidth(char c) {
+    unsigned int cp;
+    if (c == ' ') {
+        cp = 0x3000;
+    } else if (c > 32 && c < 127) {
+        cp = 0xFF01 + (static_cast<unsigned char>(c) - 33);
+    } else {
+        return std::string(1, c);
+    }
+    std::string out;
+    out += static_cast<char>(0xE0 | (cp >> 12));
+    out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+    return out;
+}
 std::string tidySpaces(std::string s) {
     std::string out;
     for (char c : s) {
@@ -275,8 +392,23 @@ void ChewingEngine::commitRun() {
     if (rawKeys_.empty() || !segmenter_) {
         return;
     }
-    for (auto &t : segmenter_->segment(rawKeys_)) {
-        committedToks_.push_back(std::move(t));
+    // forced-English: the run is one literal token, never segmented
+    std::vector<slothing::SegTok> toks;
+    if (enMode_) {
+        toks.push_back({false, rawKeys_});
+    } else {
+        toks = segmenter_->segment(rawKeys_);
+    }
+    if (tokCursor_ < 0 ||
+        tokCursor_ >= static_cast<int>(committedToks_.size())) {
+        for (auto &t : toks) {
+            committedToks_.push_back(std::move(t));
+        }
+        tokCursor_ = -1;
+    } else {
+        committedToks_.insert(committedToks_.begin() + tokCursor_,
+                              toks.begin(), toks.end());
+        tokCursor_ += static_cast<int>(toks.size());
     }
     rawKeys_.clear();
 }
@@ -356,6 +488,22 @@ void ChewingEngine::loadPhoneticTable() {
 }
 
 void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {
+    // chewing behavior: losing focus / switching IM COMMITS the pending
+    // text rather than dropping it (no data loss on stray clicks).
+    if (auto *ic = event.inputContext()) {
+        std::string pending;
+        if (convertState_ == ConvertState::Choosing) {
+            pending = composedSentence();
+        } else if (!composingEmpty()) {
+            commitRun();
+            pending = (!livePreedit_.empty() && liveToks_ == committedToks_)
+                          ? livePreedit_
+                          : tidySpaces(toksDisplay(committedToks_));
+        }
+        if (!pending.empty()) {
+            ic->commitString(pending);
+        }
+    }
     stopWorker();
     convertTimer_.reset();
     convertTicks_ = 0;
@@ -364,7 +512,10 @@ void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {
     convertGeneration_++;
     rawKeys_.clear();
     committedToks_.clear();
+    tokCursor_ = -1;
+    pendingFocus_ = -1;
     livePreedit_.clear();
+    liveDisp_.clear();
     liveToks_.clear();
     convertBuffer_.clear();
     convertPositions_.clear();
@@ -382,21 +533,25 @@ void ChewingEngine::renderComposing(InputContext *ic) {
     ic->inputPanel().reset();
     // Live conversion (微軟新注音 style): decoded Chinese for the finalized
     // tokens + the current run's live segmentation (bopomofo / letters) at
-    // the tail. Falls back to raw bopomofo when the decode isn't fresh.
-    std::string pre;
-    if (!livePreedit_.empty() && liveToks_ == committedToks_) {
-        pre = livePreedit_;
-    } else {
-        pre = toksDisplay(committedToks_);
+    // the token cursor. Falls back to raw bopomofo when the decode isn't
+    // fresh.
+    const bool fresh = !liveDisp_.empty() && liveToks_ == committedToks_;
+    std::string tail;
+    if (!rawKeys_.empty()) {
+        tail = enMode_ ? rawKeys_
+                       : (segmenter_ ? tidySpaces(toksDisplay(
+                                           segmenter_->segment(rawKeys_)))
+                                     : rawKeys_);
     }
-    if (!rawKeys_.empty() && segmenter_) {
-        pre += toksDisplay(segmenter_->segment(rawKeys_));
-    }
-    pre = tidySpaces(pre);
+    JoinResult jr = joinDisplay(
+        committedToks_,
+        fresh ? liveDisp_ : std::vector<std::string>(), tokCursor_, tail);
+    const std::string &pre = jr.text;
     if (!pre.empty()) {
         const auto useClient = ic->capabilityFlags().test(CapabilityFlag::Preedit);
         Text preedit(pre, useClient ? TextFormatFlag::Underline
                                     : TextFormatFlag::NoFlag);
+        preedit.setCursor(static_cast<int>(jr.cursorBytes));
         if (useClient) {
             ic->inputPanel().setClientPreedit(preedit);
         } else {
@@ -459,6 +614,7 @@ void ChewingEngine::cancelConversion(InputContext *ic, std::string notice) {
 void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
     if (committedToks_.empty() || phoneticTable_.empty() || !segmenter_) {
         livePreedit_.clear();
+        liveDisp_.clear();
         liveToks_.clear();
         return;
     }
@@ -467,8 +623,13 @@ void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
         anyZh |= t.zh;
     }
     if (!anyZh) { // pure English so far: literal preedit, no decode needed
-        livePreedit_ = tidySpaces(toksDisplay(committedToks_));
+        liveDisp_.clear();
+        for (const auto &t : committedToks_) {
+            liveDisp_.push_back(t.v);
+        }
         liveToks_ = committedToks_;
+        livePreedit_ =
+            joinDisplay(committedToks_, liveDisp_, -1, std::string()).text;
         return;
     }
     stopWorker();
@@ -477,13 +638,13 @@ void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
     worker_ = std::thread([this, icRef, generation,
                            toks = committedToks_]() {
         // Decode each contiguous zh run separately (the daemon input is
-        // syllables-only; en runs are passthrough) and stitch the preedit.
-        std::string pre;
+        // syllables-only; en runs are passthrough); one display per token.
+        std::vector<std::string> disp;
         size_t i = 0;
         bool allOk = true;
         while (i < toks.size() && !workerStop_.load()) {
             if (!toks[i].zh) {
-                pre += " " + toks[i].v + " ";
+                disp.push_back(toks[i].v);
                 i++;
                 continue;
             }
@@ -497,11 +658,16 @@ void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
             auto sentences = queryDecoder(run, 1, "", inflightFd_, err);
             if (!sentences.empty() &&
                 utf8::lengthValidated(sentences[0]) == run.size()) {
-                pre += sentences[0];
+                const std::string &sent = sentences[0];
+                for (size_t k = 0, off = 0; k < run.size(); k++) {
+                    size_t len = utf8::ncharByteLength(sent.begin() + off, 1);
+                    disp.push_back(sent.substr(off, len));
+                    off += len;
+                }
             } else { // daemon down / bad reply: bopomofo for this run
                 allOk = false;
                 for (size_t k = start; k < start + run.size(); k++) {
-                    pre += toks[k].v;
+                    disp.push_back(toks[k].v);
                 }
             }
         }
@@ -509,7 +675,7 @@ void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
             return;
         }
         dispatcher_.schedule([this, icRef, generation, toks = std::move(toks),
-                              pre = tidySpaces(pre), allOk]() {
+                              disp = std::move(disp), allOk]() {
             if (generation != liveGeneration_ ||
                 convertState_ != ConvertState::Composing) {
                 return;
@@ -519,8 +685,10 @@ void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
                 return;
             }
             if (allOk) {
-                livePreedit_ = pre;
+                liveDisp_ = disp;
                 liveToks_ = toks;
+                livePreedit_ =
+                    joinDisplay(toks, disp, -1, std::string()).text;
             } // partial failure: keep bopomofo fallback (silent)
             renderComposing(ic);
         });
@@ -720,12 +888,19 @@ void ChewingEngine::showConversionChoices(
         }
     }
     segFocus_ = 0;
-    for (size_t i = 0; i < convertPositions_.size(); i++) {
-        if (convertPositions_[i].size() > 1) {
-            segFocus_ = static_cast<int>(i);
-            break;
+    if (pendingFocus_ >= 0 &&
+        pendingFocus_ < static_cast<int>(convertPositions_.size())) {
+        segFocus_ = pendingFocus_; // ↓ at the cursor's segment
+    } else {
+        for (size_t i = 0; i < convertPositions_.size(); i++) {
+            if (convertPositions_[i].size() > 1) {
+                segFocus_ = static_cast<int>(i);
+                break;
+            }
         }
     }
+    pendingFocus_ = -1;
+    initialSel_ = segSel_;
     renderSegments(ic);
 }
 
@@ -820,8 +995,12 @@ void ChewingEngine::renderSegments(InputContext *ic) {
         list->append(std::make_unique<SegmentCandidateWord>(
             this, static_cast<int>(j), cands[j]));
     }
-    list->setGlobalCursorIndex(visCursor_ >= 0 ? visCursor_
-                                               : nPhrase + segSel_[segFocus_]);
+    const int curIdx =
+        visCursor_ >= 0 ? visCursor_ : nPhrase + segSel_[segFocus_];
+    list->setGlobalCursorIndex(curIdx);
+    if (*config_.PageSize > 0) { // jump to the highlighted candidate's page
+        list->setPage(curIdx / *config_.PageSize);
+    }
     ic->inputPanel().setCandidateList(std::move(list));
     ic->inputPanel().setAuxDown(Text("←→ 選詞　↑↓ 換字　⏎ 確認　Esc 取消"));
     ic->updatePreedit();
@@ -908,9 +1087,12 @@ void ChewingEngine::acceptConversion(InputContext *ic,
     convertGeneration_++;
     liveGeneration_++;
     livePreedit_.clear();
+    liveDisp_.clear();
     liveToks_.clear();
     rawKeys_.clear();
     committedToks_.clear();
+    tokCursor_ = -1;
+    pendingFocus_ = -1;
     convertBuffer_.clear();
     convertPositions_.clear();
     convertIntervals_.clear();
@@ -920,10 +1102,85 @@ void ChewingEngine::acceptConversion(InputContext *ic,
     updateUI(ic);
 }
 
-void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
-    if (keyEvent.isRelease()) {
+void ChewingEngine::renderSymbols(InputContext *ic) {
+    ic->inputPanel().reset();
+    const auto &cats = symbolCats();
+    std::string aux;
+    for (size_t i = 0; i < cats.size(); i++) {
+        if (static_cast<int>(i) == symCat_) {
+            aux += "【" + std::string(cats[i].name) + "】";
+        } else {
+            aux += " " + std::string(cats[i].name) + " ";
+        }
+    }
+    ic->inputPanel().setAuxUp(Text(aux));
+    auto list = std::make_unique<CommonCandidateList>();
+    list->setPageSize(*config_.PageSize);
+    list->setLayoutHint(CandidateLayoutHint::Horizontal);
+    const char *selkeys =
+        builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];
+    KeyList selectionKeys;
+    std::vector<std::string> labels;
+    for (int i = 0; i < 10 && selkeys[i]; i++) {
+        selectionKeys.push_back(Key(std::string(1, selkeys[i])));
+        labels.push_back(std::string(1, selkeys[i]) + ".");
+    }
+    list->setSelectionKey(selectionKeys);
+    list->setLabels(labels);
+    for (auto &sym : splitUtf8(cats[symCat_].syms)) {
+        list->append(std::make_unique<SymbolCandidateWord>(this, sym));
+    }
+    ic->inputPanel().setCandidateList(std::move(list));
+    ic->inputPanel().setAuxDown(Text("←→ 分類　1-9 選取　PgUp/PgDn 翻頁　Esc/` 關閉"));
+    ic->updatePreedit();
+    ic->updateUserInterface(UserInterfaceComponent::InputPanel);
+}
+
+void ChewingEngine::pickSymbol(InputContext *ic, const std::string &sym) {
+    symbolMode_ = false;
+    if (composingEmpty() && convertState_ == ConvertState::Composing) {
+        ic->commitString(sym);
+        ic->inputPanel().reset();
+        ic->updatePreedit();
+        ic->updateUserInterface(UserInterfaceComponent::InputPanel);
         return;
     }
+    commitRun();
+    const int n = static_cast<int>(committedToks_.size());
+    const int cur = (tokCursor_ < 0 || tokCursor_ > n) ? n : tokCursor_;
+    committedToks_.insert(committedToks_.begin() + cur, {false, sym});
+    if (tokCursor_ >= 0) {
+        tokCursor_ = cur + 1;
+    }
+    scheduleLiveDecode(ic);
+    renderComposing(ic);
+}
+
+void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
+    // Lone-Shift release toggles forced-English mode (微軟/web-demo idiom):
+    // press Shift, release without another key -> 中/英 switch.
+    if (keyEvent.isRelease()) {
+        if ((keyEvent.key().sym() == FcitxKey_Shift_L ||
+             keyEvent.key().sym() == FcitxKey_Shift_R) &&
+            shiftAlone_) {
+            shiftAlone_ = false;
+            enMode_ = !enMode_;
+            if (auto *ic = keyEvent.inputContext()) {
+                convertNotice_ = enMode_ ? "英文模式（Shift 切回）" : "";
+                if (convertState_ == ConvertState::Composing) {
+                    renderComposing(ic);
+                }
+            }
+            keyEvent.filterAndAccept();
+        }
+        return;
+    }
+    if (keyEvent.key().sym() == FcitxKey_Shift_L ||
+        keyEvent.key().sym() == FcitxKey_Shift_R) {
+        shiftAlone_ = true;
+        return;
+    }
+    shiftAlone_ = false;
     auto *ic = keyEvent.inputContext();
 
     // -- Choosing: modal segment editing -----------------------------------
@@ -939,6 +1196,31 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             return;
         }
         if (keyEvent.key().check(FcitxKey_Return)) {
+            // learn the user's corrections (changed zh segments + adjacent
+            // changed pairs as phrases) before committing
+            json chars = json::array(), phrases = json::array();
+            for (size_t i = 0; i < segSel_.size(); i++) {
+                const bool changed = i < initialSel_.size() &&
+                                     segSel_[i] != initialSel_[i];
+                if (!changed || i >= convertSyllables_.size() ||
+                    convertSyllables_[i].empty()) {
+                    continue;
+                }
+                chars.push_back({convertSyllables_[i],
+                                 convertPositions_[i][segSel_[i]]});
+                if (i + 1 < segSel_.size() &&
+                    i + 1 < convertSyllables_.size() &&
+                    !convertSyllables_[i + 1].empty() &&
+                    segSel_[i + 1] != initialSel_[i + 1]) {
+                    phrases.push_back(
+                        {convertSyllables_[i] + " " + convertSyllables_[i + 1],
+                         convertPositions_[i][segSel_[i]] +
+                             convertPositions_[i + 1][segSel_[i + 1]]});
+                }
+            }
+            if (!chars.empty() || !phrases.empty()) {
+                sendLearn({{"chars", chars}, {"phrases", phrases}});
+            }
             acceptConversion(ic, composedSentence());
             return;
         }
@@ -961,6 +1243,21 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
                     break;
                 }
             }
+        } else if (keyEvent.key().check(FcitxKey_Next) ||
+                   keyEvent.key().check(FcitxKey_Prior)) {
+            // page the candidate list (chewing's PgUp/PgDn)
+            if (auto list = ic->inputPanel().candidateList()) {
+                if (auto *pageable = list->toPageable()) {
+                    if (keyEvent.key().check(FcitxKey_Next)) {
+                        if (pageable->hasNext()) pageable->next();
+                    } else if (pageable->hasPrev()) {
+                        pageable->prev();
+                    }
+                    ic->updateUserInterface(
+                        UserInterfaceComponent::InputPanel);
+                }
+            }
+            return;
         } else if (keyEvent.key().check(FcitxKey_Down) ||
                    keyEvent.key().check(FcitxKey_Up) ||
                    (keyEvent.key().check(FcitxKey_space) &&
@@ -1025,6 +1322,61 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         return;
     }
 
+    // -- Symbol menu ---------------------------------------------------------
+    if (symbolMode_) {
+        keyEvent.filterAndAccept();
+        if (keyEvent.key().check(FcitxKey_Escape) ||
+            keyEvent.key().check(FcitxKey_grave)) {
+            symbolMode_ = false;
+            if (convertState_ == ConvertState::Choosing) {
+                renderSegments(ic);
+            } else {
+                renderComposing(ic);
+            }
+            return;
+        }
+        const int ncat = static_cast<int>(symbolCats().size());
+        if (keyEvent.key().check(FcitxKey_Left)) {
+            symCat_ = (symCat_ - 1 + ncat) % ncat;
+            renderSymbols(ic);
+            return;
+        }
+        if (keyEvent.key().check(FcitxKey_Right)) {
+            symCat_ = (symCat_ + 1) % ncat;
+            renderSymbols(ic);
+            return;
+        }
+        if (keyEvent.key().check(FcitxKey_Next) ||
+            keyEvent.key().check(FcitxKey_Prior)) {
+            if (auto list = ic->inputPanel().candidateList()) {
+                if (auto *pageable = list->toPageable()) {
+                    if (keyEvent.key().check(FcitxKey_Next)) {
+                        if (pageable->hasNext()) pageable->next();
+                    } else if (pageable->hasPrev()) {
+                        pageable->prev();
+                    }
+                    ic->updateUserInterface(
+                        UserInterfaceComponent::InputPanel);
+                }
+            }
+            return;
+        }
+        if (keyEvent.key().isSimple()) {
+            const char *selkeys =
+                builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];
+            char sym = static_cast<char>(keyEvent.key().sym() & 0xff);
+            const auto list = ic->inputPanel().candidateList();
+            for (int i = 0; i < 10 && selkeys[i]; i++) {
+                if (selkeys[i] == sym && list &&
+                    i < list->size()) {
+                    list->candidate(i).select(ic);
+                    return;
+                }
+            }
+        }
+        return;
+    }
+
     // -- Composing ----------------------------------------------------------
     convertNotice_.clear();
 
@@ -1039,10 +1391,47 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         return; // let Ctrl+Return etc. reach the app
     }
 
-    // ↓ while composing: per-character selection (微軟新注音 idiom).
+    // ←/→ move the insertion cursor over the composed tokens (chewing-style
+    // preedit editing); Home/End jump. The current run is finalized first.
+    if (keyEvent.key().check(FcitxKey_Left) ||
+        keyEvent.key().check(FcitxKey_Right) ||
+        keyEvent.key().check(FcitxKey_Home) ||
+        keyEvent.key().check(FcitxKey_End)) {
+        if (composingEmpty()) {
+            return; // nothing composed: let the app have the key
+        }
+        keyEvent.filterAndAccept();
+        commitRun();
+        const int n = static_cast<int>(committedToks_.size());
+        int cur = tokCursor_ < 0 ? n : tokCursor_;
+        if (keyEvent.key().check(FcitxKey_Left)) {
+            cur = std::max(0, cur - 1);
+        } else if (keyEvent.key().check(FcitxKey_Right)) {
+            cur = std::min(n, cur + 1);
+        } else if (keyEvent.key().check(FcitxKey_Home)) {
+            cur = 0;
+        } else {
+            cur = n;
+        }
+        tokCursor_ = (cur >= n) ? -1 : cur;
+        scheduleLiveDecode(ic);
+        renderComposing(ic);
+        return;
+    }
+
+    // ↓ while composing: per-character selection at the cursor's segment
+    // (微軟新注音 idiom).
     if (keyEvent.key().check(FcitxKey_Down)) {
         if (!composingEmpty()) {
             keyEvent.filterAndAccept();
+            commitRun();
+            pendingFocus_ =
+                tokCursor_ < 0
+                    ? -1
+                    : std::max(0, std::min(tokCursor_,
+                                           static_cast<int>(
+                                               committedToks_.size()) -
+                                               1));
             startDecode(ic);
         }
         return;
@@ -1053,7 +1442,9 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             keyEvent.filterAndAccept();
             rawKeys_.clear();
             committedToks_.clear();
+            tokCursor_ = -1;
             livePreedit_.clear();
+            liveDisp_.clear();
             liveToks_.clear();
             renderComposing(ic);
         }
@@ -1064,9 +1455,24 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         if (!composingEmpty()) {
             keyEvent.filterAndAccept();
             if (!rawKeys_.empty()) {
-                rawKeys_.pop_back();
+                // pop one UTF-8 character (enMode may hold fullwidth chars)
+                while (!rawKeys_.empty() &&
+                       (static_cast<unsigned char>(rawKeys_.back()) & 0xC0) ==
+                           0x80) {
+                    rawKeys_.pop_back(); // continuation bytes
+                }
+                if (!rawKeys_.empty()) {
+                    rawKeys_.pop_back(); // lead / ASCII byte
+                }
             } else {
-                committedToks_.pop_back();
+                const int n = static_cast<int>(committedToks_.size());
+                int cur = tokCursor_ < 0 ? n : tokCursor_;
+                if (cur > 0) {
+                    committedToks_.erase(committedToks_.begin() + (cur - 1));
+                    if (tokCursor_ >= 0) {
+                        tokCursor_ = cur - 1;
+                    }
+                }
                 scheduleLiveDecode(ic);
             }
             renderComposing(ic);
@@ -1091,6 +1497,40 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
 
     if (keyEvent.key().isSimple()) {
         char c = static_cast<char>(keyEvent.key().sym() & 0xff);
+
+        // Shift+Space: 全形/半形 (微軟/chewing convention)
+        if (c == ' ' && keyEvent.key().states().test(KeyState::Shift)) {
+            keyEvent.filterAndAccept();
+            fullWidth_ = !fullWidth_;
+            convertNotice_ = fullWidth_ ? "全形" : "半形";
+            if (convertState_ == ConvertState::Composing) {
+                renderComposing(ic);
+            }
+            return;
+        }
+
+        // Forced-English mode (lone Shift): literal input, no zhuyin
+        // parsing / segmentation; space commits the word. Case preserved,
+        // fullwidth honoured.
+        if (enMode_) {
+            keyEvent.filterAndAccept();
+            if (c == ' ') {
+                if (!rawKeys_.empty()) {
+                    committedToks_.push_back({false, rawKeys_});
+                    rawKeys_.clear();
+                    scheduleLiveDecode(ic);
+                } else {
+                    committedToks_.push_back(
+                        {false, fullWidth_ ? toFullWidth(' ')
+                                           : std::string(" ")});
+                    scheduleLiveDecode(ic);
+                }
+            } else if (c >= 33 && c < 127) {
+                rawKeys_ += fullWidth_ ? toFullWidth(c) : std::string(1, c);
+            }
+            renderComposing(ic);
+            return;
+        }
         if (c >= 'A' && c <= 'Z') {
             c = static_cast<char>(c - 'A' + 'a');
         }
@@ -1116,6 +1556,14 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             commitRun();
             scheduleLiveDecode(ic);
             renderComposing(ic);
+            return;
+        }
+
+        // ` opens the categorized symbol menu (微軟/自然 convention)
+        if (c == '`') {
+            keyEvent.filterAndAccept();
+            symbolMode_ = true;
+            renderSymbols(ic);
             return;
         }
 

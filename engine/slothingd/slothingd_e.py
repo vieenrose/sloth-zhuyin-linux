@@ -31,8 +31,26 @@ def default_socket_path():
     return "/tmp/slothingd.sock"
 
 
+LEARN_PATH = os.path.expanduser("~/.local/share/slothing/learn.tsv")
+
+
 class Decoder:
     def __init__(self, model_dir, table_path):
+        # user adaptation: syllable->picked char, syllable-pair->picked phrase.
+        # Applied as LOGIT BONUSES calibrated on measured gaps (flips ties+
+        # moderate homophones ~5, spares strong context ~10+: 的, 重新);
+        # evidence still wins), not hard overrides.
+        self.learn_char = {}
+        self.learn_phrase = {}
+        try:
+            for line in open(LEARN_PATH, encoding="utf-8"):
+                kind, key, val = line.rstrip("\n").split("\t")
+                if kind == "c":
+                    self.learn_char[key] = val
+                elif kind == "p":
+                    self.learn_phrase[tuple(key.split(" "))] = val
+        except FileNotFoundError:
+            pass
         onnx = os.path.join(model_dir, "model_quantized.onnx")
         if not os.path.exists(onnx):
             onnx = os.path.join(model_dir, "model.onnx")
@@ -116,6 +134,37 @@ class Decoder:
                     out.append((b, self.toneless[b]))
         return out
 
+    def save_learn(self):
+        os.makedirs(os.path.dirname(LEARN_PATH), exist_ok=True)
+        with open(LEARN_PATH, "w", encoding="utf-8") as f:
+            for k, v in self.learn_char.items():
+                f.write(f"c\t{k}\t{v}\n")
+            for k, v in self.learn_phrase.items():
+                f.write(f"p\t{' '.join(k)}\t{v}\n")
+
+    def learn(self, req):
+        for syl, ch in req.get("chars") or []:
+            self.learn_char[syl] = ch
+        for pair, ph in req.get("phrases") or []:
+            self.learn_phrase[tuple(pair.split(" "))] = ph
+        self.save_learn()
+        return {"ok": True}
+
+    def _bonus(self, syllables):
+        """(position, char) -> additive logit bonus from learned picks."""
+        b = {}
+        CHAR_BONUS, PHRASE_BONUS = 6.0, 8.0
+        for i, s in enumerate(syllables):
+            ch = self.learn_char.get(s)
+            if ch:
+                b[(i, ch)] = b.get((i, ch), 0.0) + CHAR_BONUS
+        for i in range(len(syllables) - 1):
+            ph = self.learn_phrase.get((syllables[i], syllables[i + 1]))
+            if ph and len(ph) >= 2:
+                b[(i, ph[0])] = b.get((i, ph[0]), 0.0) + PHRASE_BONUS
+                b[(i + 1, ph[1])] = b.get((i + 1, ph[1]), 0.0) + PHRASE_BONUS
+        return b
+
     def decode(self, syllables, n):
         ids = [self.syl_vocab.get(s, 1) for s in syllables]
         cand_override = {}
@@ -147,12 +196,14 @@ class Decoder:
         sid = np.array([ids], dtype=np.int64)
         amask = np.ones_like(sid, dtype=bool)
         lg = self.sess.run(None, {"syl": sid, "amask": amask})[0][0]
+        bonus = self._bonus(syllables)
         best, margins = [], []          # per position: char + (margin, runner-up)
         for i, s in enumerate(syllables):
             cs = cand_override.get(i) or self.cands(s)
             if not cs:                  # unknown syllable: no legal decode
                 return []
-            scored = sorted(((lg[i, tid], ch) for ch, tid in cs), reverse=True)
+            scored = sorted(((lg[i, tid] + bonus.get((i, ch), 0.0), ch)
+                             for ch, tid in cs), reverse=True)
             best.append(scored[0][1])
             if len(scored) > 1:
                 margins.append((scored[0][0] - scored[1][0], i, scored[1][1]))
@@ -205,6 +256,11 @@ class Decoder:
                     self.phrases(syllables, int(req["phrase_at"]), n)}
         return {"sentences": self.decode(syllables, n)}
 
+    def handle_any(self, req):
+        if req.get("learn") is not None:       # user picks -> persist
+            return self.learn(req["learn"])
+        return self.handle(req)
+
 
 def read_request(conn):
     conn.settimeout(5.0)               # a stalled client must not wedge the loop
@@ -246,7 +302,7 @@ def main():
             if not raw:
                 continue
             try:
-                resp = dec.handle(json.loads(raw.decode("utf-8")))
+                resp = dec.handle_any(json.loads(raw.decode("utf-8")))
             except Exception as e:      # bad request must not kill the daemon
                 resp = {"sentences": [], "error": str(e)}
             conn.sendall((json.dumps(resp, ensure_ascii=False) + "\n").encode())

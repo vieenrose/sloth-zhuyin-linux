@@ -142,6 +142,24 @@ private:
     // earlier runs (a run ends on a tone key or space).
     std::string rawKeys_;
     std::vector<slothing::SegTok> committedToks_;
+    // Insertion cursor over committedToks_ (token granularity): index into
+    // the token list where the current run / new input lands. -1 = end.
+    int tokCursor_ = -1;
+    // Manual modes (微軟 conventions): lone-Shift toggles forced-English
+    // (literal input, no segmentation); Shift+Space toggles 全形/半形.
+    bool enMode_ = false;
+    bool fullWidth_ = false;
+    bool shiftAlone_ = false; // lone-Shift press tracking
+    // ` symbol menu (微軟-style categorized symbols)
+    bool symbolMode_ = false;
+    int symCat_ = 0;
+    void renderSymbols(InputContext *ic);
+public:
+    void pickSymbol(InputContext *ic, const std::string &sym);
+private:
+    // ↓ focus hint for showConversionChoices (segment at the cursor). -1 =
+    // first ambiguous segment.
+    int pendingFocus_ = -1;
     std::unique_ptr<slothing::Segmenter> segmenter_; // built from the table
     bool composingEmpty() const {
         return rawKeys_.empty() && committedToks_.empty();
@@ -161,6 +179,9 @@ private:
     // One selected candidate index per interval, and which segment the arrows
     // act on.
     std::vector<int> segSel_;
+    // Selection state when Choosing began — diffed at commit to learn the
+    // user's corrections (sent to the daemon's persistent store).
+    std::vector<int> initialSel_;
     int segFocus_ = 0;
     // Arrow-cursor over the VISIBLE candidate list (phrases prepended before
     // the per-char candidates). -1 = synced to segSel_. Reset on focus move.
@@ -173,7 +194,8 @@ private:
     // Live (modeless) conversion state: the decoded preedit (spaces around
     // English) and the tokens it corresponds to. Used only when it matches
     // the current committedToks_.
-    std::string livePreedit_;
+    std::string livePreedit_; // joined display (commit form)
+    std::vector<std::string> liveDisp_; // per-token display, aligned to toks
     std::vector<slothing::SegTok> liveToks_;
     uint64_t liveGeneration_ = 0;
 
