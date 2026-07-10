@@ -38,6 +38,8 @@ const T=[
   ['world',          'en:world',                              'unknown English word not chopped (was ㄊㄟ+rld)'],
   ['banana',         'en:banana',                             'unknown English word not chopped'],
   ['ek',             'zh:ㄍㄜ',                                'standalone pure-letter syllable 哥 (post-process)'],
+  ['vp3',            'zh:ㄒㄣˇ',                               'typo syllable + tone accepted (decoder repairs)'],
+  ['ji3vp3',         'zh:ㄨㄛˇ | zh:ㄒㄣˇ',                    'typo syllable in zhuyin context'],
 ];
 let pass=0,fail=0;
 for(const [keys,exp,desc] of T){

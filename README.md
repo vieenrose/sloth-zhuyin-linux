@@ -114,7 +114,8 @@ packaging/run-slothingd.sh       # start the decoder (manual by design)
 - [x] SlothLM-E bidirectional encoder; NAS-found 3.9M + g2pW labels
 - [x] Demo + desktop daemon on the SlothLM-E ONNX model (5 MB int8, lossless)
 - [x] Full reproducibility bundle on the HF model repo
-- [ ] Per-phrase Down-rank; typo tolerance; packaging (.deb)
+- [x] Typo tolerance — model-scored edit-distance-1 repair (demo + daemon)
+- [ ] Per-phrase Down-rank; packaging (.deb)
 - [ ] (Future, long-document context) hybrid Transformer + SSM decoder
 
 **Non-goals:** cloud inference, telemetry. Everything runs locally.

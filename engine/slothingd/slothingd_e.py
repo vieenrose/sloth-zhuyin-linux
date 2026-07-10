@@ -66,21 +66,87 @@ class Decoder:
                 if ch not in dst:
                     dst.append(ch)
 
+    @staticmethod
+    def _dl1(a, b):
+        """Damerau-Levenshtein distance capped at 1 (typo tolerance)."""
+        if a == b:
+            return 0
+        la, lb = len(a), len(b)
+        if abs(la - lb) > 1:
+            return 2
+        if la == lb:
+            diff = [i for i in range(la) if a[i] != b[i]]
+            if len(diff) == 1:
+                return 1
+            if (len(diff) == 2 and diff[1] == diff[0] + 1
+                    and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]]):
+                return 1                             # transposition
+            return 2
+        s, l = (a, b) if la < lb else (b, a)         # one insert/delete
+        return 1 if any(s[:i] + l[i] + s[i:] == l
+                        for i in range(len(s) + 1)) else 2
+
     def cands(self, syl):
-        """Legal (char, id) pairs for one bopomofo syllable."""
+        """Legal (char, id) pairs for one bopomofo syllable. Unknown bases
+        (key-slip typos producing impossible syllables) fall back to the
+        union of all bases within edit distance 1 — the model's context
+        picks. Legal syllables are unaffected."""
         has_tone = any(c in TONES for c in syl)
         chars = (self.tonal.get(syl) if has_tone
                  else self.toneless.get(syl)) or []
         return [(c, self.char2id[c]) for c in chars if c in self.char2id]
 
+    def typo_fixes(self, syl):
+        """For an impossible syllable, candidate corrections within edit
+        distance 1: [(vocab_syllable, chars)] (tone of the typed syllable is
+        preserved when the corrected base has it)."""
+        tone = "".join(c for c in syl if c in TONES)
+        base = "".join(c for c in syl if c not in TONES)
+        out = []
+        for b in self.toneless:
+            if self._dl1(b, base) <= 1:
+                if tone and (b + tone) in self.tonal:
+                    out.append((b + tone, self.tonal[b + tone]))
+                elif not tone and b in self.tonal:   # tone-1 is unmarked
+                    out.append((b, self.tonal[b]))
+                elif not tone:
+                    out.append((b, self.toneless[b]))
+        return out
+
     def decode(self, syllables, n):
-        sid = np.array([[self.syl_vocab.get(s, 1) for s in syllables]],
-                       dtype=np.int64)
+        ids = [self.syl_vocab.get(s, 1) for s in syllables]
+        cand_override = {}
+        # typo correction: an impossible syllable (no legal chars) is replaced
+        # by the edit-distance-1 correction the model itself scores highest —
+        # each candidate is tried as real input in one batched forward.
+        for i, s in enumerate(syllables):
+            if self.cands(s):
+                continue
+            fixes = [(v, cs) for v, cs in self.typo_fixes(s)
+                     if v in self.syl_vocab
+                     and any(c in self.char2id for c in cs)]
+            if not fixes:
+                continue
+            batch = np.tile(np.array(ids, dtype=np.int64), (len(fixes), 1))
+            for j, (v, _) in enumerate(fixes):
+                batch[j, i] = self.syl_vocab[v]
+            am = np.ones_like(batch, dtype=bool)
+            lgb = self.sess.run(None, {"syl": batch, "amask": am})[0]
+            best_j, best_v = 0, -np.inf
+            for j, (_, cs) in enumerate(fixes):
+                v = max(lgb[j, i, self.char2id[c]] for c in cs
+                        if c in self.char2id)
+                if v > best_v:
+                    best_v, best_j = v, j
+            ids[i] = self.syl_vocab[fixes[best_j][0]]
+            cand_override[i] = [(c, self.char2id[c]) for c in fixes[best_j][1]
+                                if c in self.char2id]
+        sid = np.array([ids], dtype=np.int64)
         amask = np.ones_like(sid, dtype=bool)
         lg = self.sess.run(None, {"syl": sid, "amask": amask})[0][0]
         best, margins = [], []          # per position: char + (margin, runner-up)
         for i, s in enumerate(syllables):
-            cs = self.cands(s)
+            cs = cand_override.get(i) or self.cands(s)
             if not cs:                  # unknown syllable: no legal decode
                 return []
             scored = sorted(((lg[i, tid], ch) for ch, tid in cs), reverse=True)

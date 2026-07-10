@@ -103,7 +103,8 @@ packaging/run-slothingd.sh       # 啟動解碼器(刻意手動啟動)
 - [x] SlothLM-E 雙向編碼器;NAS 找出的 3.9M + g2pW 標註
 - [x] demo 與桌面 daemon 都已換成 SlothLM-E 的 ONNX 模型(5 MB int8,無損)
 - [x] HF 模型頁附上完整重現流程
-- [ ] 逐詞下鍵重排;錯字容忍;打包(.deb)
+- [x] 錯字容忍 — 模型評分的編輯距離 1 修正(demo + daemon)
+- [ ] 逐詞下鍵重排;打包(.deb)
 - [ ] (未來,整篇文件語境)Transformer + SSM 混合解碼器
 
 **非目標:** 任何雲端推論、遙測。一切都在本機執行。

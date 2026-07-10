@@ -332,9 +332,28 @@ async function commitSentence(){
 // ---- model + decode (SlothLM-E encoder, onnxruntime-web) ----
 let session, sylVocab, char2id, ready=false;
 const tonal={};
+// Damerau-Levenshtein distance capped at 1 (typo tolerance: one wrong /
+// missing / extra / swapped bopomofo symbol).
+function dl1(a,b){ if(a===b)return 0; const la=a.length,lb=b.length;
+  if(Math.abs(la-lb)>1)return 2;
+  if(la===lb){ let d=0,sw=-1;
+    for(let i=0;i<la;i++)if(a[i]!==b[i]){ if(d===0)sw=i; d++; }
+    if(d===1)return 1;
+    if(d===2&&sw>=0&&a[sw]===b[sw+1]&&a[sw+1]===b[sw])return 1;   // transpose
+    return 2; }
+  const s=la<lb?a:b, l=la<lb?b:a;                                  // 1 ins/del
+  for(let i=0;i<=s.length;i++){ if(s.slice(0,i)+l[i]+s.slice(i)===l)return 1; }
+  return 2; }
 function candChars(syl){let chars=tonal[syl];
   if(!chars){const base=strip(syl);chars=[];for(const k in tonal)if(strip(k)===base)for(const c of tonal[k])if(!chars.includes(c))chars.push(c);}
   return chars.length?chars:[syl];}
+// Typo tolerance: for an impossible syllable, candidate corrections within
+// edit distance 1 that keep the typed tone: [{syl, chars}].
+function typoFixes(syl){const tone=[...syl].filter(c=>TONES.includes(c)).join('');
+  const base=strip(syl), out=[];
+  for(const k in tonal){ const kb=strip(k), kt=[...k].filter(c=>TONES.includes(c)).join('');
+    if(kt===tone&&dl1(kb,base)<=1) out.push({syl:k,chars:tonal[k]}); }
+  return out;}
 // candidate chars + their output token-ids (from char2id) for a syllable
 function candSet(syl){const out=[],ids=[];for(const c of candChars(syl)){const i=char2id[c];if(i!=null&&!ids.includes(i)){ids.push(i);out.push(c);}}return{chars:out,ids};}
 // one bidirectional forward pass over the syllable sequence -> per-position logits
@@ -346,7 +365,33 @@ async function encForward(syls){
   });
   return {data:out.logits.data, V:out.logits.dims[2], T};
 }
-async function decodeZh(syls, forced={}){
+// batched forward for typo scoring: rows = variants of the same sentence
+async function encForwardBatch(rows){
+  const B=rows.length, T=rows[0].length, flat=[];
+  for(const r of rows) for(const id of r) flat.push(BigInt(id));
+  const out=await session.run({
+    syl:new ort.Tensor('int64',BigInt64Array.from(flat),[B,T]),
+    amask:new ort.Tensor('bool',Uint8Array.from(new Array(B*T).fill(1)),[B,T]),
+  });
+  return {data:out.logits.data, V:out.logits.dims[2], T};
+}
+async function decodeZh(sylsIn, forced={}){
+  // typo tolerance: an impossible syllable (no legal chars) is replaced by
+  // the edit-distance-1 correction the model itself scores highest. Legal
+  // syllables never enter this path.
+  const syls=[...sylsIn];
+  for(let i=0;i<syls.length;i++){
+    if(candSet(syls[i]).ids.length) continue;
+    const fixes=typoFixes(syls[i]).filter(f=>sylVocab[f.syl]!=null&&f.chars.some(c=>char2id[c]!=null));
+    if(!fixes.length) continue;
+    const baseIds=syls.map(s=>sylVocab[s]??1);
+    const rows=fixes.map(f=>{const r=[...baseIds];r[i]=sylVocab[f.syl];return r;});
+    const {data:bd,V:bV}=await encForwardBatch(rows);
+    let bj=0,bv=-Infinity;
+    fixes.forEach((f,j)=>{ for(const c of f.chars){ const id=char2id[c];
+      if(id!=null){ const v=bd[(j*syls.length+i)*bV+id]; if(v>bv){bv=v;bj=j;} } } });
+    syls[i]=fixes[bj].syl;
+  }
   const sets=syls.map(candSet);
   const {data,V,T}=await encForward(syls);
   const chars=[];

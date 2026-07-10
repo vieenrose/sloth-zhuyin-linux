@@ -42,10 +42,15 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
       const k=keys[i+L], d=DACHEN[k]; if(!d) break;
       if(d[1]<=lastSlot) break;            // initial < medial < final, each once
       lastSlot=d[1]; bopo+=d[0]; if(isDigit(k)) dig=true;
+      const tk=keys[i+L+1];
       if(validBase.has(bopo)){
         res.push({len:L+1, v:bopo, syms:L+1, hard:dig});
-        const tk=keys[i+L+1];
         if(tk && TONEK[tk]) res.push({len:L+2, v:bopo+TONEK[tk], syms:L+1, hard:true});
+      } else if(tk && TONEK[tk]){
+        // typo tolerance: an unknown base followed by a tone key is still
+        // unambiguous zhuyin intent (key-slip typo). Emit it at extra cost;
+        // the decoder repairs it (model-scored edit-distance-1 correction).
+        res.push({len:L+2, v:bopo+TONEK[tk], syms:L+1, hard:true, typo:true});
       }
     }
     return res;
@@ -65,7 +70,7 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
       for(const s of zhAt(keys,i))                       // zhuyin syllable
         // hard (tone/digit) syllables are cheap; soft (pure-letter) ones are
         // expensive so they don't get carved out of English words (model, world)
-        relax(i+s.len, dp[i].cost + (s.hard ? (s.syms>=2?1.0:2.6) : (s.syms>=2?3.0:4.2)), {t:'zh',v:s.v}, i);
+        relax(i+s.len, dp[i].cost + (s.hard ? (s.syms>=2?1.0:2.6) : (s.syms>=2?3.0:4.2)) + (s.typo?1.5:0), {t:'zh',v:s.v}, i);
       if(isAlnum(keys[i]))                               // English run (each length)
         for(let j=i+1;j<=n && isAlnum(keys[j-1]);j++){
           const seg=keys.slice(i,j), L=j-i;
