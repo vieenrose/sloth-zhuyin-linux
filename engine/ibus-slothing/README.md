@@ -57,19 +57,24 @@ im-config -n ibus           # 切換輸入框架；需登出再登入
 | 選了引擎卻沒反應 | `pgrep -af ibus-engine-slothing` 看引擎是否活著；死掉就手動跑 `/usr/libexec/ibus-engine-slothing` 看 stderr。 |
 | 注音出得來但不轉成中文 | slothingd 沒起來：`systemctl --user is-active slothingd`、`ls "$XDG_RUNTIME_DIR/slothingd.sock"`。 |
 
-## 測試
+## 測試（ctest）
 
-無頭端對端測試（私有 dbus + ibus-daemon + 真實引擎 + 客戶端敲鍵，
-需 slothingd 執行中）：
+建置會一併產生兩個測試，`ctest` 一次跑完：
 
 ```bash
-# 建好 engine 與 smoke 後
-ENGINE=path/to/ibus-engine-slothing SMOKE=path/to/smoke \
-  engine/ibus-slothing/test/run-smoke.sh
+cmake -S engine/ibus-slothing -B engine/ibus-slothing/build
+cmake --build engine/ibus-slothing/build -j"$(nproc)"
+( cd engine/ibus-slothing/build && ctest --output-on-failure )
 ```
 
-狀態機本身的酷音行為契約在 `engine/common/core_test.cpp`（離線、免
-daemon），fcitx5 與 IBus 兩個前端共用同一份實作。
+- `core_test` — 前端無關的酷音行為契約（離線、免 daemon；fcitx5 與 IBus
+  共用 `engine/common/core.h` 這一份實作）。
+- `ibus_smoke` — 端對端：真實 ibus 客戶端透過引擎敲鍵、驗證上字結果
+  （`run-smoke.sh` 自己起私有 dbus + ibus-daemon，不動到你的桌面工作階段；
+  需 slothingd 執行中做真實解碼）。
+
+Kubuntu 24.04（Plasma X11）實測兩項皆通過。改互動行為時：只改
+`core.h` 並在 `core_test.cpp` 加一條契約，兩個前端重建後即同步。
 
 ## GNOME 注意事項
 

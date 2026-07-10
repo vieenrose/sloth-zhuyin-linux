@@ -34,3 +34,31 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../model/phonetic_table.tsv"
 # + scalable).
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/data/icons/"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor")
+
+# --- tests -----------------------------------------------------------------
+# core_test: the frontend-free chewing-parity contracts (no ibus, no daemon).
+# ibus_smoke: end-to-end — a real ibus client types keys through the engine
+# and asserts commits (needs a running slothingd; run-smoke.sh spins up a
+# private dbus + ibus-daemon so it doesn't touch your session).
+option(BUILD_TESTING "Build the ibus-slothing tests" ON)
+if(BUILD_TESTING)
+    enable_testing()
+
+    add_executable(slothing-core-test ../common/core_test.cpp)
+    set_target_properties(slothing-core-test PROPERTIES CXX_STANDARD 17)
+    target_include_directories(slothing-core-test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../common")
+    target_link_libraries(slothing-core-test pthread)
+    add_test(NAME core_test COMMAND slothing-core-test)
+
+    add_executable(ibus-slothing-smoke test/smoke.cpp)
+    set_target_properties(ibus-slothing-smoke PROPERTIES CXX_STANDARD 17)
+    target_link_libraries(ibus-slothing-smoke PkgConfig::IBUS)
+    add_test(NAME ibus_smoke
+             COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/test/run-smoke.sh")
+    set_tests_properties(ibus_smoke PROPERTIES
+        ENVIRONMENT
+        "ENGINE=$<TARGET_FILE:ibus-engine-slothing>;SMOKE=$<TARGET_FILE:ibus-slothing-smoke>"
+        # a private-bus round trip through the model; generous ceiling
+        TIMEOUT 120)
+endif()
