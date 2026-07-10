@@ -1734,26 +1734,28 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             return;
         }
 
-        // Forced-English mode (lone Shift): literal input, no zhuyin
-        // parsing / segmentation; space commits the word. Case preserved,
-        // fullwidth honoured.
+        // Forced-English mode (lone Shift): PASSTHROUGH, 微軟/chewing
+        // style — keys go straight to the app, no preedit, no Enter.
+        // (With text composed, flush it first so ordering is preserved.)
         if (enMode_) {
             keyEvent.filterAndAccept();
-            if (c == ' ') {
-                if (!rawKeys_.empty()) {
-                    committedToks_.push_back({false, rawKeys_});
-                    rawKeys_.clear();
-                    scheduleLiveDecode(ic);
-                } else {
-                    committedToks_.push_back(
-                        {false, fullWidth_ ? toFullWidth(' ')
-                                           : std::string(" ")});
-                    scheduleLiveDecode(ic);
+            if (c == ' ' || (c >= 33 && c < 127)) {
+                if (!composingEmpty()) {
+                    commitRun();
+                    ic->commitString(
+                        (!livePreedit_.empty() && liveToks_ == committedToks_)
+                            ? livePreedit_
+                            : tidySpaces(toksDisplay(committedToks_)));
+                    committedToks_.clear();
+                    tokCursor_ = -1;
+                    livePreedit_.clear();
+                    liveDisp_.clear();
+                    liveToks_.clear();
+                    renderComposing(ic);
                 }
-            } else if (c >= 33 && c < 127) {
-                rawKeys_ += fullWidth_ ? toFullWidth(c) : std::string(1, c);
+                ic->commitString(fullWidth_ ? toFullWidth(c)
+                                            : std::string(1, c));
             }
-            renderComposing(ic);
             return;
         }
         // Capitals are unambiguous ENGLISH evidence: they have no zhuyin

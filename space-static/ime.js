@@ -77,9 +77,14 @@ function feedKey(k){
   fix=-1;
   // Forced-English mode: literal chars, no zhuyin parsing (short words like
   // "is he", symbols, clean typo editing). Space ends the word.
-  if(enMode){
-    if(k===' '&&!fullWidth){ if(hasRun())commitRun(); render(); return true; }
-    rawKeys+=(fullWidth&&FW[k]?FW[k]:k); render(); return true;
+  if(enMode){ // passthrough (微軟/chewing English mode): straight to output
+    const ch=(fullWidth&&FW[k])?FW[k]:k;
+    const ta=$('out');
+    const a=(ta.selectionStart!=null)?ta.selectionStart:ta.value.length;
+    const b=(ta.selectionEnd!=null)?ta.selectionEnd:a;
+    ta.value=ta.value.slice(0,a)+ch+ta.value.slice(b);
+    ta.selectionStart=ta.selectionEnd=a+ch.length;
+    render(); return true;
   }
   if(k in PUNCT){ if(hasRun())commitRun(); insertTok({t:'punct',v:PUNCT[k]}); render(); return true; }
   if(k===' '){ if(hasRun()){commitRun();render();} return true; }   // space finalizes the run (segmenter handled tone-1)
@@ -592,7 +597,7 @@ document.addEventListener('keydown',e=>{
     e.preventDefault(); return;   // Enter, zhuyin keys, etc: ignored (modal)
   }
   if(k==='Enter'){ if(committed.length||hasRun()){commitSentence();e.preventDefault();} }
-  else if(k===' '){ if(hasRun()){feedKey(' ');e.preventDefault();} else if(committed.length) e.preventDefault(); }
+  else if(k===' '){ if(enMode){feedKey(' ');e.preventDefault();} else if(hasRun()){feedKey(' ');e.preventDefault();} else if(committed.length) e.preventDefault(); }
   else if(k==='Backspace'){ if(committed.length||hasRun()){backspace();e.preventDefault();} }
   else if(k==='Home'){ if(committed.length||hasRun()){ if(!hasRun()){cursor=0; fix=-1; render();} e.preventDefault(); } }
   else if(k==='End'){ if(committed.length||hasRun()){ if(!hasRun()){cursor=committed.length; fix=-1; render();} e.preventDefault(); } }
