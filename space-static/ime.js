@@ -402,11 +402,17 @@ const symb=document.createElement('button');symb.className='key';symb.style.widt
 symb.innerHTML='<span class="s">符</span>';symb.onclick=()=>toggleSymbols();
 r.appendChild(sp);r.appendChild(ent);r.appendChild(bs);r.appendChild(en);r.appendChild(symb);kb.appendChild(r);
 
+// Physical-keyboard feedback: flash the matching virtual key on keydown.
+const keyByChar={}; keyBtns.forEach(({b,key})=>keyByChar[key]=b);
+function flashKey(btn){ if(!btn)return; btn.classList.add('pressed');
+  clearTimeout(btn._pt); btn._pt=setTimeout(()=>btn.classList.remove('pressed'),130); }
 let shiftAlone=false;
 document.addEventListener('keydown',e=>{
   if(e.key==='Shift'){ shiftAlone=true; return; }        // track lone-Shift (微軟 English toggle)
   if(e.key!=='Shift') shiftAlone=false;
   if(e.ctrlKey||e.altKey||e.metaKey)return;const k=e.key;
+  flashKey(k===' '?sp : k==='Enter'?ent : k==='Backspace'?bs
+           : k==='ArrowLeft'?bl : k==='ArrowRight'?br : keyByChar[k.toLowerCase()]);
   // Shift+Space toggles 全形/半形 (微軟/自然 convention)
   if(k===' '&&e.shiftKey){ fullWidth=!fullWidth; if(ready)$('hint').textContent=fullWidth?'全形':'半形'; e.preventDefault(); return; }
   // ` symbol menu: number keys pick, ←→ switch category, Esc/` close

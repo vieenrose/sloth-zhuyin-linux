@@ -33,11 +33,11 @@ statistical):
 | | SlothLM (v1) | **SlothLM-E** (v2) |
 |---|---|---|
 | type | causal decoder-LM (Llama) | **bidirectional encoder** |
-| params | ~34M | **~16M** |
+| params | ~34M | **3.9M (NAS)** |
 | decode | autoregressive | **non-autoregressive, 1 pass** |
-| tonal accuracy | ~beats chewing | **81% (chewing 71%)** |
-| tone-free accuracy | weak | **82%** — real tone-free typing |
-| on HF | [Luigi/slothlm-34m-zhuyin](https://huggingface.co/Luigi/slothlm-34m-zhuyin) | export in progress |
+| tonal accuracy | ~beats chewing | **83% (chewing 71%)** |
+| tone-free accuracy | weak | **70%** — usable tone-free typing |
+| on HF | (removed) | [Luigi/slothlm-e-4m-zhuyin](https://huggingface.co/Luigi/slothlm-e-4m-zhuyin) |
 
 Zhuyin decode is *aligned sequence labeling* (N syllables → N characters, 1:1,
 each constrained), so a **bidirectional encoder** fits the task far better than

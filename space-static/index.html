@@ -53,6 +53,8 @@
   .krow{display:flex;gap:.28rem}
   .key{position:relative;width:42px;height:44px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--ink);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0}
   .key:hover{background:var(--bg);border-color:var(--brown)}.key:active{background:var(--brown);color:var(--hi)}
+  .key.pressed{background:var(--brown);color:var(--hi);border-color:var(--brown);transform:scale(.94);transition:transform .05s}
+  .key.pressed .k{color:var(--hi)}
   .key .k{font-size:.55rem;color:var(--muted)}.key .s{font-size:1rem;line-height:1}
   .key.wide{width:150px;height:38px;font-size:.9rem}
   .key.wide2{width:110px;height:38px;font-size:.9rem;background:var(--brown);color:var(--hi)}
@@ -85,7 +87,7 @@
     <div class="pre empty" id="pre">​</div>
     <div class="cands" id="phrases"></div>
     <div class="cands" id="cands"></div>
-    <p class="hint" id="hint">模型載入中…（SlothLM-E 編碼器，首次約下載 23MB，之後離線可用）</p>
+    <p class="hint" id="hint">模型載入中…（SlothLM-E 編碼器，首次約下載 5MB，之後離線可用）</p>
     <div class="ctrls">
       <button id="commit">⏎ 上字</button>
       <button class="ghost" id="clear">清除</button>
@@ -97,9 +99,9 @@
     完全在你的瀏覽器內執行，不連伺服器。試打 <code>ㄨㄛˇ ㄗㄞˋ ㄔㄨㄥˊ ㄒㄧㄣ ㄎㄠˇ ㄌㄩˋ</code> → 我在重新考慮。<br>
     鍵盤（微軟/自然慣例）：<code>\</code> = 、頓號 · <code>`</code> = 符號選單 · <code>Shift</code> = 英/中切換 · <code>Shift+空白</code> = 全/半形 · <code>↓</code> = 選字。<br>
     <a href="https://github.com/vieenrose/sloth-zhuyin-linux" target="_blank">GitHub</a> ·
-    <a href="https://huggingface.co/Luigi/slothlm-34m-zhuyin" target="_blank">SlothLM</a>
+    <a href="https://huggingface.co/Luigi/slothlm-e-4m-zhuyin" target="_blank">SlothLM-E 4M</a>
   </footer>
 </main>
-<script type="module" src="./ime.js?v=20260710e"></script>
+<script type="module" src="./ime.js?v=20260710f"></script>
 </body>
 </html>
