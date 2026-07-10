@@ -153,35 +153,33 @@ public:
             }
             return n;
         };
+        // zhuyin-wins: any run that parses CLEANLY as zhuyin IS zhuyin, even a
+        // dictionary word (up=ㄧㄣ=音, do=ㄎㄟ) — the zhuyin reading always
+        // wins over the English one, matching 新注音/新酷音/自然. Type such a
+        // word as English via the Shift English-mode toggle. "Clean" = a lone
+        // single syllable (incl. single vowels ㄧ/ㄨ/ㄚ…) OR a multi-syllable
+        // run where EVERY syllable is multi-symbol (2–3 keys). That keeps
+        // genuine runs ("upgj"=ㄧㄣㄕㄨ=音輸) and short words (up/do) as zhuyin,
+        // while unparseable runs (python, web) and English words that only tile
+        // through single-letter syllables (hello=ㄘ|ㄍㄠ|ㄠ|ㄟ, app, api) stay
+        // English.
         std::vector<SegTok> refined;
         for (auto &t : out) {
             if (!t.zh) {
-                std::string lower = t.v;
-                std::transform(lower.begin(), lower.end(), lower.begin(),
-                               [](unsigned char c) { return std::tolower(c); });
-                if (!segmentWords().count(lower)) {
-                    // A lone single syllable (incl. single vowels ㄧ/ㄨ/ㄚ…)
-                    // is zhuyin — the original lone-syllable rule.
-                    if (auto w = wholeSyllable(t.v); !w.empty()) {
-                        refined.push_back({true, std::move(w)});
-                        continue;
+                if (auto w = wholeSyllable(t.v); !w.empty()) {
+                    refined.push_back({true, std::move(w)});
+                    continue;
+                }
+                auto syls = fullZhParse(t.v);
+                bool confident = syls.size() >= 2;
+                for (const auto &s : syls) {
+                    if (symCount(s) < 2) confident = false;
+                }
+                if (confident) {
+                    for (auto &s : syls) {
+                        refined.push_back({true, std::move(s)});
                     }
-                    // A multi-syllable run is zhuyin only if EVERY syllable is
-                    // multi-symbol (2–3 keys). That keeps genuine runs like
-                    // "upgj"=ㄧㄣㄕㄨ (音輸) but rejects English words that
-                    // merely tile through single-letter syllables ("hello" =
-                    // ㄘ|ㄍㄠ|ㄠ|ㄟ).
-                    auto syls = fullZhParse(t.v);
-                    bool confident = syls.size() >= 2;
-                    for (const auto &s : syls) {
-                        if (symCount(s) < 2) confident = false;
-                    }
-                    if (confident) {
-                        for (auto &s : syls) {
-                            refined.push_back({true, std::move(s)});
-                        }
-                        continue;
-                    }
+                    continue;
                 }
             }
             refined.push_back(std::move(t));

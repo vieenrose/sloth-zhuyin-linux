@@ -43,7 +43,7 @@ const T=[
   ['Python',         'en:Python',                              'capital preserved, word whole'],
   ['ji3m/4Python',   'zh:ㄨㄛˇ | zh:ㄩㄥˋ | en:Python',        'capital mid-stream in auto zh/en'],
   ['iPhone',         'en:iPhone',                              'capital not first, still one word'],
-  ['do',             'en:do',                                  'known 2-letter word stays English'],
+  ['do',             'zh:ㄎㄟ',                                 'zhuyin-wins: word that IS a syllable -> zhuyin (Shift for English)'],
   ["let's",          "en:let's",                               'apostrophe rides the English run'],
   ['upgjbj4',        'zh:ㄧㄣ | zh:ㄕㄨ | zh:ㄖㄨˋ',            'toneless zh run stays zhuyin (音輸入)'],
   ['upgj',           'zh:ㄧㄣ | zh:ㄕㄨ',                       'confident multi-syllable run -> zhuyin'],

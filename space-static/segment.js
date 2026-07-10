@@ -106,14 +106,17 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
       const p=out[out.length-1];
       if(t.t==='en' && p && p.t==='en') p.v+=t.v; else out.push({...t});
     }
-    // A non-dictionary English token that parses cleanly as zhuyin IS zhuyin
-    // (the proactive code-switch was wrong): a lone syllable (ㄍㄜ=ek, incl.
-    // single vowels), or a multi-syllable run where EVERY syllable is
-    // multi-symbol ("upgj"=ㄧㄣㄕㄨ=音輸). English words that merely tile
-    // through single-letter syllables ("hello"=ㄘ|ㄍㄠ|ㄠ|ㄟ) stay English.
+    // zhuyin-wins: any run that parses CLEANLY as zhuyin IS zhuyin, even a
+    // dictionary word (up=ㄧㄣ=音, do=ㄎㄟ) — the zhuyin reading always wins,
+    // matching 新注音/新酷音/自然. Type such a word as English via the Shift
+    // English-mode toggle. "Clean" = a lone single syllable (incl. single
+    // vowels), or a multi-syllable run where EVERY syllable is multi-symbol
+    // ("upgj"=ㄧㄣㄕㄨ=音輸). Unparseable runs (python, web) and English words
+    // that only tile through single-letter syllables (hello, app, api) stay
+    // English.
     const refined=[];
     for(const t of out){
-      if(t.t==='en' && !words.has(t.v.toLowerCase())){
+      if(t.t==='en'){
         const w=wholeSyllable(t.v);
         if(w){ refined.push({t:'zh',v:w}); continue; }
         const syls=fullZhParse(t.v);
