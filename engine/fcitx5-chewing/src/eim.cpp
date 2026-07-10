@@ -240,13 +240,22 @@ ChewingEngine::~ChewingEngine() { stopWorker(); }
 namespace {
 // Display string for a token list: zh -> bopomofo (or a supplied char),
 // en -> the literal with spaces around it. Doubles collapsed at the end.
+bool isAsciiRun(const std::string &v) {
+    for (unsigned char c : v) {
+        if (c >= 0x80) return false;
+    }
+    return true;
+}
 std::string toksDisplay(const std::vector<slothing::SegTok> &toks) {
     std::string out;
     for (const auto &t : toks) {
         if (t.zh) {
             out += t.v;
-        } else {
+        } else if (isAsciiRun(t.v)) {
             out += " " + t.v + " ";
+        } else { // fullwidth punctuation: no spaces, eat one before it
+            if (!out.empty() && out.back() == ' ') out.pop_back();
+            out += t.v;
         }
     }
     return out;
@@ -725,8 +734,13 @@ std::string ChewingEngine::composedSentence() const {
     for (size_t i = 0; i < convertPositions_.size(); i++) {
         int sel = (i < segSel_.size()) ? segSel_[i] : 0;
         if (sel >= 0 && sel < static_cast<int>(convertPositions_[i].size())) {
-            const bool en = i < convertToks_.size() && !convertToks_[i].zh;
+            const bool en = i < convertToks_.size() && !convertToks_[i].zh &&
+                            isAsciiRun(convertToks_[i].v);
             if (en) out += " ";
+            if (!en && i < convertToks_.size() && !convertToks_[i].zh &&
+                !out.empty() && out.back() == ' ') {
+                out.pop_back(); // fullwidth punct hugs the previous word
+            }
             out += convertPositions_[i][sel];
             if (en) out += " ";
         }
@@ -1100,6 +1114,28 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             keyEvent.filterAndAccept();
             rawKeys_ += c;
             commitRun();
+            scheduleLiveDecode(ic);
+            renderComposing(ic);
+            return;
+        }
+
+        // Punctuation, 微軟新注音/chewing conventions: Shift+,.…/;1 -> full-
+        // width marks, \\ -> 、. Appended as a literal token (commits with
+        // the sentence); committed directly when nothing is being composed.
+        static const std::unordered_map<char, const char *> kPunct = {
+            {'<', "，"}, {'>', "。"}, {'?', "？"}, {'!', "！"},
+            {':', "："}, {'"', "；"}, {'(', "（"}, {')', "）"},
+            {'\\', "、"},
+        };
+        const char rawSym = static_cast<char>(keyEvent.key().sym() & 0xff);
+        if (auto pit = kPunct.find(rawSym); pit != kPunct.end()) {
+            keyEvent.filterAndAccept();
+            if (composingEmpty()) {
+                ic->commitString(pit->second);
+                return;
+            }
+            commitRun();
+            committedToks_.push_back({false, pit->second});
             scheduleLiveDecode(ic);
             renderComposing(ic);
             return;
