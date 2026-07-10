@@ -145,7 +145,9 @@ function pickCand(j){                 // j is index within current page
   overrides[fix]=cands[idx];
   const syl=$('toneless').checked?strip(committed[fix].v):committed[fix].v;
   learn[syl]=cands[idx]; saveLearn();
-  fix=-1; phrase=null; render();
+  fix=-1; phrase=null;
+  pvKey=null; schedulePreview();      // re-score the sentence around the pick
+  render();
 }
 function pickPhrase(p){               // p = 2-char phrase for [fix, fix+1]
   const chars=[...p];
@@ -157,6 +159,7 @@ function pickPhrase(p){               // p = 2-char phrase for [fix, fix+1]
   learn[tl?strip(committed[fix].v):committed[fix].v]=chars[0];
   if(n<committed.length&&chars[1]) learn[tl?strip(committed[n].v):committed[n].v]=chars[1];
   saveLearn();
+  pvKey=null; schedulePreview();      // re-score the sentence around the pick
   fix=-1; phrase=null; render();
 }
 
@@ -299,15 +302,19 @@ async function runPreview(){
     // (，。、！？…) marks a semantic boundary, so the model needn't see across
     // it. Shorter context => faster (decode time ~ segment length, not whole
     // buffer) and no long-sequence truncation.
-    const zhChars=[], zhCands=[]; let seg=[];
+    const zhChars=[], zhCands=[]; let seg=[], segIdx=[]; let ci=0;
     const flushSeg=async()=>{
       const zh=seg.filter(t=>t.t==='zh').map(t=>toneless?strip(t.v):t.v);
-      const r=zh.length?await decodeZh(zh):{chars:[],cands:[]};
+      // user picks (overrides) condition the whole segment's re-decode
+      const hints={}; let rel=0;
+      for(let q=0;q<seg.length;q++) if(seg[q].t==='zh'){
+        const oi=segIdx[q]; if(overrides[oi]) hints[rel]=overrides[oi]; rel++; }
+      const r=zh.length?await decodeZh(zh,{},hints):{chars:[],cands:[]};
       let zc=0;
       for(const tok of seg) if(tok.t==='zh'){ zhCands.push(r.cands[zc]); zhChars.push(r.chars[zc]); zc++; }
       seg=[];
     };
-    for(const tok of committed){ seg.push(tok); if(tok.t==='punct') await flushSeg(); }
+    for(const tok of committed){ seg.push(tok); segIdx.push(ci++); if(tok.t==='punct'){ await flushSeg(); segIdx=[]; } }
     await flushSeg();
     if(gen===previewGen && key===bufKey()){
       pvChars=[];pvCands=[];let zc=0;
@@ -381,12 +388,18 @@ function typoFixes(syl){const tone=[...syl].filter(c=>TONES.includes(c)).join(''
 // candidate chars + their output token-ids (from char2id) for a syllable
 function candSet(syl){const out=[],ids=[];for(const c of candChars(syl)){const i=char2id[c];if(i!=null&&!ids.includes(i)){ids.push(i);out.push(c);}}return{chars:out,ids};}
 // one bidirectional forward pass over the syllable sequence -> per-position logits
-async function encForward(syls){
+let modelHasHints=false;   // set at init from the session's input names
+async function encForward(syls, hintIds){
   const ids=syls.map(s=>sylVocab[s]??1), T=ids.length;
-  const out=await session.run({
+  const feed={
     syl:new ort.Tensor('int64',BigInt64Array.from(ids.map(BigInt)),[1,T]),
     amask:new ort.Tensor('bool',Uint8Array.from(new Array(T).fill(1)),[1,T]),
-  });
+  };
+  if(modelHasHints){
+    const h=hintIds||new Array(T).fill(0);
+    feed.hints=new ort.Tensor('int64',BigInt64Array.from(h.map(BigInt)),[1,T]);
+  }
+  const out=await session.run(feed);
   return {data:out.logits.data, V:out.logits.dims[2], T};
 }
 // batched forward for typo scoring: rows = variants of the same sentence
@@ -400,7 +413,7 @@ async function encForwardBatch(rows){
   return {data:out.logits.data, V:out.logits.dims[2], T};
 }
 const LEARN_BONUS=6.0;   // calibrated: flips 在/再-scale gaps, spares 的/重新
-async function decodeZh(sylsIn, forced={}){
+async function decodeZh(sylsIn, forced={}, hints={}){
   // typo tolerance: an impossible syllable (no legal chars) is replaced by
   // the edit-distance-1 correction the model itself scores highest. Legal
   // syllables never enter this path.
@@ -418,7 +431,12 @@ async function decodeZh(sylsIn, forced={}){
     syls[i]=fixes[bj].syl;
   }
   const sets=syls.map(candSet);
-  const {data,V,T}=await encForward(syls);
+  let hintIds=null;
+  if(modelHasHints && Object.keys(hints).length){
+    hintIds=new Array(syls.length).fill(0);
+    for(const k in hints){ const id=char2id[hints[k]]; if(id!=null) hintIds[+k]=id+1; }
+  }
+  const {data,V,T}=await encForward(syls, hintIds);
   const chars=[];
   for(let i=0;i<T;i++){
     if(forced[i]!=null){ chars.push(forced[i]); continue; }
@@ -534,6 +552,7 @@ $('toneless').onchange=()=>{ pvKey=null; render(); };
     fetch(ENC+'char2id.json').then(r=>r.json()),
   ]);
   session=await ort.InferenceSession.create(ENC+'model_quantized.onnx');
+  modelHasHints=session.inputNames.includes('hints');
   ready=true; render();
 })().catch(e=>{console.error(e);$('hint').textContent='模型載入失敗：'+(e&&e.name?e.name+' / ':'')+(e&&e.message||e);});
 render();

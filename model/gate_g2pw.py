@@ -27,7 +27,8 @@ def main():
     ck = torch.load(os.path.join(args.model, "slothe.pt"), map_location="cpu")
     c = ck["config"]
     m = SlothE(c["n_syl"], c["n_char"], c["dim"], c["depth"], c["heads"], c["kv"], c["ffn"],
-               embed_norm=c.get("embed_norm", False))
+               embed_norm=c.get("embed_norm", False),
+               char_hints=c.get("char_hints", False))
     m.load_state_dict(ck["model"]); m.eval()
     sv = json.load(open(os.path.join(args.model, "syl_vocab.json"), encoding="utf-8"))
     tonal = {}

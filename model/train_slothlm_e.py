@@ -138,9 +138,14 @@ class Block(nn.Module):
 
 class SlothE(nn.Module):
     def __init__(self, n_syl, n_char, dim=384, depth=8, heads=6, kv=2, ffn=1024,
-                 embed_norm=False):
+                 embed_norm=False, char_hints=False):
         super().__init__()
         self.embed = nn.Embedding(n_syl, dim)
+        # optional conditioning channel: observed/user-corrected chars
+        # (id 0 = no hint, else char_id+1). Enables 新注音-style re-scoring
+        # of the whole sentence after an interactive correction.
+        self.hint_embed = nn.Embedding(n_char + 1, dim,
+                                       padding_idx=0) if char_hints else None
         self.embed_norm = RMSNorm(dim) if embed_norm else None  # ModernBERT post-embed norm
         self.blocks = nn.ModuleList([Block(dim, heads, kv, ffn) for _ in range(depth)])
         self.norm = RMSNorm(dim)
@@ -153,9 +158,11 @@ class SlothE(nn.Module):
         elif isinstance(m, nn.Embedding):
             nn.init.normal_(m.weight, std=0.02)
 
-    def forward(self, syl, amask):
+    def forward(self, syl, amask, hints=None):
         pos = torch.arange(syl.shape[1], device=syl.device)
         x = self.embed(syl)
+        if self.hint_embed is not None and hints is not None:
+            x = x + self.hint_embed(hints)
         if self.embed_norm is not None:
             x = self.embed_norm(x)
         for b in self.blocks:
@@ -180,6 +187,9 @@ def main():
     ap.add_argument("--steps", type=int, default=0, help="cap steps (smoke test)")
     ap.add_argument("--embed-norm", action="store_true",
                     help="ModernBERT post-embedding RMSNorm")
+    ap.add_argument("--char-hints", action="store_true",
+                    help="train with random char hints (conditioning channel "
+                         "for interactive re-scoring)")
     args = ap.parse_args()
 
     from transformers import AutoTokenizer
@@ -195,7 +205,7 @@ def main():
                     collate_fn=collate, pin_memory=True, drop_last=True)
     model = SlothE(len(syl_vocab), len(tok), args.dim, args.depth,
                    args.heads, args.kv_heads, args.ffn,
-                   embed_norm=args.embed_norm).to(dev)
+                   embed_norm=args.embed_norm, char_hints=args.char_hints).to(dev)
     print(f"SlothLM-E {sum(p.numel() for p in model.parameters())/1e6:.1f}M params")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95),
                             weight_decay=0.1)
@@ -207,8 +217,15 @@ def main():
     for ep in range(math.ceil(args.epochs)):
         for syl, chr_, mask in dl:
             syl, chr_, mask = syl.to(dev), chr_.to(dev), mask.to(dev)
+            hints = None
+            if args.char_hints:
+                # reveal 0-30% of true chars per sequence as hints; the model
+                # learns to condition the rest of the sentence on them
+                reveal_p = torch.rand(syl.shape[0], 1, device=dev) * 0.3
+                reveal = (torch.rand(syl.shape, device=dev) < reveal_p) & (chr_ >= 0)
+                hints = torch.where(reveal, chr_ + 1, torch.zeros_like(chr_))
             with torch.autocast(dev, dtype=torch.bfloat16, enabled=dev == "cuda"):
-                logits = model(syl, mask)
+                logits = model(syl, mask, hints)
                 loss = F.cross_entropy(logits.reshape(-1, logits.shape[-1]),
                                        chr_.reshape(-1), ignore_index=-100)
             opt.zero_grad(set_to_none=True)
@@ -229,7 +246,8 @@ def main():
                 "config": {"n_syl": len(syl_vocab), "n_char": len(tok),
                            "dim": args.dim, "depth": args.depth,
                            "heads": args.heads, "kv": args.kv_heads,
-                           "ffn": args.ffn, "embed_norm": args.embed_norm}},
+                           "ffn": args.ffn, "embed_norm": args.embed_norm,
+                           "char_hints": args.char_hints}},
                os.path.join(args.out, "slothe.pt"))
     json.dump(syl_vocab, open(os.path.join(args.out, "syl_vocab.json"), "w",
                               encoding="utf-8"), ensure_ascii=False)

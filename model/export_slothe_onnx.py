@@ -22,19 +22,29 @@ def main():
 
     ckpt=torch.load(os.path.join(args.model,"slothe.pt"),map_location="cpu")
     c=ckpt["config"]
+    hints_on=c.get("char_hints",False)
     model=SlothE(c["n_syl"],c["n_char"],c["dim"],c["depth"],c["heads"],c["kv"],c["ffn"],
-                 embed_norm=c.get("embed_norm",False))
+                 embed_norm=c.get("embed_norm",False), char_hints=hints_on)
     model.load_state_dict(ckpt["model"]); model.eval()
 
     syl=torch.zeros(1,6,dtype=torch.long)
     amask=torch.ones(1,6,dtype=torch.bool)
     path=os.path.join(args.out,"model.onnx")
-    torch.onnx.export(
-        model,(syl,amask),path,opset_version=args.opset,
-        input_names=["syl","amask"],output_names=["logits"],
-        dynamic_axes={"syl":{0:"B",1:"T"},"amask":{0:"B",1:"T"},
-                      "logits":{0:"B",1:"T"}},
-    )
+    if hints_on:
+        hints=torch.zeros(1,6,dtype=torch.long)   # 0 = no hint, else char_id+1
+        torch.onnx.export(
+            model,(syl,amask,hints),path,opset_version=args.opset,
+            input_names=["syl","amask","hints"],output_names=["logits"],
+            dynamic_axes={"syl":{0:"B",1:"T"},"amask":{0:"B",1:"T"},
+                          "hints":{0:"B",1:"T"},"logits":{0:"B",1:"T"}},
+        )
+    else:
+        torch.onnx.export(
+            model,(syl,amask),path,opset_version=args.opset,
+            input_names=["syl","amask"],output_names=["logits"],
+            dynamic_axes={"syl":{0:"B",1:"T"},"amask":{0:"B",1:"T"},
+                          "logits":{0:"B",1:"T"}},
+        )
     # copy the syllable vocab + config for the serving side
     import shutil
     shutil.copy(os.path.join(args.model,"syl_vocab.json"),

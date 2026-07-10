@@ -186,6 +186,24 @@ std::vector<std::string> queryDecoder(const std::vector<std::string> &syllables,
 // Model-ranked 2-char phrase candidates for positions (at, at+1). Synchronous
 // but tiny (one encoder forward, ~2 ms); a dead daemon fails the connect
 // immediately, so the UI thread is never held hostage.
+// Decode conditioned on user picks: {"hints": {"2": "在"}}. Synchronous but
+// ~1 ms; a dead daemon fails the connect instantly.
+std::vector<std::string> queryDecoderWithHints(
+    const std::vector<std::string> &syllables,
+    const std::map<int, std::string> &hints) {
+    json req;
+    req["syllables"] = syllables;
+    req["n"] = 1;
+    json h = json::object();
+    for (const auto &[i, ch] : hints) {
+        h[std::to_string(i)] = ch;
+    }
+    req["hints"] = h;
+    std::atomic<int> fd{-1};
+    RerankError err = RerankError::None;
+    return sendDaemonRequest(req.dump() + "\n", fd, err);
+}
+
 // Fire-and-forget: persist the user's corrections in the daemon's learn
 // store (detached thread; a dead daemon just drops it).
 void sendLearn(const json &learnBody) {
@@ -896,6 +914,7 @@ void ChewingEngine::showConversionChoices(
 
     phraseCands_.clear();
     visCursor_ = -1;
+    userFixed_.clear();
     segSel_.assign(convertPositions_.size(), 0);
     const std::string &best = sentences.empty() ? convertBuffer_ : sentences[0];
     for (size_t i = 0; i < convertPositions_.size(); i++) {
@@ -1069,6 +1088,9 @@ void ChewingEngine::pickPhrase(InputContext *ic, const std::string &phrase) {
     };
     setSel(i, c0);
     setSel(i + 1, c1);
+    userFixed_.insert(i);
+    userFixed_.insert(i + 1);
+    rescoreChoosing(ic);
     // advance focus past the phrase, to the next ambiguous segment
     visCursor_ = -1;
     segFocus_ = i + 1;
@@ -1081,6 +1103,45 @@ void ChewingEngine::pickPhrase(InputContext *ic, const std::string &phrase) {
     renderSegments(ic);
 }
 
+void ChewingEngine::rescoreChoosing(InputContext *ic) {
+    (void)ic;
+    // pure-zh sentences only (position mapping is 1:1 with the daemon)
+    for (const auto &s : convertSyllables_) {
+        if (s.empty()) {
+            return;
+        }
+    }
+    if (userFixed_.empty()) {
+        return;
+    }
+    std::map<int, std::string> hints;
+    for (int i : userFixed_) {
+        if (i >= 0 && i < static_cast<int>(convertPositions_.size())) {
+            hints[i] = convertPositions_[i][segSel_[i]];
+        }
+    }
+    auto sentences = queryDecoderWithHints(convertSyllables_, hints);
+    if (sentences.empty() ||
+        !matchesPositions(sentences[0], convertPositions_)) {
+        return; // daemon down / non-hint model: keep current selections
+    }
+    // adopt the re-scored chars for every segment the user hasn't touched
+    for (size_t i = 0; i < convertPositions_.size(); i++) {
+        if (userFixed_.count(static_cast<int>(i))) {
+            continue;
+        }
+        std::string span =
+            utf8CharSlice(sentences[0], convertIntervals_[i].first,
+                          convertIntervals_[i].second);
+        for (size_t j = 0; j < convertPositions_[i].size(); j++) {
+            if (convertPositions_[i][j] == span) {
+                segSel_[i] = static_cast<int>(j);
+                break;
+            }
+        }
+    }
+}
+
 void ChewingEngine::pickSegment(InputContext *ic, int candIdx) {
     if (segFocus_ < 0 ||
         segFocus_ >= static_cast<int>(convertPositions_.size())) {
@@ -1089,6 +1150,8 @@ void ChewingEngine::pickSegment(InputContext *ic, int candIdx) {
     if (candIdx >= 0 &&
         candIdx < static_cast<int>(convertPositions_[segFocus_].size())) {
         segSel_[segFocus_] = candIdx;
+        userFixed_.insert(segFocus_);
+        rescoreChoosing(ic); // 新注音-style: the pick re-scores the rest
     }
     visCursor_ = -1;
     for (int i = segFocus_ + 1; i < static_cast<int>(convertPositions_.size());
@@ -1220,19 +1283,18 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             // learn the user's corrections (changed zh segments + adjacent
             // changed pairs as phrases) before committing
             json chars = json::array(), phrases = json::array();
-            for (size_t i = 0; i < segSel_.size(); i++) {
-                const bool changed = i < initialSel_.size() &&
-                                     segSel_[i] != initialSel_[i];
-                if (!changed || i >= convertSyllables_.size() ||
+            for (int i : userFixed_) {
+                if (i < 0 || i >= static_cast<int>(segSel_.size()) ||
+                    i >= static_cast<int>(convertSyllables_.size()) ||
                     convertSyllables_[i].empty()) {
                     continue;
                 }
                 chars.push_back({convertSyllables_[i],
                                  convertPositions_[i][segSel_[i]]});
-                if (i + 1 < segSel_.size() &&
-                    i + 1 < convertSyllables_.size() &&
-                    !convertSyllables_[i + 1].empty() &&
-                    segSel_[i + 1] != initialSel_[i + 1]) {
+                if (userFixed_.count(i + 1) &&
+                    i + 1 < static_cast<int>(segSel_.size()) &&
+                    i + 1 < static_cast<int>(convertSyllables_.size()) &&
+                    !convertSyllables_[i + 1].empty()) {
                     phrases.push_back(
                         {convertSyllables_[i] + " " + convertSyllables_[i + 1],
                          convertPositions_[i][segSel_[i]] +

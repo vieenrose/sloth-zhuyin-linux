@@ -28,6 +28,7 @@
 #include <fcitx/instance.h>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -182,6 +183,12 @@ private:
     // Selection state when Choosing began — diffed at commit to learn the
     // user's corrections (sent to the daemon's persistent store).
     std::vector<int> initialSel_;
+    // Segments the user explicitly picked (hints for re-scoring; also the
+    // only positions the learn store records).
+    std::set<int> userFixed_;
+    // Re-decode the sentence conditioned on the user's picks (hint-aware
+    // model) and update the segments the user has NOT touched.
+    void rescoreChoosing(InputContext *ic);
     int segFocus_ = 0;
     // Arrow-cursor over the VISIBLE candidate list (phrases prepended before
     // the per-char candidates). -1 = synced to segSel_. Reset on focus move.

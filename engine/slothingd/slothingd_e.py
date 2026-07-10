@@ -61,6 +61,8 @@ class Decoder:
         opts.intra_op_num_threads = 2      # keystroke latency, not throughput
         self.sess = ort.InferenceSession(onnx, opts,
                                          providers=["CPUExecutionProvider"])
+        # hint-conditioned models take a third input (user-corrected chars)
+        self.has_hints = any(i.name == "hints" for i in self.sess.get_inputs())
         self.syl_vocab = json.load(open(os.path.join(model_dir, "syl_vocab.json"),
                                         encoding="utf-8"))
         # tokenizer-free serving: char ids come from the checkpoint's tokenizer
@@ -165,7 +167,24 @@ class Decoder:
                 b[(i + 1, ph[1])] = b.get((i + 1, ph[1]), 0.0) + PHRASE_BONUS
         return b
 
-    def decode(self, syllables, n):
+    def _run(self, sid, amask, hints_vec=None):
+        feed = {"syl": sid, "amask": amask}
+        if self.has_hints:
+            if hints_vec is None:
+                hints_vec = np.zeros_like(sid)
+            feed["hints"] = hints_vec
+        return self.sess.run(None, feed)
+
+    def decode(self, syllables, n, hints=None):
+        """hints: {position: char} user corrections; with a hint-conditioned
+        model the whole sentence re-scores around them (新注音-style)."""
+        hint_ids = None
+        if hints and self.has_hints:
+            hint_ids = np.zeros((1, len(syllables)), dtype=np.int64)
+            for k, ch in hints.items():
+                i = int(k)
+                if 0 <= i < len(syllables) and ch in self.char2id:
+                    hint_ids[0, i] = self.char2id[ch] + 1
         ids = [self.syl_vocab.get(s, 1) for s in syllables]
         cand_override = {}
         # typo correction: an impossible syllable (no legal chars) is replaced
@@ -183,7 +202,8 @@ class Decoder:
             for j, (v, _) in enumerate(fixes):
                 batch[j, i] = self.syl_vocab[v]
             am = np.ones_like(batch, dtype=bool)
-            lgb = self.sess.run(None, {"syl": batch, "amask": am})[0]
+            hb = np.tile(hint_ids, (len(fixes), 1)) if hint_ids is not None else None
+            lgb = self._run(batch, am, hb)[0]
             best_j, best_v = 0, -np.inf
             for j, (_, cs) in enumerate(fixes):
                 v = max(lgb[j, i, self.char2id[c]] for c in cs
@@ -195,7 +215,7 @@ class Decoder:
                                 if c in self.char2id]
         sid = np.array([ids], dtype=np.int64)
         amask = np.ones_like(sid, dtype=bool)
-        lg = self.sess.run(None, {"syl": sid, "amask": amask})[0][0]
+        lg = self._run(sid, amask, hint_ids)[0][0]
         bonus = self._bonus(syllables)
         best, margins = [], []          # per position: char + (margin, runner-up)
         for i, s in enumerate(syllables):
@@ -226,7 +246,7 @@ class Decoder:
         sid = np.array([[self.syl_vocab.get(s, 1) for s in syllables]],
                        dtype=np.int64)
         amask = np.ones_like(sid, dtype=bool)
-        lg = self.sess.run(None, {"syl": sid, "amask": amask})[0][0]
+        lg = self._run(sid, amask)[0][0]
 
         def top(cands, pos, k=5):
             v = np.array([lg[pos, tid] for _, tid in cands])
@@ -254,7 +274,8 @@ class Decoder:
         if req.get("phrase_at") is not None:   # 2-char phrase candidates
             return {"sentences":
                     self.phrases(syllables, int(req["phrase_at"]), n)}
-        return {"sentences": self.decode(syllables, n)}
+        return {"sentences":
+                self.decode(syllables, n, hints=req.get("hints"))}
 
     def handle_any(self, req):
         if req.get("learn") is not None:       # user picks -> persist
