@@ -970,7 +970,6 @@ void ChewingEngine::showConversionChoices(
     convertTimer_.reset();
 
     phraseCands_.clear();
-    candSpan_ = 2;
     candListOpen_ = true;
     userFixed_.clear();
     segSel_.assign(convertPositions_.size(), 0);
@@ -1105,13 +1104,7 @@ void ChewingEngine::renderSegments(InputContext *ic) {
         phraseCands_[segFocus_] = std::move(out);
     }
     const auto &phrases = phraseCands_[segFocus_];
-    const bool wordView = candSpan_ == 2 && !phrases.empty();
-    if (wordView) {
-        for (const auto &[start, ph] : phrases) {
-            list->append(std::make_unique<PhraseCandidateWord>(this, start, ph));
-        }
-        list->setGlobalCursorIndex(0);
-    } else {
+    {
         const auto &cands = convertPositions_[segFocus_];
         for (size_t j = 0; j < cands.size(); j++) {
             list->append(std::make_unique<SegmentCandidateWord>(
@@ -1123,10 +1116,16 @@ void ChewingEngine::renderSegments(InputContext *ic) {
             list->setPage(curIdx / *config_.PageSize);
         }
     }
+    if (!phrases.empty()) { // 詞 options: one glance, picked with ⇧1-9
+        std::string aux = "詞:";
+        for (size_t j = 0; j < phrases.size() && j < 9; j++) {
+            aux += " ⇧" + std::to_string(j + 1) + " " + phrases[j].second;
+        }
+        ic->inputPanel().setAuxUp(Text(aux));
+    }
     ic->inputPanel().setCandidateList(std::move(list));
     ic->inputPanel().setAuxDown(
-        Text(std::string(candSpan_ == 2 ? "【詞】" : "【單字】") +
-             "　1-9 選　←→ 移動　⏎ 確認　↓ 換長度　Esc 取消"));
+        Text("1-9 選字　⇧1-9 選詞　←→ 移動　⏎ 確認　Esc 取消"));
     ic->updatePreedit();
     ic->updateUserInterface(UserInterfaceComponent::InputPanel);
 }
@@ -1158,7 +1157,6 @@ void ChewingEngine::pickPhrase(InputContext *ic, int start,
     // chewing: the pick CLOSES the candidate window; focus stays on the word
     segFocus_ = i;
     candListOpen_ = false;
-    candSpan_ = 2;
     renderSegments(ic);
 }
 
@@ -1247,7 +1245,6 @@ void ChewingEngine::pickSegment(InputContext *ic, int candIdx) {
     }
     // chewing: the pick CLOSES the candidate window; the cursor stays put
     candListOpen_ = false;
-    candSpan_ = 2;
     renderSegments(ic);
 }
 
@@ -1441,7 +1438,6 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             for (int i = segFocus_ + d; i >= 0 && i < nseg; i += d) {
                 if (convertPositions_[i].size() > 1) {
                     segFocus_ = i;
-                    candSpan_ = 2;
                     break;
                 }
             }
@@ -1466,21 +1462,31 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
                     *config_.SpaceAsSelection)) {
             if (!candListOpen_) {        // reopen at the focused char
                 candListOpen_ = true;
-                candSpan_ = 2;
-            } else {
-                // chewing-style span cycling: 詞 view <-> 單字 view
-                candSpan_ = (candSpan_ == 2) ? 1 : 2;
+            } else { // ↓/↑/space page the char list
+                if (auto list = ic->inputPanel().candidateList()) {
+                    if (auto *pageable = list->toPageable()) {
+                        if (keyEvent.key().check(FcitxKey_Up)) {
+                            if (pageable->hasPrev()) pageable->prev();
+                        } else if (pageable->hasNext()) {
+                            pageable->next();
+                        }
+                        ic->updateUserInterface(
+                            UserInterfaceComponent::InputPanel);
+                    }
+                }
+                return;
             }
         } else if (candListOpen_ &&
-                   (keyEvent.key().check(Key("j")) ||
-                    keyEvent.key().check(Key("k")))) {
-            // chewing: j/k move the target with the window following
-            const int d = keyEvent.key().check(Key("j")) ? -1 : 1;
-            for (int i = segFocus_ + d; i >= 0 && i < nseg; i += d) {
-                if (convertPositions_[i].size() > 1) {
-                    segFocus_ = i;
-                    candSpan_ = 2;
-                    break;
+                   keyEvent.key().states().test(KeyState::Shift) &&
+                   keyEvent.key().isSimple()) {
+            // ⇧1-9 picks a 詞 (word) option from the aux row
+            const char sym = static_cast<char>(keyEvent.key().sym() & 0xff);
+            static const char *shifted = "!@#$%^&*(";
+            const auto &ph = phraseCands_[segFocus_];
+            for (int i = 0; i < 9; i++) {
+                if (shifted[i] == sym && i < static_cast<int>(ph.size())) {
+                    pickPhrase(ic, ph[i].first, ph[i].second);
+                    return;
                 }
             }
         } else if (keyEvent.key().isSimple()) {

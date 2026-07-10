@@ -187,9 +187,6 @@ private:
     // model) and update the segments the user has NOT touched.
     void rescoreChoosing(InputContext *ic);
     int segFocus_ = 0;
-    // Candidate span view, chewing-style: ↓ cycles longest-span first.
-    // 2 = 詞 view (2-char phrases covering focus..focus+1), 1 = 單字 view.
-    int candSpan_ = 2;
     // Candidate window visibility (chewing: a pick CLOSES the window; ↓
     // reopens it; Esc closes it before cancelling the whole conversion).
     bool candListOpen_ = true;
