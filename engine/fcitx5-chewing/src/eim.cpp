@@ -971,6 +971,7 @@ void ChewingEngine::showConversionChoices(
 
     phraseCands_.clear();
     candListOpen_ = true;
+    phraseHl_ = -1;
     userFixed_.clear();
     segSel_.assign(convertPositions_.size(), 0);
     const std::string &best = sentences.empty() ? convertBuffer_ : sentences[0];
@@ -1116,10 +1117,13 @@ void ChewingEngine::renderSegments(InputContext *ic) {
             list->setPage(curIdx / *config_.PageSize);
         }
     }
-    if (!phrases.empty()) { // 詞 options: one glance, picked with ⇧1-9
+    if (!phrases.empty()) { // 詞 options: ⇧1-9 or ←→+⏎ (highlight marked)
         std::string aux = "詞:";
         for (size_t j = 0; j < phrases.size() && j < 9; j++) {
-            aux += " ⇧" + std::to_string(j + 1) + " " + phrases[j].second;
+            const bool hl = static_cast<int>(j) == phraseHl_;
+            aux += std::string(" ") + (hl ? "【" : "") + "⇧" +
+                   std::to_string(j + 1) + " " + phrases[j].second +
+                   (hl ? "】" : "");
         }
         ic->inputPanel().setAuxUp(Text(aux));
     }
@@ -1369,7 +1373,13 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             return;
         }
         if (keyEvent.key().check(FcitxKey_Return)) {
-            if (candListOpen_) { // 新注音: Enter confirms the highlight
+            if (candListOpen_) { // Enter confirms the highlight (詞 or 字)
+                const auto &ph = phraseCands_[segFocus_];
+                if (phraseHl_ >= 0 &&
+                    phraseHl_ < static_cast<int>(ph.size())) {
+                    pickPhrase(ic, ph[phraseHl_].first, ph[phraseHl_].second);
+                    return;
+                }
                 if (auto list = ic->inputPanel().candidateList()) {
                     if (auto *common =
                             dynamic_cast<CommonCandidateList *>(list.get())) {
@@ -1413,22 +1423,32 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         const int ncand = static_cast<int>(convertPositions_[segFocus_].size());
         if (keyEvent.key().check(FcitxKey_Right) ||
             keyEvent.key().check(FcitxKey_Left)) {
-            if (candListOpen_) { // 新注音: ←→ move the highlight (page follows)
+            if (candListOpen_) { // ←→ walk 詞 options + chars as one loop
+                const int nph = static_cast<int>(
+                    std::min<size_t>(phraseCands_[segFocus_].size(), 9));
                 if (auto list = ic->inputPanel().candidateList()) {
                     if (auto *common =
                             dynamic_cast<CommonCandidateList *>(list.get())) {
-                        const int total = common->totalSize();
+                        const int nch = common->totalSize();
+                        const int total = nph + nch;
                         if (total > 0) {
-                            int cur = common->globalCursorIndex();
+                            int ci = phraseHl_ >= 0
+                                         ? phraseHl_
+                                         : nph + common->globalCursorIndex();
                             const int d =
                                 keyEvent.key().check(FcitxKey_Right) ? 1 : -1;
-                            cur = (cur + d + total) % total;
-                            common->setGlobalCursorIndex(cur);
-                            if (*config_.PageSize > 0) {
-                                common->setPage(cur / *config_.PageSize);
+                            ci = (ci + d + total) % total;
+                            if (ci < nph) {
+                                phraseHl_ = ci;
+                            } else {
+                                phraseHl_ = -1;
+                                common->setGlobalCursorIndex(ci - nph);
+                                if (*config_.PageSize > 0) {
+                                    common->setPage((ci - nph) /
+                                                    *config_.PageSize);
+                                }
                             }
-                            ic->updateUserInterface(
-                                UserInterfaceComponent::InputPanel);
+                            renderSegments(ic); // refresh aux highlight
                         }
                     }
                 }

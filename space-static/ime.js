@@ -269,7 +269,7 @@ function render(){
     phEl.appendChild(lbl);
     const seen=new Set();
     phrase.forEach((p,pi)=>{ const key=p.at+':'+p.ph; if(seen.has(key))return; seen.add(key);
-      const b=document.createElement('button'); b.className='cand ph';
+      const b=document.createElement('button'); b.className='cand ph'+((fixHl<0&&(-1-fixHl)===pi)?' hlp':'');
       b.innerHTML='<span class="n">⇧'+(pi+1)+'</span>'+p.ph;
       b.onclick=()=>pickPhrase(p); phEl.appendChild(b); });
   } else if(fix>=0 && phraseBusy){
@@ -563,17 +563,24 @@ document.addEventListener('keydown',e=>{
       const pages=Math.ceil((pvCands[fix]||[]).length/PAGE), d=k==='ArrowDown'?1:-1;
       if(pages>1){fixPage=(fixPage+d+pages)%pages; fixHl=fixPage*PAGE; render();}
       e.preventDefault(); return; }
-    if(k==='ArrowLeft'||k==='ArrowRight'){ // 新注音: ←→ move the highlight
-      const cands=pvCands[fix]||[], d=k==='ArrowLeft'?-1:1;
-      if(cands.length){ fixHl=(fixHl+d+cands.length)%cands.length;
-        fixPage=Math.floor(fixHl/PAGE); render(); }
+    if(k==='ArrowLeft'||k==='ArrowRight'){ // ←→ walk 詞 chips + chars as one loop
+      const cands=pvCands[fix]||[], nph=(phrase||[]).length, d=k==='ArrowLeft'?-1:1;
+      const total=nph+cands.length;
+      if(total){
+        // map to combined index: phrases occupy 0..nph-1, chars follow
+        let ci=(fixHl<0? -1-fixHl : nph+fixHl);
+        ci=(ci+d+total)%total;
+        if(ci<nph){ fixHl=-1-ci; } else { fixHl=ci-nph; fixPage=Math.floor(fixHl/PAGE); }
+        render(); }
       e.preventDefault(); return; }
     if(k===' '){                            // chewing: space pages
       const pages=Math.ceil((pvCands[fix]||[]).length/PAGE);
       if(pages>1){fixPage=(fixPage+1)%pages; fixHl=fixPage*PAGE; render();}
       e.preventDefault(); return; }
     if(k==='Enter'){                        // Enter confirms the highlight
-      pickCand(fixHl-fixPage*PAGE); e.preventDefault(); return; }
+      if(fixHl<0){ const ph=(phrase||[])[-1-fixHl]; if(ph) pickPhrase(ph); }
+      else pickCand(fixHl-fixPage*PAGE);
+      e.preventDefault(); return; }
     if(k==='j'||k==='k'){                     // chewing: j/k move the target
       const d=k==='j'?-1:1; let t=fix+d;
       while(t>=0&&t<committed.length&&committed[t].t!=='zh') t+=d;

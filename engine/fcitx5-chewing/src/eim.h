@@ -190,6 +190,9 @@ private:
     // Candidate window visibility (chewing: a pick CLOSES the window; ↓
     // reopens it; Esc closes it before cancelling the whole conversion).
     bool candListOpen_ = true;
+    // ←→ highlight over the 詞 (aux) options: -1 = highlight is in the char
+    // list; >=0 = phrase index. Enter confirms whichever is highlighted.
+    int phraseHl_ = -1;
     // Model-ranked 2-char phrase candidates per focus position, fetched
     // lazily from the daemon while Choosing. Main thread only.
     std::map<int, std::vector<std::pair<int, std::string>>> phraseCands_;
