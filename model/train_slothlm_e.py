@@ -238,8 +238,11 @@ class SlothE(nn.Module):
         pos = torch.arange(syl.shape[1], device=syl.device)
         x = self.embed(syl)
         if hints is not None and self.hint_tied:
-            w = torch.cat([self.hint_none.unsqueeze(0), self.head.weight], 0)
-            x = x + F.embedding(hints, w)
+            # reference head.weight directly (no cat) so ONNX export shares
+            # one initializer between the head MatMul and this Gather
+            has = (hints > 0).unsqueeze(-1).to(x.dtype)
+            he = F.embedding((hints - 1).clamp(min=0), self.head.weight)
+            x = x + he * has + self.hint_none * (1.0 - has)
         elif self.hint_embed is not None and hints is not None:
             x = x + self.hint_embed(hints)
         if self.embed_norm is not None:

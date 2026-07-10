@@ -50,7 +50,10 @@ def main():
     def dec(sy, toneless=False):
         if toneless: sy = ["".join(x for x in y if x not in TONES) for y in sy]
         sid = torch.tensor([[sv.get(y, 1) for y in sy]]); am = torch.ones_like(sid, dtype=torch.bool)
-        with torch.no_grad(): lg = m(sid, am)[0].numpy()
+        # tied-hint models always receive a hints tensor (zeros = none),
+        # matching the ONNX serving path
+        h = torch.zeros_like(sid) if getattr(m, "hint_tied", False) else None
+        with torch.no_grad(): lg = (m(sid, am, h) if h is not None else m(sid, am))[0].numpy()
         out = []
         for i, s in enumerate(sy):
             ids = cid(s)
