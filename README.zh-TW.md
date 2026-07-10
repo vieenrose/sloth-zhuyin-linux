@@ -62,7 +62,7 @@ token)。完整重現流程(資料集 → 標註 → NAS → 訓練 → ONNX)隨
 ## 專案結構
 
 - `engine/fcitx5-chewing/` — **Slothing**,fcitx5 外掛。現已不依賴 libchewing:
-  按鍵由 `src/zhuyin.h`(零相依的大千狀態機)解析;轉換鍵把打好的音節送到
+  原始按鍵流由 `src/segment.h` 切分(與網頁 demo 相同的中英 DP,移植並同步單元測試);轉換鍵把打好的音節送到
   daemon 的解碼端。
 - `engine/slothingd/` — 解碼 daemon:**`slothingd_e.py`**(現行;Unix socket
   的 onnxruntime daemon,服務 SlothLM-E,約 1 毫秒/次解碼,支援有聲調/

@@ -27,11 +27,13 @@
 #include <fcitx/inputmethodengine.h>
 #include <fcitx/instance.h>
 #include <map>
+#include <memory>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
+#include "segment.h"
 #include "zhuyin.h"
 
 namespace fcitx {
@@ -132,8 +134,16 @@ private:
     ChewingConfig config_;
     EventDispatcher dispatcher_;
 
-    // The zhuyin keyboard (replaces libchewing's keystroke->syllable parsing).
-    slothing::ZhuyinBuffer buffer_;
+    // Composing state, web-demo style: the raw keystream of the current run
+    // (re-segmented live into zh/en tokens) plus the finalized tokens of
+    // earlier runs (a run ends on a tone key or space).
+    std::string rawKeys_;
+    std::vector<slothing::SegTok> committedToks_;
+    std::unique_ptr<slothing::Segmenter> segmenter_; // built from the table
+    bool composingEmpty() const {
+        return rawKeys_.empty() && committedToks_.empty();
+    }
+    void commitRun();
 
     ConvertState convertState_ = ConvertState::Composing;
     // The decode's per-syllable candidate lists, interval spans (1 char each),
@@ -142,6 +152,9 @@ private:
     std::vector<std::vector<std::string>> convertPositions_;
     std::vector<std::pair<int, int>> convertIntervals_;
     std::vector<std::string> convertSyllables_;
+    // Token list the conversion was started for (zh syllable / en literal);
+    // en tokens become single-candidate segments and get spaces on commit.
+    std::vector<slothing::SegTok> convertToks_;
     // One selected candidate index per interval, and which segment the arrows
     // act on.
     std::vector<int> segSel_;
@@ -150,10 +163,11 @@ private:
     // lazily from the daemon while Choosing. Main thread only.
     std::map<int, std::vector<std::string>> phraseCands_;
 
-    // Live (modeless) conversion state: the decoded sentence and the
-    // syllables it corresponds to. Valid only when it matches the buffer.
+    // Live (modeless) conversion state: the decoded preedit (spaces around
+    // English) and the tokens it corresponds to. Used only when it matches
+    // the current committedToks_.
     std::string livePreedit_;
-    std::vector<std::string> liveSyllables_;
+    std::vector<slothing::SegTok> liveToks_;
     uint64_t liveGeneration_ = 0;
 
     std::string convertNotice_;

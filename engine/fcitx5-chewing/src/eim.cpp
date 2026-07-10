@@ -237,6 +237,41 @@ ChewingEngine::ChewingEngine(Instance *instance) : instance_(instance) {
 
 ChewingEngine::~ChewingEngine() { stopWorker(); }
 
+namespace {
+// Display string for a token list: zh -> bopomofo (or a supplied char),
+// en -> the literal with spaces around it. Doubles collapsed at the end.
+std::string toksDisplay(const std::vector<slothing::SegTok> &toks) {
+    std::string out;
+    for (const auto &t : toks) {
+        if (t.zh) {
+            out += t.v;
+        } else {
+            out += " " + t.v + " ";
+        }
+    }
+    return out;
+}
+std::string tidySpaces(std::string s) {
+    std::string out;
+    for (char c : s) {
+        if (c == ' ' && (out.empty() || out.back() == ' ')) continue;
+        out += c;
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+    return out;
+}
+} // namespace
+
+void ChewingEngine::commitRun() {
+    if (rawKeys_.empty() || !segmenter_) {
+        return;
+    }
+    for (auto &t : segmenter_->segment(rawKeys_)) {
+        committedToks_.push_back(std::move(t));
+    }
+    rawKeys_.clear();
+}
+
 void ChewingEngine::stopWorker() {
     workerStop_.store(true);
     int fd = inflightFd_.exchange(-1);
@@ -288,6 +323,27 @@ void ChewingEngine::loadPhoneticTable() {
     }
     SLOTHING_DEBUG() << "loaded phonetic table: " << phoneticTable_.size()
                     << " syllables";
+    // Build the keystream segmenter: valid TONELESS bases from the table.
+    std::set<std::string> validBase;
+    for (const auto &[syl, chars] : phoneticTable_) {
+        std::string base;
+        for (size_t i = 0; i < syl.size();) {
+            size_t len = 1;
+            unsigned char c = syl[i];
+            if (c >= 0xF0) len = 4;
+            else if (c >= 0xE0) len = 3;
+            else if (c >= 0xC0) len = 2;
+            std::string ch = syl.substr(i, len);
+            if (ch != "ˊ" && ch != "ˇ" && ch != "ˋ" && ch != "˙") {
+                base += ch;
+            }
+            i += len;
+        }
+        if (!base.empty()) {
+            validBase.insert(std::move(base));
+        }
+    }
+    segmenter_ = std::make_unique<slothing::Segmenter>(std::move(validBase));
 }
 
 void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {
@@ -297,7 +353,10 @@ void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {
     convertNotice_.clear();
     convertState_ = ConvertState::Composing;
     convertGeneration_++;
-    buffer_.clear();
+    rawKeys_.clear();
+    committedToks_.clear();
+    livePreedit_.clear();
+    liveToks_.clear();
     convertBuffer_.clear();
     convertPositions_.clear();
     convertIntervals_.clear();
@@ -312,15 +371,19 @@ void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {
 
 void ChewingEngine::renderComposing(InputContext *ic) {
     ic->inputPanel().reset();
-    // Live conversion (微軟新注音 style): show decoded Chinese for the
-    // completed syllables + the pending syllable's bopomofo at the tail.
-    // Only when the decode matches the current buffer; otherwise raw bopomofo.
+    // Live conversion (微軟新注音 style): decoded Chinese for the finalized
+    // tokens + the current run's live segmentation (bopomofo / letters) at
+    // the tail. Falls back to raw bopomofo when the decode isn't fresh.
     std::string pre;
-    if (!livePreedit_.empty() && liveSyllables_ == buffer_.syllables()) {
-        pre = livePreedit_ + buffer_.pending();
+    if (!livePreedit_.empty() && liveToks_ == committedToks_) {
+        pre = livePreedit_;
     } else {
-        pre = buffer_.preedit();
+        pre = toksDisplay(committedToks_);
     }
+    if (!rawKeys_.empty() && segmenter_) {
+        pre += toksDisplay(segmenter_->segment(rawKeys_));
+    }
+    pre = tidySpaces(pre);
     if (!pre.empty()) {
         const auto useClient = ic->capabilityFlags().test(CapabilityFlag::Preedit);
         Text preedit(pre, useClient ? TextFormatFlag::Underline
@@ -345,8 +408,9 @@ void ChewingEngine::updateUI(InputContext *ic) {
     if (convertState_ == ConvertState::Converting) {
         ic->inputPanel().reset();
         const auto useClient = ic->capabilityFlags().test(CapabilityFlag::Preedit);
-        Text preedit(buffer_.preedit(), useClient ? TextFormatFlag::Underline
-                                                  : TextFormatFlag::NoFlag);
+        Text preedit(tidySpaces(toksDisplay(committedToks_)),
+                     useClient ? TextFormatFlag::Underline
+                               : TextFormatFlag::NoFlag);
         if (useClient) {
             ic->inputPanel().setClientPreedit(preedit);
         } else {
@@ -384,71 +448,108 @@ void ChewingEngine::cancelConversion(InputContext *ic, std::string notice) {
 }
 
 void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
-    const auto &syllables = buffer_.syllables();
-    if (syllables.empty() || phoneticTable_.empty()) {
+    if (committedToks_.empty() || phoneticTable_.empty() || !segmenter_) {
         livePreedit_.clear();
-        liveSyllables_.clear();
+        liveToks_.clear();
         return;
     }
-    // every syllable must have candidates, or the decode can't cover it
-    for (const auto &syl : syllables) {
-        auto it = phoneticTable_.find(syl);
-        if (it == phoneticTable_.end() || it->second.empty()) {
-            return; // keep the last good live preedit (or raw bopomofo)
-        }
+    bool anyZh = false;
+    for (const auto &t : committedToks_) {
+        anyZh |= t.zh;
+    }
+    if (!anyZh) { // pure English so far: literal preedit, no decode needed
+        livePreedit_ = tidySpaces(toksDisplay(committedToks_));
+        liveToks_ = committedToks_;
+        return;
     }
     stopWorker();
     const uint64_t generation = ++liveGeneration_;
     auto icRef = ic->watch();
-    worker_ = std::thread(
-        [this, icRef, generation,
-         syllables = std::vector<std::string>(syllables)]() {
+    worker_ = std::thread([this, icRef, generation,
+                           toks = committedToks_]() {
+        // Decode each contiguous zh run separately (the daemon input is
+        // syllables-only; en runs are passthrough) and stitch the preedit.
+        std::string pre;
+        size_t i = 0;
+        bool allOk = true;
+        while (i < toks.size() && !workerStop_.load()) {
+            if (!toks[i].zh) {
+                pre += " " + toks[i].v + " ";
+                i++;
+                continue;
+            }
+            std::vector<std::string> run;
+            const size_t start = i;
+            while (i < toks.size() && toks[i].zh) {
+                run.push_back(toks[i].v);
+                i++;
+            }
             RerankError err = RerankError::None;
-            auto sentences = queryDecoder(syllables, 1, "", inflightFd_, err);
-            if (workerStop_.load()) {
+            auto sentences = queryDecoder(run, 1, "", inflightFd_, err);
+            if (!sentences.empty() &&
+                utf8::lengthValidated(sentences[0]) == run.size()) {
+                pre += sentences[0];
+            } else { // daemon down / bad reply: bopomofo for this run
+                allOk = false;
+                for (size_t k = start; k < start + run.size(); k++) {
+                    pre += toks[k].v;
+                }
+            }
+        }
+        if (workerStop_.load()) {
+            return;
+        }
+        dispatcher_.schedule([this, icRef, generation, toks = std::move(toks),
+                              pre = tidySpaces(pre), allOk]() {
+            if (generation != liveGeneration_ ||
+                convertState_ != ConvertState::Composing) {
                 return;
             }
-            std::string best =
-                sentences.empty() ? std::string() : std::move(sentences[0]);
-            dispatcher_.schedule([this, icRef, generation, syllables,
-                                  best = std::move(best)]() {
-                if (generation != liveGeneration_ ||
-                    convertState_ != ConvertState::Composing) {
-                    return; // stale, or user moved on
-                }
-                auto *ic = icRef.get();
-                if (!ic) {
-                    return;
-                }
-                if (!best.empty()) {
-                    livePreedit_ = best;
-                    liveSyllables_ = syllables;
-                } // decode failure: keep raw bopomofo (silent fallback)
-                renderComposing(ic);
-            });
+            auto *ic = icRef.get();
+            if (!ic) {
+                return;
+            }
+            if (allOk) {
+                livePreedit_ = pre;
+                liveToks_ = toks;
+            } // partial failure: keep bopomofo fallback (silent)
+            renderComposing(ic);
         });
+    });
 }
 
 void ChewingEngine::startDecode(InputContext *ic) {
-    if (buffer_.syllables().empty() || phoneticTable_.empty()) {
+    commitRun();
+    if (composingEmpty() || phoneticTable_.empty()) {
         convertNotice_ = phoneticTable_.empty() ? "無音表" : "";
         updateUI(ic);
         return;
     }
-    const auto &syllables = buffer_.syllables();
 
-    // Each syllable -> a 1-char segment whose candidates are the legal chars.
+    // One segment per token. zh -> its legal chars (unknown = typo syllable:
+    // single bopomofo-literal candidate, still commit-able); en -> literal.
     std::vector<std::vector<std::string>> positions;
     std::vector<std::pair<int, int>> intervals;
-    for (size_t i = 0; i < syllables.size(); i++) {
-        auto it = phoneticTable_.find(syllables[i]);
-        if (it == phoneticTable_.end() || it->second.empty()) {
-            convertNotice_ = "此音無候選";
-            updateUI(ic);
-            return;
+    std::vector<std::string> syllables; // zh syllable per token ("" for en)
+    int at = 0;
+    for (const auto &t : committedToks_) {
+        int span = 1;
+        if (t.zh) {
+            auto it = phoneticTable_.find(t.v);
+            if (it != phoneticTable_.end() && !it->second.empty()) {
+                positions.push_back(it->second);
+            } else {
+                positions.push_back({t.v}); // unknown reading: literal
+                span = static_cast<int>(utf8::lengthValidated(t.v));
+            }
+            syllables.push_back(t.v);
+        } else {
+            positions.push_back({t.v});
+            span = static_cast<int>(utf8::lengthValidated(t.v));
+            syllables.push_back("");
         }
-        positions.push_back(it->second);
-        intervals.emplace_back(static_cast<int>(i), static_cast<int>(i + 1));
+        intervals.emplace_back(at, at + span);
+        at += span;
     }
 
     // Document context before the cursor, when the app exposes it.
@@ -469,6 +570,7 @@ void ChewingEngine::startDecode(InputContext *ic) {
     convertPositions_ = positions;
     convertIntervals_ = intervals;
     convertSyllables_ = syllables;
+    convertToks_ = committedToks_;
     const uint64_t generation = ++convertGeneration_;
     const int n = std::max(*config_.LlmCandidateCount, 4);
     auto icRef = ic->watch();
@@ -491,19 +593,62 @@ void ChewingEngine::startDecode(InputContext *ic) {
             return true;
         });
 
-    worker_ = std::thread([this, icRef, generation, n,
-                           syllables = std::vector<std::string>(syllables),
+    const bool pureZh = std::all_of(
+        committedToks_.begin(), committedToks_.end(),
+        [this](const slothing::SegTok &t) {
+            return t.zh && phoneticTable_.count(t.v);
+        });
+
+    worker_ = std::thread([this, icRef, generation, n, pureZh,
+                           toks = std::vector<slothing::SegTok>(committedToks_),
                            positions = std::move(positions),
                            context = std::move(context)]() {
         RerankError err = RerankError::None;
         std::vector<std::string> verified;
-        for (auto &sentence :
-             queryDecoder(syllables, n, context, inflightFd_, err)) {
-            if (!matchesPositions(sentence, positions)) {
-                continue;
+        if (pureZh) {
+            // single request, n-best sentences (the original path)
+            std::vector<std::string> syls;
+            for (const auto &t : toks) {
+                syls.push_back(t.v);
             }
-            if (std::find(verified.begin(), verified.end(), sentence) ==
-                verified.end()) {
+            for (auto &sentence :
+                 queryDecoder(syls, n, context, inflightFd_, err)) {
+                if (!matchesPositions(sentence, positions)) {
+                    continue;
+                }
+                if (std::find(verified.begin(), verified.end(), sentence) ==
+                    verified.end()) {
+                    verified.push_back(std::move(sentence));
+                }
+            }
+        } else {
+            // mixed zh/en: best decode per zh run, en literal in between
+            std::string sentence;
+            bool ok = true;
+            size_t i = 0;
+            while (i < toks.size() && !workerStop_.load()) {
+                if (!toks[i].zh) {
+                    sentence += toks[i].v;
+                    i++;
+                    continue;
+                }
+                std::vector<std::string> run;
+                const size_t start = i;
+                while (i < toks.size() && toks[i].zh) {
+                    run.push_back(toks[i].v);
+                    i++;
+                }
+                auto sentences = queryDecoder(run, 1, "", inflightFd_, err);
+                if (!sentences.empty() &&
+                    utf8::lengthValidated(sentences[0]) == run.size()) {
+                    sentence += sentences[0];
+                } else {
+                    ok = false;
+                    break;
+                }
+                (void)start;
+            }
+            if (ok && !sentence.empty()) {
                 verified.push_back(std::move(sentence));
             }
         }
@@ -579,10 +724,13 @@ std::string ChewingEngine::composedSentence() const {
     for (size_t i = 0; i < convertPositions_.size(); i++) {
         int sel = (i < segSel_.size()) ? segSel_[i] : 0;
         if (sel >= 0 && sel < static_cast<int>(convertPositions_[i].size())) {
+            const bool en = i < convertToks_.size() && !convertToks_[i].zh;
+            if (en) out += " ";
             out += convertPositions_[i][sel];
+            if (en) out += " ";
         }
     }
-    return out;
+    return tidySpaces(out);
 }
 
 void ChewingEngine::renderSegments(InputContext *ic) {
@@ -623,10 +771,27 @@ void ChewingEngine::renderSegments(InputContext *ic) {
     list->setLabels(labels);
     // Per-phrase Down-rank: model-ranked 2-char phrases covering this and
     // the next segment, fetched lazily once per focus position.
-    if (segFocus_ + 1 < static_cast<int>(convertPositions_.size()) &&
-        !phraseCands_.count(segFocus_)) {
+    const bool zhPair =
+        segFocus_ + 1 < static_cast<int>(convertSyllables_.size()) &&
+        !convertSyllables_[segFocus_].empty() &&
+        !convertSyllables_[segFocus_ + 1].empty();
+    if (zhPair && !phraseCands_.count(segFocus_)) {
+        // phrase scoring wants a pure-syllable context; use the zh run
+        // around the focus (en tokens have no syllable)
+        std::vector<std::string> syls;
+        int focusInRun = -1;
+        for (int k = 0; k < static_cast<int>(convertSyllables_.size()); k++) {
+            if (convertSyllables_[k].empty()) {
+                if (k > segFocus_) break;
+                syls.clear();
+                continue;
+            }
+            if (k == segFocus_) focusInRun = static_cast<int>(syls.size());
+            syls.push_back(convertSyllables_[k]);
+        }
         phraseCands_[segFocus_] =
-            queryPhrases(convertSyllables_, segFocus_, 5);
+            focusInRun >= 0 ? queryPhrases(syls, focusInRun, 5)
+                            : std::vector<std::string>();
     }
     int nPhrase = 0;
     if (auto it = phraseCands_.find(segFocus_); it != phraseCands_.end()) {
@@ -704,8 +869,9 @@ void ChewingEngine::acceptConversion(InputContext *ic,
     convertGeneration_++;
     liveGeneration_++;
     livePreedit_.clear();
-    liveSyllables_.clear();
-    buffer_.clear();
+    liveToks_.clear();
+    rawKeys_.clear();
+    committedToks_.clear();
     convertBuffer_.clear();
     convertPositions_.clear();
     convertIntervals_.clear();
@@ -798,10 +964,10 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
     // -- Composing ----------------------------------------------------------
     convertNotice_.clear();
 
-    // The convert key decodes the typed syllables (only with a settled, non-
-    // empty buffer; otherwise the combo passes through to the app).
+    // The convert key force-decodes into the segment UI (kept for muscle
+    // memory; live conversion normally makes it unnecessary).
     if (keyEvent.key().normalize().checkKeyList(*config_.ConvertKey)) {
-        if (!buffer_.empty()) {
+        if (!composingEmpty()) {
             keyEvent.filterAndAccept();
             startDecode(ic);
             return;
@@ -809,9 +975,9 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         return; // let Ctrl+Return etc. reach the app
     }
 
-    // ↓ while composing: enter per-character selection (微軟新注音 idiom).
+    // ↓ while composing: per-character selection (微軟新注音 idiom).
     if (keyEvent.key().check(FcitxKey_Down)) {
-        if (!buffer_.empty() && buffer_.pending().empty()) {
+        if (!composingEmpty()) {
             keyEvent.filterAndAccept();
             startDecode(ic);
         }
@@ -819,22 +985,24 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
     }
 
     if (keyEvent.key().check(FcitxKey_Escape)) {
-        if (!buffer_.empty()) {
+        if (!composingEmpty()) {
             keyEvent.filterAndAccept();
-            buffer_.clear();
+            rawKeys_.clear();
+            committedToks_.clear();
             livePreedit_.clear();
-            liveSyllables_.clear();
+            liveToks_.clear();
             renderComposing(ic);
         }
         return;
     }
 
     if (keyEvent.key().check(FcitxKey_BackSpace)) {
-        if (!buffer_.empty()) {
+        if (!composingEmpty()) {
             keyEvent.filterAndAccept();
-            const size_t before = buffer_.syllables().size();
-            buffer_.backspace();
-            if (buffer_.syllables().size() != before) {
+            if (!rawKeys_.empty()) {
+                rawKeys_.pop_back();
+            } else {
+                committedToks_.pop_back();
                 scheduleLiveDecode(ic);
             }
             renderComposing(ic);
@@ -842,14 +1010,13 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         return;
     }
 
-    // Enter with a buffer: if the live preedit is fresh and the buffer is
-    // settled, commit it instantly; otherwise decode-then-commit as before.
+    // Enter: commit. If the live decode is fresh, commit instantly;
+    // otherwise decode-then-commit.
     if (keyEvent.key().check(FcitxKey_Return)) {
-        if (!buffer_.empty()) {
+        if (!composingEmpty()) {
             keyEvent.filterAndAccept();
-            if (!livePreedit_.empty() &&
-                liveSyllables_ == buffer_.syllables() &&
-                buffer_.pending().empty()) {
+            commitRun();
+            if (!livePreedit_.empty() && liveToks_ == committedToks_) {
                 acceptConversion(ic, livePreedit_);
                 return;
             }
@@ -858,27 +1025,51 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         return;
     }
 
-    // A zhuyin / tone key: feed the FSM. When a syllable completes (the
-    // committed count grows), kick a live decode so the preedit shows
-    // Chinese, 微軟新注音-style.
     if (keyEvent.key().isSimple()) {
         char c = static_cast<char>(keyEvent.key().sym() & 0xff);
-        const size_t before = buffer_.syllables().size();
-        if (buffer_.key(c)) {
-            keyEvent.filterAndAccept();
-            if (buffer_.syllables().size() != before) {
+        if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
+
+        // Space finalizes the current run (also serves as tone 1 — the
+        // segmenter already treats a bare valid base as a tone-1 syllable).
+        if (c == ' ') {
+            if (!rawKeys_.empty()) {
+                keyEvent.filterAndAccept();
+                commitRun();
                 scheduleLiveDecode(ic);
+                renderComposing(ic);
+            } else if (!committedToks_.empty()) {
+                keyEvent.filterAndAccept(); // swallow: don't type into app
             }
+            return;
+        }
+
+        // A tone key completes the last syllable -> finalize + live decode.
+        if (slothing::segToneMark(c) && !rawKeys_.empty()) {
+            keyEvent.filterAndAccept();
+            rawKeys_ += c;
+            commitRun();
+            scheduleLiveDecode(ic);
+            renderComposing(ic);
+            return;
+        }
+
+        // Any zhuyin-mappable or alphanumeric key extends the raw run; the
+        // segmenter re-decides zh/en live (auto code-switch, no mode key).
+        const bool feeds = slothing::dachenMap().count(c) ||
+                           (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+        if (feeds) {
+            keyEvent.filterAndAccept();
+            rawKeys_ += c;
             renderComposing(ic);
             return;
         }
     }
 
-    // Anything else: if we're composing, swallow so stray keys don't corrupt
-    // the buffer; otherwise let it through.
-    if (!buffer_.empty()) {
-        // commit the raw bopomofo is not meaningful; just ignore printable
-        // noise, but let real control keys (arrows etc.) pass.
+    // Anything else: if we're composing, swallow printable noise so stray
+    // keys don't corrupt the run; let real control keys pass.
+    if (!composingEmpty()) {
         if (keyEvent.key().isSimple()) {
             keyEvent.filterAndAccept();
         }

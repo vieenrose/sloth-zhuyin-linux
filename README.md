@@ -71,7 +71,8 @@ ONNX) ships with the model on HF. See `model/DESIGN.md` and `model/DESIGN-E.md`.
 ## Repository layout
 
 - `engine/fcitx5-chewing/` — **Slothing**, the fcitx5 addon. Now libchewing-
-  free: keystrokes are parsed by `src/zhuyin.h` (a dependency-free Dàqiān FSM);
+  free: the raw keystream is segmented by `src/segment.h` (the same zh/en
+  code-switch DP as the web demo, ported + unit-tested in lock-step);
   the convert key sends the typed syllables to the daemon's decode path.
 - `engine/slothingd/` — the decode daemons: **`slothingd_e.py`** (current; a
   Unix-socket onnxruntime daemon serving SlothLM-E at ~1 ms/decode, tonal or
