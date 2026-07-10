@@ -27,6 +27,10 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     interface Listener {
         fun onPickCandidate(index: Int)
         fun onPickPhrase(phrase: Phrase)
+        /** Tap on a composing-time sentence suggestion: commit it outright. */
+        fun onPickSuggestion(sentence: String)
+        /** ‹ › chips while Choosing: move the focused segment (desktop ←→). */
+        fun onMoveFocus(dir: Int)
     }
 
     var listener: Listener? = null
@@ -56,6 +60,17 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
         scrollX = 0
         var shown = false
 
+        // ‹ › segment-focus navigation (desktop ←→): repair another segment
+        // without picking through the ones already correct
+        chip("‹", phrase = true, selected = false).also {
+            it.setOnClickListener { listener?.onMoveFocus(-1) }
+            strip.addView(it)
+        }
+        chip("›", phrase = true, selected = false).also {
+            it.setOnClickListener { listener?.onMoveFocus(1) }
+            strip.addView(it)
+        }
+
         if (phrases.isNotEmpty()) {
             strip.addView(labelChip("詞"))
             phrases.forEachIndexed { i, p ->
@@ -78,6 +93,23 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
             }
         }
         return shown
+    }
+
+    /**
+     * Composing-time suggestion strip (Gboard/iOS convention: candidates appear
+     * automatically while typing). Shows the n-best sentences; [0] is the one
+     * already shown inline in the preedit — rendered selected, tap = commit
+     * (same as Enter). Returns true if anything is shown.
+     */
+    fun renderSuggestions(sentences: Array<String>): Boolean {
+        strip.removeAllViews()
+        scrollX = 0
+        sentences.forEachIndexed { i, s ->
+            val chip = chip(s, phrase = false, selected = i == 0)
+            chip.setOnClickListener { listener?.onPickSuggestion(s) }
+            strip.addView(chip)
+        }
+        return sentences.isNotEmpty()
     }
 
     fun clear() {
@@ -114,8 +146,8 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, if (phrase) 18f else 20f)
             setTextColor(colors)
             background = bg
-            minHeight = dp(44)
-            minWidth = dp(44)
+            minHeight = dp(48)   // Android touch-target guideline
+            minWidth = dp(48)
             setPadding(dp(12), dp(6), dp(12), dp(6))
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,

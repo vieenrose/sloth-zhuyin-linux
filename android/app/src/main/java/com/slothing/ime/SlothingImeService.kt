@@ -6,6 +6,7 @@ import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.util.Log
+import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -52,6 +53,11 @@ class SlothingImeService : InputMethodService(),
         const val THREADS = 2
         val TONE_KEYS = setOf('3', '4', '6', '7')     // ime.js TONEK; feed via toneOrSpace
         const val CTX_CHARS = 64                       // left-of-caret context handed to the LM
+        // 符 strip: the 常用 row of the desktop ` symbol menu
+        val SYMBOLS = arrayOf(
+            "，", "、", "。", "？", "！", "；", "：", "…", "—", "～",
+            "「", "」", "『", "』", "（", "）", "《", "》",
+        )
     }
 
     private val core = Core()
@@ -75,7 +81,12 @@ class SlothingImeService : InputMethodService(),
      * shared state machine, and the in-process OnnxDecoder — end to end.
      * Readable via `adb logcat -s SlothingIME`.
      */
-    private fun selfTest() = scope.launch {
+    private fun selfTest() = scope.launch(Dispatchers.Default) {
+        // debuggable builds only, off the UI thread: 230 ONNX forwards would
+        // ANR the service, and the staged commits must not race live typing
+        val debuggable = (applicationInfo.flags and
+            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (!debuggable) return@launch
         val cases = listOf(
             "su3cl3" to "你好",   // ㄋㄧˇ ㄏㄠˇ
             "ji3y94" to "我在",   // ㄨㄛˇ ㄗㄞˋ
@@ -129,7 +140,7 @@ class SlothingImeService : InputMethodService(),
     override fun onCreateInputView(): View {
         candidateBar = CandidateBar(this).apply {
             listener = this@SlothingImeService
-            visibility = View.GONE
+            visibility = View.INVISIBLE
         }
         keyboard = KeyboardView(this).apply {
             listener = this@SlothingImeService
@@ -138,11 +149,13 @@ class SlothingImeService : InputMethodService(),
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.eink_bg))
+            // fixed-height slot + INVISIBLE (not GONE) so toggling the strip
+            // never shifts the keys under the user's finger (e-ink repaint)
             addView(
                 candidateBar,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    (56 * resources.displayMetrics.density).toInt(),
                 ),
             )
             addView(
@@ -155,13 +168,34 @@ class SlothingImeService : InputMethodService(),
         }
     }
 
+    /** Password/number fields: force English passthrough + no LM context. */
+    private var privateField = false
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        core.reset()
-        english = false
-        core.setEnglishMode(false)
-        if (::keyboard.isInitialized) keyboard.setEnglish(false)
+        // chewing rule: never DROP a composition — commit it (a bare reset on
+        // restart, e.g. rotation, would silently lose the buffer)
+        core.flush()
+        core.getCommit().takeIf { it.isNotEmpty() }?.let { ic()?.commitText(it, 1) }
+
+        // inputType: passwords must not reach the LM context or learn store;
+        // number/phone/datetime fields need literal digits, not bopomofo
+        val it = info?.inputType ?: 0
+        val cls = it and android.text.InputType.TYPE_MASK_CLASS
+        val variation = it and android.text.InputType.TYPE_MASK_VARIATION
+        val password = cls == android.text.InputType.TYPE_CLASS_TEXT &&
+            (variation == android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+             variation == android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+             variation == android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)
+        val nonText = cls == android.text.InputType.TYPE_CLASS_NUMBER ||
+            cls == android.text.InputType.TYPE_CLASS_PHONE ||
+            cls == android.text.InputType.TYPE_CLASS_DATETIME
+        privateField = password
+        english = password || nonText
+        core.setEnglishMode(english)
+        if (::keyboard.isInitialized) keyboard.setEnglish(english)
         setContextFromField()
+        symbolsShowing = false
         hideBar()
         ic()?.finishComposingText()
     }
@@ -172,10 +206,38 @@ class SlothingImeService : InputMethodService(),
     // ===== KeyboardView.Listener ==========================================
 
     override fun onKey(ascii: Char) {
+        // Choosing window open: digits pick the numbered candidates; anything
+        // else must not leak into the composing buffer behind the window.
+        if (core.state() == Core.State.CHOOSING) {
+            if (ascii in '1'..'9') onPickCandidate(ascii - '1')
+            return
+        }
+        // Symbol strip open: keys close it and type normally.
+        if (symbolsShowing) hideSymbols()
+        if (english) {
+            // English mode: EVERY key goes through feedKey's passthrough
+            // branch (space, digits 3/4/6/7 included — toneOrSpace has no
+            // English branch and would swallow them). The Chinese-punct key
+            // codes revert to their ASCII meaning.
+            val ch = when (ascii) {
+                '<' -> ','; '>' -> '.'; '\\' -> '/'
+                else -> ascii
+            }
+            val outcome = core.feedKey(ch.code)
+            if (outcome == Core.KeyOutcome.IGNORED) ic()?.commitText(ch.toString(), 1)
+            else applyOutcome(outcome)
+            return
+        }
         val outcome = if (ascii == ' ' || ascii in TONE_KEYS) {
             core.toneOrSpace(ascii.code)      // tone (3/4/6/7) or space finalizes the run
         } else {
             core.feedKey(ascii.code)          // bopomofo / punctuation / digit / latin
+        }
+        if (outcome == Core.KeyOutcome.IGNORED) {
+            // Empty buffer: the key belongs to the app (space, stray ASCII) —
+            // a soft keyboard must never swallow it (Gboard/iOS convention).
+            ic()?.commitText(ascii.toString(), 1)
+            return
         }
         applyOutcome(outcome)
     }
@@ -185,7 +247,15 @@ class SlothingImeService : InputMethodService(),
             core.escapeChoosing()
             if (core.state() == Core.State.CHOOSING) paintChoosing() else paintComposingRaw()
         } else {
-            applyOutcome(core.backspace())
+            val outcome = core.backspace()
+            if (outcome == Core.KeyOutcome.IGNORED) {
+                // Empty buffer: delete committed text in the app. KEYCODE_DEL
+                // (not deleteSurroundingText) so the editor handles surrogate
+                // pairs, selections, and key listeners itself.
+                sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+            } else {
+                applyOutcome(outcome)
+            }
         }
     }
 
@@ -199,10 +269,20 @@ class SlothingImeService : InputMethodService(),
         keyboard.setEnglish(english)
     }
 
-    // Opens the 微軟新注音-style ` symbol menu. Symbol selection is wired once the
-    // Core exposes symbol accessors; for now the menu opens and number keys pick.
+    // 符: toggle a symbol strip in the candidate bar (the 常用 row of the
+    // desktop ` menu). Tap a symbol -> commit (composing) or insert directly.
+    private var symbolsShowing = false
+
     override fun onToggleSymbols() {
-        applyOutcome(core.feedKey('`'.code))
+        if (symbolsShowing) { hideSymbols(); return }
+        symbolsShowing = true
+        candidateBar.renderSuggestions(SYMBOLS)
+        candidateBar.visibility = View.VISIBLE
+    }
+
+    private fun hideSymbols() {
+        symbolsShowing = false
+        showSuggestions()   // restore whatever the composing strip should show
     }
 
     // ===== CandidateBar.Listener ==========================================
@@ -217,6 +297,22 @@ class SlothingImeService : InputMethodService(),
         if (core.getCommit().isNotEmpty()) commitDrain() else paintChoosing()
     }.let {}
 
+    override fun onMoveFocus(dir: Int) = scope.launch {
+        core.moveFocus(dir)
+        core.ensurePhrases()                  // pre-warm 詞 for the new focus (worker)
+        paintChoosing()
+    }.let {}
+
+    override fun onPickSuggestion(sentence: String) {
+        if (symbolsShowing) {
+            hideSymbols()
+            applyOutcome(core.insertSymbol(sentence))   // literal token / direct commit
+            return
+        }
+        core.commitSentence(sentence)         // tap-to-commit (Gboard convention)
+        commitDrain()
+    }
+
     // ===== loop ============================================================
 
     private fun applyOutcome(outcome: Core.KeyOutcome) {
@@ -224,13 +320,28 @@ class SlothingImeService : InputMethodService(),
             Core.KeyOutcome.NEED_LIVE -> scope.launch {
                 setContextFromField()
                 if (!core.refreshLiveFast()) core.decodeLive()   // heavy: off-main inside Core
-                ic()?.setComposingText(core.getLive(), 1)
-                hideBar()
+                // Stale/failed decode returns "" from getLive — fall back to
+                // the raw preedit (stale-preserving) instead of blanking the
+                // composing region (a full flash on e-ink).
+                val live = core.getLive()
+                if (live.isNotEmpty() || core.getPreedit().text.isEmpty()) {
+                    ic()?.setComposingText(live, 1)
+                } else {
+                    paintComposingRaw()
+                }
+                showSuggestions()             // auto strip (Gboard/iOS convention)
             }
             Core.KeyOutcome.CONSUMED -> paintComposingRaw()
             Core.KeyOutcome.COMMITTED -> commitDrain()
-            Core.KeyOutcome.IGNORED -> { /* soft keyboard: nothing to pass through */ }
+            Core.KeyOutcome.IGNORED -> { /* handled at the call sites (pass-through) */ }
         }
+    }
+
+    /** Refresh the always-visible composing-time suggestion strip. */
+    private fun showSuggestions() {
+        if (!::candidateBar.isInitialized) return
+        val shown = candidateBar.renderSuggestions(core.getLiveSuggestions())
+        candidateBar.visibility = if (shown) View.VISIBLE else View.INVISIBLE
     }
 
     private fun openChoosing() = scope.launch {
@@ -251,6 +362,10 @@ class SlothingImeService : InputMethodService(),
                 if (core.confirmChoosing()) commitDrain() else paintChoosing()
             }
             else -> {
+                if (core.getPreedit().text.isEmpty()) {
+                    sendEnterToApp()          // empty buffer: Enter belongs to the app
+                    return@launch
+                }
                 if (!core.commitLive()) {     // Enter on an already-shown live sentence
                     setContextFromField()
                     core.beginConvert(-1, /* commitDirect = */ true)
@@ -260,11 +375,21 @@ class SlothingImeService : InputMethodService(),
         }
     }.let {}
 
+    /** Enter with nothing composed: perform the field's IME action (search/send/…)
+     *  or type a newline — exactly what the stock keyboards do.
+     *  sendDefaultEditorAction implements the imeOptions contract for us. */
+    private fun sendEnterToApp() {
+        if (!sendDefaultEditorAction(true)) {
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
+        }
+    }
+
     // ===== painting ========================================================
 
     private fun paintComposingRaw() {
         ic()?.setComposingText(core.getPreedit().text, 1)
-        hideBar()
+        // keep the suggestion strip: mid-syllable keys don't change the
+        // finalized tokens the suggestions were computed for
     }
 
     private fun paintChoosing() {
@@ -272,7 +397,7 @@ class SlothingImeService : InputMethodService(),
         val pe = core.getPreedit()
         ic.setComposingText(highlight(pe.text, pe.hlStart, pe.hlEnd), 1)
         val shown = candidateBar.render(core.getCandidates(), core.getPhrases())
-        candidateBar.visibility = if (shown) View.VISIBLE else View.GONE
+        candidateBar.visibility = if (shown) View.VISIBLE else View.INVISIBLE
     }
 
     private fun commitDrain() {
@@ -303,12 +428,14 @@ class SlothingImeService : InputMethodService(),
     private fun hideBar() {
         if (::candidateBar.isInitialized) {
             candidateBar.clear()
-            candidateBar.visibility = View.GONE
+            candidateBar.visibility = View.INVISIBLE
         }
     }
 
     private fun setContextFromField() {
-        val before = ic()?.getTextBeforeCursor(CTX_CHARS, 0)?.toString().orEmpty()
+        // never feed password text into the model's context channel
+        val before = if (privateField) "" else
+            ic()?.getTextBeforeCursor(CTX_CHARS, 0)?.toString().orEmpty()
         core.setContext(before)
     }
 

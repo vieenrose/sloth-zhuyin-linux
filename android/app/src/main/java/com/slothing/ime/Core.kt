@@ -85,6 +85,12 @@ class Core {
     /** HEAVY. Returns true if a fresh live display landed (not stale/partial). */
     suspend fun decodeLive(): Boolean = withContext(Dispatchers.Default) { nativeDecodeLive(handle) }
     fun getLive(): String = nativeGetLive(handle)
+    /** n-best sentence suggestions for the always-visible strip ([0] = shown inline). */
+    fun getLiveSuggestions(): Array<String> = nativeGetLiveSuggestions(handle)
+    /** Tap on a suggestion chip: commit that sentence outright, then drain [getCommit]. */
+    fun commitSentence(s: String) = nativeCommitSentence(handle, s)
+    /** 符 strip tap: insert a literal symbol (token while composing, else direct commit). */
+    fun insertSymbol(s: String) = KeyOutcome.of(nativeInsertSymbol(handle, s))
 
     // ---- convert / choose --------------------------------------------------
     /**
@@ -152,6 +158,9 @@ class Core {
     private external fun nativeRefreshLiveFast(handle: Long): Boolean
     private external fun nativeDecodeLive(handle: Long): Boolean
     private external fun nativeGetLive(handle: Long): String
+    private external fun nativeGetLiveSuggestions(handle: Long): Array<String>
+    private external fun nativeCommitSentence(handle: Long, s: String)
+    private external fun nativeInsertSymbol(handle: Long, s: String): Int
 
     private external fun nativeBeginConvert(handle: Long, focus: Int, commitDirect: Boolean): Boolean
     private external fun nativeCommitLive(handle: Long): Boolean

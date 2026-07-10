@@ -228,6 +228,15 @@ JNI(jboolean, nativeDecodeLive)(JNIEnv *, jobject, jlong h) {
 JNI(jstring, nativeGetLive)(JNIEnv *env, jobject, jlong h) {
     return utf8ToJstr(env, sess(h)->getLive());
 }
+JNI(jobjectArray, nativeGetLiveSuggestions)(JNIEnv *env, jobject, jlong h) {
+    return toStringArray(env, sess(h)->getLiveSuggestions());
+}
+JNI(void, nativeCommitSentence)(JNIEnv *env, jobject, jlong h, jstring s) {
+    sess(h)->commitSentence(jstrToUtf8(env, s));
+}
+JNI(jint, nativeInsertSymbol)(JNIEnv *env, jobject, jlong h, jstring s) {
+    return static_cast<jint>(sess(h)->insertSymbol(jstrToUtf8(env, s)));
+}
 
 // ---- convert / choose (HEAVY — Dispatchers.Default) -----------------------
 

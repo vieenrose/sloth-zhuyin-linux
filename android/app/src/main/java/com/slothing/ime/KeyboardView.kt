@@ -4,8 +4,11 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -110,6 +113,10 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             fnColumn.getOrNull(ri)?.let { fn ->
                 val v = makeKey(fn.label, weight = 1f, fnKey = true)
                 v.setOnClickListener { l -> listener?.let { fn.run(it) } }
+                if (fn.label == "⌫") {
+                    // hold-to-repeat (standard mobile-keyboard behavior)
+                    attachRepeat(v) { listener?.onBackspace() }
+                }
                 row.addView(v)
             }
             addView(row)
@@ -154,7 +161,8 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     fun setEnglish(on: Boolean) {
         if (english == on) return
         english = on
-        for (b in bopoKeys) b.view.text = if (on) b.ascii.uppercaseChar().toString() else b.glyph
+        // lowercase: that's what feedKey's passthrough actually commits
+        for (b in bopoKeys) b.view.text = if (on) b.ascii.toString() else b.glyph
         englishKey?.text = if (on) "英" else "中"
     }
 
@@ -199,6 +207,33 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                 val m = dp(2)
                 setMargins(m, m, m, m)
             }
+        }
+    }
+
+    /** Long-press starts auto-repeat (~12 Hz); any touch-up/cancel stops it.
+     *  The plain click still delivers the single press. */
+    private fun attachRepeat(v: View, action: () -> Unit) {
+        val handler = Handler(Looper.getMainLooper())
+        var repeater: Runnable? = null
+        v.setOnLongClickListener {
+            val r = object : Runnable {
+                override fun run() {
+                    action()
+                    handler.postDelayed(this, 80)
+                }
+            }
+            repeater = r
+            handler.post(r) // first repeat immediately at long-press
+            true
+        }
+        v.setOnTouchListener { _, ev ->
+            if (ev.actionMasked == MotionEvent.ACTION_UP ||
+                ev.actionMasked == MotionEvent.ACTION_CANCEL
+            ) {
+                repeater?.let { handler.removeCallbacks(it) }
+                repeater = null
+            }
+            false // don't consume: click/long-click still fire normally
         }
     }
 

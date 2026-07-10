@@ -266,6 +266,9 @@ public:
 
     // HEAVY, worker thread. Snapshot -> unlock -> ONNX -> re-lock -> apply iff
     // the generation is unchanged. Returns true if a fresh live display landed.
+    // When the whole buffer is one zh run (the common case), also fetches the
+    // n-best sentences for the always-visible mobile suggestion strip
+    // (Gboard/iOS convention: candidates appear automatically as you type).
     bool decodeLive() {
         std::vector<SegTok> toks;
         std::string ctx;
@@ -278,6 +281,7 @@ public:
             gen = liveGen_;
         }
         std::vector<std::string> disp;
+        std::vector<std::string> nbest; // whole-buffer alternatives (pure zh)
         std::string runCtx = ctx;
         bool allOk = true;
         for (size_t i = 0; i < toks.size();) {
@@ -289,10 +293,12 @@ public:
             std::vector<std::string> run;
             const size_t start = i;
             while (i < toks.size() && toks[i].zh) run.push_back(toks[i++].v);
-            auto res = dec_->decode(run, 1, runCtx);
+            const bool wholeBuffer = (start == 0 && i == toks.size());
+            auto res = dec_->decode(run, wholeBuffer ? kLiveNBest : 1, runCtx);
             if (!res.sentences.empty() &&
                 utf8Length(res.sentences[0]) == run.size()) {
                 const std::string &s = res.sentences[0];
+                if (wholeBuffer) nbest = res.sentences;
                 runCtx += s;
                 for (size_t k = 0, off = 0; k < run.size(); k++) {
                     size_t len = utf8SeqLen(s[off]);
@@ -312,6 +318,7 @@ public:
         liveDisp_ = std::move(disp);
         liveToks_ = std::move(toks);
         livePreedit_ = joinDisplay(liveToks_, liveDisp_, -1, std::string()).text;
+        liveSents_ = std::move(nbest);
         return true;
     }
 
@@ -319,6 +326,42 @@ public:
         std::lock_guard<std::mutex> lk(mu_);
         return (!livePreedit_.empty() && liveToks_ == comp_.toks) ? livePreedit_
                                                                   : std::string();
+    }
+
+    // n-best sentence suggestions for the always-visible strip (fresh only;
+    // [0] is the sentence already shown inline in the preedit). Empty when the
+    // buffer is empty, stale, or mixed zh/en.
+    std::vector<std::string> getLiveSuggestions() {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (comp_.toks.empty() || liveToks_ != comp_.toks) return {};
+        return liveSents_;
+    }
+
+    // Tap on a suggestion chip: commit that sentence outright (Gboard-style
+    // tap-to-commit; equivalent to Enter when it's suggestion [0]).
+    void commitSentence(const std::string &s) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (s.empty()) return;
+        stageCommit(s);
+        hardClear();
+    }
+
+    // 符 symbol-strip tap: literal token into the composition (commits with
+    // the sentence), or staged for direct commit when nothing is composed —
+    // mirrors the desktop engines' pickSymbol.
+    KeyOutcome insertSymbol(const std::string &sym) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (sym.empty() || state_ != State::Composing) {
+            return KeyOutcome::Consumed;
+        }
+        if (comp_.empty()) {
+            stageCommit(sym);
+            return KeyOutcome::Committed;
+        }
+        comp_.commitRun(segmenter_.get(), enMode_);
+        comp_.insertToken({false, sym});
+        bumpLive();
+        return KeyOutcome::NeedLive;
     }
 
     // ---- convert / choose --------------------------------------------------
@@ -660,6 +703,7 @@ private:
         livePreedit_.clear();
         liveDisp_.clear();
         liveToks_.clear();
+        liveSents_.clear();
     }
     void hardClear() {
         state_ = State::Composing;
@@ -688,9 +732,12 @@ private:
     std::string notice_;
     std::string pendingCommit_;
 
+    static constexpr int kLiveNBest = 5;
+
     std::string livePreedit_;
     std::vector<std::string> liveDisp_;
     std::vector<SegTok> liveToks_;
+    std::vector<std::string> liveSents_; // n-best for the suggestion strip
     uint64_t liveGen_ = 0;
 
     std::mutex mu_;
