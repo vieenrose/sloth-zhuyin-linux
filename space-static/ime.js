@@ -302,15 +302,19 @@ function render(){
 let previewTimer=null, previewBusy=false, previewGen=0;
 function schedulePreview(){
   if(!ready) return;
-  clearTimeout(previewTimer);
   if(!committed.some(t=>t.t==='zh')){ pvKey=bufKey(); pvChars=committed.map(t=>t.v); pvCands=committed.map(t=>[t.v]); return; }
   if(pvKey===bufKey()) return;
-  previewTimer=setTimeout(()=>{ runPreview(); },200);
+  // do NOT reset a pending timer on every keystroke — that starves the
+  // decode during continuous typing (everything stayed bopomofo until a
+  // pause). One short timer; the completion handler reschedules if stale.
+  if(previewTimer||previewBusy) return;
+  previewTimer=setTimeout(()=>{ previewTimer=null; runPreview(); },60);
 }
 async function runPreview(){
   if(previewBusy) return;
   previewBusy=true;
   const key=bufKey(), gen=++previewGen;
+  const toksSnap=committed.map(t=>({t:t.t,v:t.v}));  // snapshot for stale seed
   try{
     const toneless=$('toneless').checked;
     // Decode each punctuation-delimited segment independently: punctuation
@@ -333,19 +337,19 @@ async function runPreview(){
     };
     for(const tok of committed){ seg.push(tok); segIdx.push(ci++); if(tok.t==='punct'){ await flushSeg(); segIdx=[]; } }
     await flushSeg();
-    if(gen===previewGen && key===bufKey()){
-      pvChars=[];pvCands=[];let zc=0;
-      for(const tok of committed){
+    if(gen===previewGen){
+      const chars=[], cands=[]; let zc=0;
+      for(const tok of toksSnap){
         if(tok.t==='zh'){
-          const syl=toneless?strip(tok.v):tok.v;
-          const cands=zhCands[zc];
-          let ch=zhChars[zc]; if(ch==null||!cands.includes(ch)) ch=cands[0];  // never fall back to bopomofo
-          // (learned picks are applied inside decodeZh as logit bonuses)
-          pvChars.push(ch); pvCands.push(cands); zc++;
-        } else { pvChars.push(tok.v); pvCands.push([tok.v]); }
+          const cs=zhCands[zc];
+          let ch=zhChars[zc]; if(ch==null||!cs.includes(ch)) ch=cs[0];  // never fall back to bopomofo
+          chars.push(ch); cands.push(cs); zc++;
+        } else { chars.push(tok.v); cands.push([tok.v]); }
       }
-      pvKey=key;
-      staleToks=committed.map(t=>({t:t.t,v:t.v})); staleChars=pvChars.slice();
+      // even a STALE decode (user typed meanwhile) seeds the snapshot so the
+      // unchanged prefix/suffix paints converted mid-burst (chewing-like)
+      staleToks=toksSnap; staleChars=chars;
+      if(key===bufKey()){ pvChars=chars; pvCands=cands; pvKey=key; }
       render();
     }
   }catch(e){ console.error(e); }
