@@ -36,7 +36,7 @@ decode is the same model as the desktop: **172/230 = 74%** on the 230-case
 
 Honest, sourced comparison vs Gboard 注音 and the Boox built-in IME: **[docs/COMPARISON.md](docs/COMPARISON.md)** (zh-TW)
 
-<p align="center"><img src="docs/android-boox-demo-v2.gif" width="460" alt="Slothing on a BOOX Tab Mini C (Android): tapping Dàqiān bopomofo keys, whole-sentence 免選字 conversion to 我在寫程式 with the live suggestion strip"></p>
+<p align="center"><img src="docs/android-boox-demo-v3.gif" width="460" alt="Slothing on a BOOX Tab Mini C (Android): tapping Dàqiān bopomofo keys, typing 我用 claude 寫注音輸入法，很好玩。 — auto zh/en code-switch, tone-free syllables, live suggestion strip, 免選字"></p>
 
 ## What it is
 

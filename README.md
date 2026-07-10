@@ -33,7 +33,7 @@ demo,但 fcitx5 / IBus 的操作一模一樣。
 
 與 Gboard 注音、Boox 內建輸入法的誠實對照(附來源):**[docs/COMPARISON.md](docs/COMPARISON.md)**
 
-<p align="center"><img src="docs/android-boox-demo-v2.gif" width="460" alt="Slothing 在 BOOX Tab Mini C(Android)上:點大千注音鍵,免選字整句轉換出「我在寫程式」,候選列即打即現"></p>
+<p align="center"><img src="docs/android-boox-demo-v3.gif" width="460" alt="Slothing 在 BOOX Tab Mini C(Android)上:點大千注音鍵,免選字整句轉換出「我用 claude 寫注音輸入法,很好玩。」——中英自動切換、免聲調(音輸)、候選列即打即現"></p>
 
 ## 這是什麼
 
