@@ -1531,9 +1531,10 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             renderComposing(ic);
             return;
         }
-        if (c >= 'A' && c <= 'Z') {
-            c = static_cast<char>(c - 'A' + 'a');
-        }
+        // Capitals are unambiguous ENGLISH evidence: they have no zhuyin
+        // mapping (dachen keys are lowercase), so they stay verbatim in the
+        // raw run and the segmenter routes them (and usually the letters
+        // around them) into an English token. Case is preserved (Claude).
 
         // Space finalizes the current run (also serves as tone 1 — the
         // segmenter already treats a bare valid base as a tone-1 syllable).
@@ -1592,7 +1593,8 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         // Any zhuyin-mappable or alphanumeric key extends the raw run; the
         // segmenter re-decides zh/en live (auto code-switch, no mode key).
         const bool feeds = slothing::dachenMap().count(c) ||
-                           (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+                           (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                           (c >= '0' && c <= '9');
         if (feeds) {
             keyEvent.filterAndAccept();
             rawKeys_ += c;
