@@ -160,11 +160,46 @@ class Decoder:
             out.append("".join(s))
         return out
 
+    def phrases(self, syllables, i, n):
+        """Model-ranked 2-char phrases for positions i,i+1: per-position
+        softmax over legal chars, cross-ranked by joint probability (same
+        scheme as the web demo's buildPhrases)."""
+        if not (0 <= i < len(syllables) - 1):
+            return []
+        c0, c1 = self.cands(syllables[i]), self.cands(syllables[i + 1])
+        if not c0 or not c1:
+            return []
+        sid = np.array([[self.syl_vocab.get(s, 1) for s in syllables]],
+                       dtype=np.int64)
+        amask = np.ones_like(sid, dtype=bool)
+        lg = self.sess.run(None, {"syl": sid, "amask": amask})[0][0]
+
+        def top(cands, pos, k=5):
+            v = np.array([lg[pos, tid] for _, tid in cands])
+            e = np.exp(v - v.max()); p = e / e.sum()
+            idx = np.argsort(-p)[:k]
+            return [(cands[j][0], float(p[j])) for j in idx]
+
+        scored = [(a + b, pa * pb)
+                  for a, pa in top(c0, i) for b, pb in top(c1, i + 1)]
+        scored.sort(key=lambda x: -x[1])
+        cut = max(0.06, 0.15 * scored[0][1]) if scored else 0
+        out = []
+        for ph, p in scored:
+            if p < cut or len(out) >= n:
+                break
+            if ph not in out:
+                out.append(ph)
+        return out
+
     def handle(self, req):
         syllables = req.get("syllables") or []
         n = int(req.get("n") or 1)
         if not syllables:
             return {"sentences": []}
+        if req.get("phrase_at") is not None:   # 2-char phrase candidates
+            return {"sentences":
+                    self.phrases(syllables, int(req["phrase_at"]), n)}
         return {"sentences": self.decode(syllables, n)}
 
 

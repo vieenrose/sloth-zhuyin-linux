@@ -26,6 +26,7 @@
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputmethodengine.h>
 #include <fcitx/instance.h>
+#include <map>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -96,6 +97,9 @@ public:
     // Segment-conversion: set the focused segment to candidate `candIdx` and
     // advance focus (number key / click on a segment candidate).
     void pickSegment(InputContext *ic, int candIdx);
+    // Set the focused segment AND the next one from a 2-char phrase candidate
+    // (per-phrase Down-rank), then advance focus past both.
+    void pickPhrase(InputContext *ic, const std::string &phrase);
 
 private:
     // Pull-model, three states. Composing: the ZhuyinBuffer accumulates typed
@@ -137,6 +141,9 @@ private:
     // act on.
     std::vector<int> segSel_;
     int segFocus_ = 0;
+    // Model-ranked 2-char phrase candidates per focus position, fetched
+    // lazily from the daemon while Choosing. Main thread only.
+    std::map<int, std::vector<std::string>> phraseCands_;
 
     std::string convertNotice_;
     std::unique_ptr<EventSourceTime> convertTimer_;
