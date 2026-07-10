@@ -541,9 +541,14 @@ document.addEventListener('keydown',e=>{
     if(k==='ArrowDown'||k==='ArrowUp'){
       const pages=Math.ceil((pvCands[fix]||[]).length/PAGE), d=k==='ArrowDown'?1:-1;
       if(pages>1){fixPage=(fixPage+d+pages)%pages;render();} e.preventDefault(); return; }
-    if(k==='ArrowLeft'||k==='ArrowRight'){   // chewing: ←→ page candidates
-      const pages=Math.ceil((pvCands[fix]||[]).length/PAGE), d=k==='ArrowRight'?1:-1;
+    if(k==='ArrowLeft'||k==='ArrowRight'||k===' '){ // chewing: ←→/space page
+      const pages=Math.ceil((pvCands[fix]||[]).length/PAGE), d=k==='ArrowLeft'?-1:1;
       if(pages>1){fixPage=(fixPage+d+pages)%pages;render();} e.preventDefault(); return; }
+    if(k==='j'||k==='k'){                     // chewing: j/k move the target
+      const d=k==='j'?-1:1; let t=fix+d;
+      while(t>=0&&t<committed.length&&committed[t].t!=='zh') t+=d;
+      if(t>=0&&t<committed.length){ fix=t; cursor=t; fixPage=0; phrase=null; render(); buildPhrases(t); }
+      e.preventDefault(); return; }
     if(k==='Escape'){
       if(preFixCursor>=0){ cursor=preFixCursor; preFixCursor=-1; }
       fix=-1; render(); e.preventDefault(); return; }

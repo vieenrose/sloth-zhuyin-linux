@@ -1358,16 +1358,24 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         const int nseg = static_cast<int>(convertPositions_.size());
         auto &foc = segSel_[segFocus_];
         const int ncand = static_cast<int>(convertPositions_[segFocus_].size());
-        if (keyEvent.key().check(FcitxKey_Right)) {
-            for (int i = segFocus_ + 1; i < nseg; i++) {
-                if (convertPositions_[i].size() > 1) {
-                    segFocus_ = i;
-                    candSpan_ = 2;
-                    break;
+        if (keyEvent.key().check(FcitxKey_Right) ||
+            keyEvent.key().check(FcitxKey_Left)) {
+            if (candListOpen_) { // chewing: ←→ PAGE while the window is open
+                if (auto list = ic->inputPanel().candidateList()) {
+                    if (auto *pageable = list->toPageable()) {
+                        if (keyEvent.key().check(FcitxKey_Right)) {
+                            if (pageable->hasNext()) pageable->next();
+                        } else if (pageable->hasPrev()) {
+                            pageable->prev();
+                        }
+                        ic->updateUserInterface(
+                            UserInterfaceComponent::InputPanel);
+                    }
                 }
+                return;
             }
-        } else if (keyEvent.key().check(FcitxKey_Left)) {
-            for (int i = segFocus_ - 1; i >= 0; i--) {
+            const int d = keyEvent.key().check(FcitxKey_Right) ? 1 : -1;
+            for (int i = segFocus_ + d; i >= 0 && i < nseg; i += d) {
                 if (convertPositions_[i].size() > 1) {
                     segFocus_ = i;
                     candSpan_ = 2;
@@ -1399,6 +1407,18 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             } else {
                 // chewing-style span cycling: 詞 view <-> 單字 view
                 candSpan_ = (candSpan_ == 2) ? 1 : 2;
+            }
+        } else if (candListOpen_ &&
+                   (keyEvent.key().check(Key("j")) ||
+                    keyEvent.key().check(Key("k")))) {
+            // chewing: j/k move the target with the window following
+            const int d = keyEvent.key().check(Key("j")) ? -1 : 1;
+            for (int i = segFocus_ + d; i >= 0 && i < nseg; i += d) {
+                if (convertPositions_[i].size() > 1) {
+                    segFocus_ = i;
+                    candSpan_ = 2;
+                    break;
+                }
             }
         } else if (keyEvent.key().isSimple()) {
             const char *selkeys =

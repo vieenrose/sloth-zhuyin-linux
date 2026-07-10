@@ -42,15 +42,22 @@ Contracts this suite has already caught and fixed:
 - arrows are ignored while a syllable is pending
 - Home/End cursor movement
 
-Known INTENDED divergences (Slothing superset features, excluded or expected
-to fail in random traces):
-- auto zh/en: invalid-syllable key runs become English; chewing treats them
-  as a pending-bopomofo error state (its second-initial keystroke *replaces*
-  the pending initial — ours flows into the keystream DP instead)
-- Enter with an incomplete syllable commits the auto-detected run; chewing
-  ignores Enter in the error state
-- remaining random failures trace to chewing 0.5's inconsistent
-  type-while-window-open edge semantics
+Selection-window contracts implemented from chewing's SOURCE (chewingio.c,
+not guessed): numbers select, space/←→ page, j/k move the disambiguation
+target with the window following, all other keys ignored (modal).
+
+Known INTENDED divergences (waivers):
+1. auto zh/en (superset): invalid-syllable key runs become English; chewing
+   treats them as a pending-bopomofo error state (its second-initial
+   keystroke *replaces* the pending initial — ours flows into the keystream
+   DP instead, which would corrupt English words like "coffee")
+2. Enter with an incomplete syllable commits the auto-detected run; chewing
+   ignores Enter in the error state
+3. dictionary-count dependence: candidate totals differ between chewing's
+   dictionary and our phonetic table, so page boundaries and select-key
+   ranges differ; random traces that page or pick near those boundaries
+   diverge downstream. Structural, environment-dependent, not a UI-logic
+   gap.
 
 The fcitx engine shares behavior with the web demo by construction (same
 segmenter with lock-step tests, same daemon); contracts fixed here are
