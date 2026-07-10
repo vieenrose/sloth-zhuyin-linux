@@ -1,41 +1,54 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- Slothing IME icon: a cute sloth face in the sloth-brown brand palette.
-       Bold dark eye-mask + big eyes stay legible down to 16px. -->
+  <!-- Slothing IME icon: a three-toed sloth face. The identifying features,
+       kept legible at 16px: shaggy brown fur ring, cream face, the sloth's
+       signature DIAGONAL eye-stripes sweeping outward/down, sleepy
+       half-closed eyes, and the serene smile. -->
   <defs>
+    <radialGradient id="fur" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#a9743f"/>
+      <stop offset="100%" stop-color="#8b5a2b"/>
+    </radialGradient>
     <radialGradient id="face" cx="50%" cy="42%" r="62%">
-      <stop offset="0%" stop-color="#f6e4cb"/>
-      <stop offset="100%" stop-color="#e8caa2"/>
+      <stop offset="0%" stop-color="#f8ecd8"/>
+      <stop offset="100%" stop-color="#ecd3ae"/>
     </radialGradient>
   </defs>
 
-  <!-- badge -->
-  <circle cx="128" cy="128" r="120" fill="url(#face)" stroke="#8b5a2b" stroke-width="10"/>
+  <!-- shaggy fur ring (slightly scalloped silhouette) -->
+  <path d="M128 8
+           q26 0 44 12 q26 -4 40 18 q22 10 22 36 q14 20 6 42
+           q8 22 -6 40 q0 26 -22 36 q-14 22 -40 18 q-18 12 -44 12
+           q-26 0 -44 -12 q-26 4 -40 -18 q-22 -10 -22 -36 q-14 -18 -6 -40
+           q-8 -22 6 -42 q0 -26 22 -36 q14 -22 40 -18 q18 -12 44 -12 z"
+        fill="url(#fur)"/>
 
-  <!-- fur tufts on top -->
-  <path d="M74 44 q14 -26 34 -8 q-8 6 -14 20 z" fill="#a9743f"/>
-  <path d="M182 44 q-14 -26 -34 -8 q8 6 14 20 z" fill="#a9743f"/>
+  <!-- cream face disc -->
+  <ellipse cx="128" cy="134" rx="88" ry="84" fill="url(#face)"/>
 
-  <!-- rosy cheeks -->
-  <ellipse cx="64" cy="160" rx="18" ry="13" fill="#e0a170" opacity="0.55"/>
-  <ellipse cx="192" cy="160" rx="18" ry="13" fill="#e0a170" opacity="0.55"/>
+  <!-- signature diagonal eye-stripes: from the inner eye corners sweeping
+       DOWN and OUTWARD to the fur edge -->
+  <path d="M96 108 q-8 -10 -22 -6 q-26 8 -38 34 q-4 10 4 16 q10 6 18 -2
+           q16 -18 34 -22 q10 -4 4 -20 z" fill="#5d4028"/>
+  <path d="M160 108 q8 -10 22 -6 q26 8 38 34 q4 10 -4 16 q-10 6 -18 -2
+           q-16 -18 -34 -22 q-10 -4 -4 -20 z" fill="#5d4028"/>
 
-  <!-- signature sloth eye-mask (dark teardrop patches), well separated so
-       the two eyes stay distinct even at 16px -->
-  <path d="M84 86 q34 4 34 38 q0 32 -34 42 q-34 -10 -34 -42 q0 -34 34 -38 z" fill="#6e4a2c"/>
-  <path d="M172 86 q-34 4 -34 38 q0 32 34 42 q34 -10 34 -42 q0 -34 -34 -38 z" fill="#6e4a2c"/>
+  <!-- sleepy half-closed eyes: heavy upper lids over small dark eyes -->
+  <circle cx="88" cy="118" r="11" fill="#2e1d12"/>
+  <circle cx="168" cy="118" r="11" fill="#2e1d12"/>
+  <path d="M75 111 a13 13 0 0 1 26 0 z" fill="#ecd3ae"/>
+  <path d="M155 111 a13 13 0 0 1 26 0 z" fill="#ecd3ae"/>
+  <circle cx="92" cy="120" r="3" fill="#fff8f0" opacity="0.9"/>
+  <circle cx="172" cy="120" r="3" fill="#fff8f0" opacity="0.9"/>
 
-  <!-- big friendly eyes -->
-  <circle cx="84" cy="126" r="21" fill="#2e1d12"/>
-  <circle cx="172" cy="126" r="21" fill="#2e1d12"/>
-  <circle cx="91" cy="118" r="7" fill="#fff8f0"/>
-  <circle cx="179" cy="118" r="7" fill="#fff8f0"/>
-  <circle cx="78" cy="133" r="3.5" fill="#fff8f0" opacity="0.85"/>
-  <circle cx="166" cy="133" r="3.5" fill="#fff8f0" opacity="0.85"/>
+  <!-- broad flat sloth nose -->
+  <path d="M128 138 q14 0 16 10 q2 12 -16 12 q-18 0 -16 -12 q2 -10 16 -10 z"
+        fill="#4a2f1e"/>
+  <circle cx="122" cy="146" r="2.6" fill="#2e1d12"/>
+  <circle cx="134" cy="146" r="2.6" fill="#2e1d12"/>
 
-  <!-- nose -->
-  <path d="M128 152 q17 0 13 13 q-4 9 -13 9 q-9 0 -13 -9 q-4 -13 13 -13 z" fill="#4a2f1e"/>
-
-  <!-- content little smile -->
-  <path d="M106 184 q22 17 44 0" fill="none" stroke="#4a2f1e"
-        stroke-width="7" stroke-linecap="round"/>
+  <!-- the serene sloth smile: wide, shallow, upturned at the ends -->
+  <path d="M96 176 q32 26 64 0" fill="none" stroke="#4a2f1e"
+        stroke-width="8" stroke-linecap="round"/>
+  <path d="M96 176 q-6 -2 -8 -8 M160 176 q6 -2 8 -8" fill="none"
+        stroke="#4a2f1e" stroke-width="8" stroke-linecap="round"/>
 </svg>

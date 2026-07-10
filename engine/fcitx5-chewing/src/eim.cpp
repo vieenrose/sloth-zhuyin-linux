@@ -1126,7 +1126,7 @@ void ChewingEngine::renderSegments(InputContext *ic) {
     ic->inputPanel().setCandidateList(std::move(list));
     ic->inputPanel().setAuxDown(
         Text(std::string(candSpan_ == 2 ? "【詞】" : "【單字】") +
-             "　↓ 換長度　←→ 移動　1-9 選　⏎ 確認　Esc 取消"));
+             "　1-9 選　←→ 移動　⏎ 確認　↓ 換長度　Esc 取消"));
     ic->updatePreedit();
     ic->updateUserInterface(UserInterfaceComponent::InputPanel);
 }
@@ -1372,8 +1372,17 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             return;
         }
         if (keyEvent.key().check(FcitxKey_Return)) {
-            if (candListOpen_) {
-                return; // chewing: Enter ignored while the window is open
+            if (candListOpen_) { // 新注音: Enter confirms the highlight
+                if (auto list = ic->inputPanel().candidateList()) {
+                    if (auto *common =
+                            dynamic_cast<CommonCandidateList *>(list.get())) {
+                        const int cur = common->globalCursorIndex();
+                        if (cur >= 0 && cur < common->totalSize()) {
+                            common->candidateFromAll(cur).select(ic);
+                        }
+                    }
+                }
+                return;
             }
             // learn the user's corrections (changed zh segments + adjacent
             // changed pairs as phrases) before committing
@@ -1407,16 +1416,23 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         const int ncand = static_cast<int>(convertPositions_[segFocus_].size());
         if (keyEvent.key().check(FcitxKey_Right) ||
             keyEvent.key().check(FcitxKey_Left)) {
-            if (candListOpen_) { // chewing: ←→ PAGE while the window is open
+            if (candListOpen_) { // 新注音: ←→ move the highlight (page follows)
                 if (auto list = ic->inputPanel().candidateList()) {
-                    if (auto *pageable = list->toPageable()) {
-                        if (keyEvent.key().check(FcitxKey_Right)) {
-                            if (pageable->hasNext()) pageable->next();
-                        } else if (pageable->hasPrev()) {
-                            pageable->prev();
+                    if (auto *common =
+                            dynamic_cast<CommonCandidateList *>(list.get())) {
+                        const int total = common->totalSize();
+                        if (total > 0) {
+                            int cur = common->globalCursorIndex();
+                            const int d =
+                                keyEvent.key().check(FcitxKey_Right) ? 1 : -1;
+                            cur = (cur + d + total) % total;
+                            common->setGlobalCursorIndex(cur);
+                            if (*config_.PageSize > 0) {
+                                common->setPage(cur / *config_.PageSize);
+                            }
+                            ic->updateUserInterface(
+                                UserInterfaceComponent::InputPanel);
                         }
-                        ic->updateUserInterface(
-                            UserInterfaceComponent::InputPanel);
                     }
                 }
                 return;

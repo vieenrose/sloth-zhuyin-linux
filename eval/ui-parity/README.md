@@ -43,8 +43,12 @@ Contracts this suite has already caught and fixed:
 - Home/End cursor movement
 
 Selection-window contracts implemented from chewing's SOURCE (chewingio.c,
-not guessed): numbers select, space/←→ page, j/k move the disambiguation
-target with the window following, all other keys ignored (modal).
+not guessed): numbers select, space pages, j/k move the disambiguation
+target with the window following, other keys ignored (modal). ONE deliberate
+deviation: ←→ move the HIGHLIGHT and Enter confirms it (新注音 convention —
+our list is horizontal, so arrow keys must match the visual axis; chewing 0.5
+paged with ←→ and had no movable highlight). Random traces using ←→ inside
+the window diverge from chewing by design.
 
 Known INTENDED divergences (waivers):
 1. auto zh/en (superset): invalid-syllable key runs become English; chewing

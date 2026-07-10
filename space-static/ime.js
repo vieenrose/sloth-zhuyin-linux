@@ -99,12 +99,13 @@ function moveCursor(d){
   cursor=Math.max(0,Math.min(committed.length,cursor+d));
   render();
 }
-let preFixCursor=-1;
+let preFixCursor=-1, fixHl=0;      // fixHl: highlighted candidate (absolute)
 function openFix(i){
   if(i<0||i>=committed.length||committed[i].t!=='zh') return;
   if(pvKey!==bufKey()) return;       // wait for decode
   preFixCursor=cursor; cursor=i;     // chewing: cursor moves onto the char
   fix=i; fixPage=0; phrase=null; phraseBusy=false;
+  fixHl=Math.max(0,(pvCands[i]||[]).indexOf(displayFor(i)));
   const sel=displayFor(i), cands=pvCands[i]||[];
   const at=cands.indexOf(sel); if(at>=0) fixPage=Math.floor(at/PAGE);
   render();
@@ -283,7 +284,7 @@ function render(){
       bp.onclick=()=>{fixPage=(fixPage-1+pages)%pages;render();}; stripEl.appendChild(bp); }
     cands.slice(fixPage*PAGE,fixPage*PAGE+PAGE).forEach((c,j)=>{
       const b=document.createElement('button');
-      b.className='cand'+(displayFor(fix)===c?' sel':'');
+      b.className='cand'+((fixPage*PAGE+j)===fixHl?' sel':'');
       b.innerHTML='<span class="n">'+(j+1)+'</span>'+c;
       b.onclick=()=>pickCand(j);
       stripEl.appendChild(b);
@@ -293,7 +294,7 @@ function render(){
       const pg=document.createElement('span'); pg.className='pg'; pg.textContent=(fixPage+1)+'/'+pages;
       stripEl.appendChild(pg); }
   }
-  if(ready) $('hint').textContent = fix>=0 ? '1-9 選字　↑↓ 翻頁　Esc 取消'
+  if(ready) $('hint').textContent = fix>=0 ? '1-9 選字　←→ 移動　⏎ 確認　↑↓ 翻頁　Esc 取消'
     : (committed.length||hasRun() ? '⏎ 上字　←→ 游標　↓ 選字　點字改字' : '直接打注音或英文，自動辨識；Shift+，。？！ 輸入標點');
   schedulePreview();
 }
@@ -560,10 +561,19 @@ document.addEventListener('keydown',e=>{
     if(k>='1'&&k<='9'){ pickCand(k.charCodeAt(0)-49); e.preventDefault(); return; }
     if(k==='ArrowDown'||k==='ArrowUp'){
       const pages=Math.ceil((pvCands[fix]||[]).length/PAGE), d=k==='ArrowDown'?1:-1;
-      if(pages>1){fixPage=(fixPage+d+pages)%pages;render();} e.preventDefault(); return; }
-    if(k==='ArrowLeft'||k==='ArrowRight'||k===' '){ // chewing: ←→/space page
-      const pages=Math.ceil((pvCands[fix]||[]).length/PAGE), d=k==='ArrowLeft'?-1:1;
-      if(pages>1){fixPage=(fixPage+d+pages)%pages;render();} e.preventDefault(); return; }
+      if(pages>1){fixPage=(fixPage+d+pages)%pages; fixHl=fixPage*PAGE; render();}
+      e.preventDefault(); return; }
+    if(k==='ArrowLeft'||k==='ArrowRight'){ // 新注音: ←→ move the highlight
+      const cands=pvCands[fix]||[], d=k==='ArrowLeft'?-1:1;
+      if(cands.length){ fixHl=(fixHl+d+cands.length)%cands.length;
+        fixPage=Math.floor(fixHl/PAGE); render(); }
+      e.preventDefault(); return; }
+    if(k===' '){                            // chewing: space pages
+      const pages=Math.ceil((pvCands[fix]||[]).length/PAGE);
+      if(pages>1){fixPage=(fixPage+1)%pages; fixHl=fixPage*PAGE; render();}
+      e.preventDefault(); return; }
+    if(k==='Enter'){                        // Enter confirms the highlight
+      pickCand(fixHl-fixPage*PAGE); e.preventDefault(); return; }
     if(k==='j'||k==='k'){                     // chewing: j/k move the target
       const d=k==='j'?-1:1; let t=fix+d;
       while(t>=0&&t<committed.length&&committed[t].t!=='zh') t+=d;
