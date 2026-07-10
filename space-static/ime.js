@@ -16,7 +16,7 @@ import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/o
 // so single-thread WASM is the path that loads reliably on mobile Safari.
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
-import { makeSegmenter } from './segment.js';
+import { makeSegmenter } from './segment.js?v=20260710zw';
 
 const ENC = './enc/';   // model_quantized.onnx + syl_vocab.json + char2id.json
 const TONES = 'ˊˇˋ˙';
