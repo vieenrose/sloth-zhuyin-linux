@@ -1114,7 +1114,7 @@ int main(int argc, char **argv) {
                                  "(libchewing-free)",
                                  "zh_TW", "LGPL-2.1-or-later",
                                  "sloth-zhuyin-linux",
-                                 "slothing", "us"));
+                                 "ibus-slothing", "us")); // icon name (hicolor)
         ibus_bus_register_component(bus, component);
     }
 

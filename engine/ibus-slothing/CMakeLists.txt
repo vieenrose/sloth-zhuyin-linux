@@ -27,3 +27,10 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/slothing.xml"
 # Phonetic table (shared with the fcitx addon; installing twice is harmless).
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../model/phonetic_table.tsv"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/slothing")
+
+# The sloth icon, named ibus-slothing.* to match <icon> in the component XML
+# (same artwork the fcitx5 addon ships as fcitx-slothing.*). Without this KDE
+# falls back to the generic cog. Installs the whole hicolor tree (16/22/24/48
+# + scalable).
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/data/icons/"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor")

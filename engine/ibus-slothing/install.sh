@@ -64,6 +64,38 @@ else
     warn "gsettings not found; enroll via ibus-setup -> Input Method -> Add"
 fi
 
+# 5b. icon into the user theme (KDE has no ibus autostart AND resolves the
+#     component's <icon>ibus-slothing</icon> from the icon theme; the system
+#     copy went in via `sudo cmake --install`, but drop a user copy too so the
+#     sloth shows even without root and refresh the cache). -----------------
+say "installing the sloth icon (ibus-slothing) into the user icon theme"
+ICONSRC="engine/ibus-slothing/data/icons"
+if [ -d "$ICONSRC" ]; then
+    for s in 16x16 22x22 24x24 48x48; do
+        install -Dm644 "$ICONSRC/$s/apps/ibus-slothing.png" \
+            "$HOME/.local/share/icons/hicolor/$s/apps/ibus-slothing.png" 2>/dev/null || true
+    done
+    install -Dm644 "$ICONSRC/scalable/apps/ibus-slothing.svg" \
+        "$HOME/.local/share/icons/hicolor/scalable/apps/ibus-slothing.svg" 2>/dev/null || true
+    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+fi
+
+# 5c. autostart: KDE ships no ibus autostart (the ibus package's file is
+#     OnlyShowIn=GNOME), so ibus-daemon never launches at login on Plasma.
+#     Drop a plain XDG autostart entry so it comes up every session. --------
+say "adding ibus-daemon XDG autostart (KDE lacks one)"
+mkdir -p "$HOME/.config/autostart"
+cat > "$HOME/.config/autostart/ibus-daemon.desktop" <<'DESK'
+[Desktop Entry]
+Type=Application
+Name=IBus daemon
+Comment=Start the IBus input-method daemon (KDE ships no ibus autostart)
+Exec=ibus-daemon --daemonize --xim --replace
+Terminal=false
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+DESK
+
 # 6. verify the pieces are in place -----------------------------------------
 say "verifying"
 ok=1
