@@ -69,7 +69,12 @@ class SlothingImeService : InputMethodService(),
 
     override fun onCreate() {
         super.onCreate()
-        val ok = core.init(readAsset(MODEL), readAsset(SYL_VOCAB), readAsset(CHAR2ID), readAsset(TABLE), THREADS)
+        val ok = core.init(
+            readAsset(MODEL), readAsset(SYL_VOCAB), readAsset(CHAR2ID),
+            readAsset(TABLE), THREADS,
+            // persistent personalization, same format as the desktop learn.tsv
+            filesDir.resolve("learn.tsv").absolutePath,
+        )
         Log.i(TAG, "core.init = $ok, state = ${core.state()}")
         selfTest()
     }

@@ -152,14 +152,14 @@ extern "C" {
 
 JNI(jlong, nativeInit)(JNIEnv *env, jobject, jbyteArray model,
                        jbyteArray sylVocab, jbyteArray char2id,
-                       jbyteArray table, jint threads) {
+                       jbyteArray table, jint threads, jstring learnPath) {
     std::string modelBytes = byteArrayToString(env, model);
     std::string sylBytes = byteArrayToString(env, sylVocab);
     std::string charBytes = byteArrayToString(env, char2id);
     std::string tableBytes = byteArrayToString(env, table);
     auto dec = std::make_unique<OnnxDecoder>(
         modelBytes.data(), modelBytes.size(), sylBytes, charBytes, tableBytes,
-        threads);
+        threads, jstrToUtf8(env, learnPath));
     auto *s = new SlothingSession(std::move(dec), tableBytes);
     return reinterpret_cast<jlong>(s);
 }

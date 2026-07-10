@@ -84,8 +84,14 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     )
 
     // Bopomofo keys we repaint when English mode flips (glyph <-> latin).
-    private class BopoKey(val view: TextView, val ascii: Char, val glyph: String)
-    private val bopoKeys = ArrayList<BopoKey>(37)
+    // Dual-label caps: big bopomofo + small latin corner hint — the Dàqiān
+    // layout IS QWERTY, and auto zh/en means both alphabets are live at once
+    // (the segmenter decides), so the latin must be visible, like physical
+    // Taiwanese keyboards. iOS hides it only because iOS switches layouts.
+    private class BopoKey(
+        val main: TextView, val hint: TextView, val ascii: Char, val glyph: String,
+    )
+    private val bopoKeys = ArrayList<BopoKey>(41)
     private var englishKey: TextView? = null
     private var english = false
 
@@ -104,10 +110,10 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             val row = newRow()
             for (k in keys) {
                 val glyph = glyphOf[k] ?: k.toString()
-                val v = makeKey(glyph, weight = 1f, fnKey = false)
-                v.setOnClickListener { listener?.onKey(k) }
-                row.addView(v)
-                bopoKeys.add(BopoKey(v, k, glyph))
+                val (container, main, hint) = makeDualKey(glyph, k.toString())
+                container.setOnClickListener { listener?.onKey(k) }
+                row.addView(container)
+                bopoKeys.add(BopoKey(main, hint, k, glyph))
             }
             // right-hand iOS function key for this row
             fnColumn.getOrNull(ri)?.let { fn ->
@@ -157,12 +163,15 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         addView(row)
     }
 
-    /** Repaint the grid for English passthrough (uppercase latin) vs bopomofo. */
+    /** Repaint the grid for English passthrough vs bopomofo. */
     fun setEnglish(on: Boolean) {
         if (english == on) return
         english = on
-        // lowercase: that's what feedKey's passthrough actually commits
-        for (b in bopoKeys) b.view.text = if (on) b.ascii.toString() else b.glyph
+        for (b in bopoKeys) {
+            // lowercase: that's what feedKey's passthrough actually commits
+            b.main.text = if (on) b.ascii.toString() else b.glyph
+            b.hint.visibility = if (on) INVISIBLE else VISIBLE
+        }
         englishKey?.text = if (on) "英" else "中"
     }
 
@@ -172,6 +181,74 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         orientation = HORIZONTAL
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
         gravity = Gravity.CENTER_HORIZONTAL
+    }
+
+    /** A bopomofo key: big glyph + small latin hint in the top-right corner
+     *  (dual-alphabet cap, like physical Taiwanese keyboards). */
+    private fun makeDualKey(
+        glyph: String,
+        latin: String,
+    ): Triple<android.widget.FrameLayout, TextView, TextView> {
+        val edge = color(R.color.eink_edge)
+        val fill = color(R.color.eink_key)
+        val pressedBg = color(R.color.eink_pressed_bg)
+        val pressedInk = color(R.color.eink_pressed_ink)
+        val ink = color(R.color.eink_ink)
+        val muted = color(R.color.eink_muted)
+
+        fun shape(bg: Int) = GradientDrawable().apply {
+            setColor(bg)
+            cornerRadius = dp(6).toFloat()
+            setStroke(dp(1), edge)
+        }
+        val bg = StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), shape(pressedBg))
+            addState(intArrayOf(), shape(fill))
+        }
+        val mainColors = ColorStateList(
+            arrayOf(intArrayOf(android.R.attr.state_pressed), intArrayOf()),
+            intArrayOf(pressedInk, ink),
+        )
+        val hintColors = ColorStateList(
+            arrayOf(intArrayOf(android.R.attr.state_pressed), intArrayOf()),
+            intArrayOf(pressedInk, muted),
+        )
+        val main = TextView(context).apply {
+            text = glyph
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            setTextColor(mainColors)
+            isDuplicateParentStateEnabled = true
+            layoutParams = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+        }
+        val hint = TextView(context).apply {
+            text = latin
+            includeFontPadding = false
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            setTextColor(hintColors)
+            isDuplicateParentStateEnabled = true
+            layoutParams = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.END,
+            ).apply { setMargins(0, dp(3), dp(5), 0) }
+        }
+        val box = android.widget.FrameLayout(context).apply {
+            isClickable = true
+            isFocusable = true
+            background = bg
+            addView(main)
+            addView(hint)
+            layoutParams = LayoutParams(0, dp(52), 1f).apply {
+                val m = dp(2)
+                setMargins(m, m, m, m)
+            }
+        }
+        return Triple(box, main, hint)
     }
 
     private fun makeKey(label: String, weight: Float, fnKey: Boolean): TextView {
