@@ -18,3 +18,4 @@ llm/venv/
 # packaging build artifacts
 *.deb
 space-static/enc/model_quantized.onnx
+model/slothe_4m_onnx/
