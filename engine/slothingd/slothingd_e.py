@@ -36,6 +36,9 @@ class Decoder:
         onnx = os.path.join(model_dir, "model_quantized.onnx")
         if not os.path.exists(onnx):
             onnx = os.path.join(model_dir, "model.onnx")
+        if not os.path.exists(onnx):
+            sys.exit(f"slothingd-e: no model at {model_dir}/model_quantized.onnx"
+                     " — run packaging/fetch-model.sh first")
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = 2      # keystroke latency, not throughput
         self.sess = ort.InferenceSession(onnx, opts,
