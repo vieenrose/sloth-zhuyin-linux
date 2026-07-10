@@ -105,7 +105,8 @@ daemon:
 pip install onnxruntime numpy    # daemon deps
 hf download Luigi/slothlm-e-4m-zhuyin --local-dir model/slothe_4m_onnx \
     --include 'onnx/*' 'syl_vocab.json'   # then move onnx/* up a level
-packaging/run-slothingd.sh       # start the decoder (manual by design)
+packaging/install-slothingd-service.sh   # auto-start at login (systemd user)
+# or: packaging/run-slothingd.sh          # one-off manual run
 ```
 
 ## Roadmap (highlights)

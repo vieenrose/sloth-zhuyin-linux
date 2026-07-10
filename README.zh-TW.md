@@ -93,7 +93,8 @@ fcitx5 -r -d
 pip install onnxruntime numpy    # daemon 相依套件
 hf download Luigi/slothlm-e-4m-zhuyin --local-dir model/slothe_4m_onnx \
     --include 'onnx/*' 'syl_vocab.json'   # 之後把 onnx/* 移到上一層
-packaging/run-slothingd.sh       # 啟動解碼器(刻意手動啟動)
+packaging/install-slothingd-service.sh   # 登入自動啟動(systemd 使用者服務)
+# 或:packaging/run-slothingd.sh          # 一次性手動執行
 ```
 
 ## 藍圖(重點)
