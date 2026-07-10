@@ -12,7 +12,7 @@
 > 用畫面上的大千鍵盤或實體鍵盤打字——中文、英文、中英混打都會自動辨識,
 > 不用切換模式。
 
-<p align="center"><img src="docs/demo.gif" width="640" alt="Slothing 網頁 demo — 注音即打即解碼,中英混打"></p>
+<p align="center"><img src="docs/demo-v6.gif" width="640" alt="Slothing 網頁 demo — 注音即打即解碼,中英混打"></p>
 
 ## 這是什麼
 
