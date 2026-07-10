@@ -99,7 +99,31 @@ class SlothingImeService : InputMethodService(),
             Log.i(TAG, "selftest $mark keys='$keys' got='$got' expect='$expect'")
             core.reset()
         }
+        benchmark()
     }.let {}
+
+    /**
+     * On-device accuracy benchmark: decode the 230-case 免選字 reference set
+     * (bopomofo <TAB> expected) straight through the OnnxDecoder and score
+     * whole-sentence top-1 exact match — the same metric as the desktop daemon.
+     * Writes every case to filesDir/bench_android.tsv (pull via `adb shell
+     * run-as com.slothing.ime cat files/bench_android.tsv`) and logs the total.
+     */
+    private fun benchmark() {
+        val lines = try { assets.open("slothing/reference_mspy.tsv").bufferedReader().readLines() }
+                    catch (e: Exception) { Log.i(TAG, "bench: no reference set"); return }
+        var ok = 0; var tot = 0
+        val sb = StringBuilder()
+        for (line in lines) {
+            if (line.isBlank() || line.startsWith("#") || !line.contains('\t')) continue
+            val (syl, exp) = line.split('\t', limit = 2)
+            val got = core.decodeBest(syl)
+            tot++; if (got == exp) ok++
+            sb.append(syl).append('\t').append(exp).append('\t').append(got).append('\n')
+        }
+        try { filesDir.resolve("bench_android.tsv").writeText(sb.toString()) } catch (_: Exception) {}
+        Log.i(TAG, "BENCH android on-device: $ok/$tot = ${if (tot>0) 100*ok/tot else 0}% top-1 免選字")
+    }
 
     // Created once and reused (guide: cache the input view).
     override fun onCreateInputView(): View {

@@ -125,6 +125,10 @@ val copyModelAssets by tasks.registering(Copy::class) {
     from(modelDir) {
         include("phonetic_table.tsv")
     }
+    // on-device accuracy benchmark (230-case 免選字 reference set)
+    from(rootProject.file("../eval")) {
+        include("reference_mspy.tsv")
+    }
     // NB: no doFirst {} existence check here — an action lambda in a .kts script
     // captures the script object, which the configuration cache cannot serialize.
     // If encDir is missing the task simply copies nothing (the .onnx is absent and

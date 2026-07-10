@@ -168,6 +168,21 @@ JNI(jboolean, nativeReady)(JNIEnv *, jobject, jlong h) {
     return h && sess(h)->ready() ? JNI_TRUE : JNI_FALSE;
 }
 
+// Debug/benchmark: space-separated bopomofo syllables -> best decoded sentence.
+JNI(jstring, nativeDecodeBest)(JNIEnv *env, jobject, jlong h, jstring sylsSp) {
+    std::string sp = jstrToUtf8(env, sylsSp);
+    std::vector<std::string> syls;
+    size_t i = 0;
+    while (i < sp.size()) {
+        size_t j = sp.find(' ', i);
+        std::string t = sp.substr(i, j == std::string::npos ? j : j - i);
+        if (!t.empty()) syls.push_back(t);
+        if (j == std::string::npos) break;
+        i = j + 1;
+    }
+    return utf8ToJstr(env, sess(h)->decodeBest(syls));
+}
+
 JNI(void, nativeDestroy)(JNIEnv *, jobject, jlong h) {
     delete sess(h);
 }

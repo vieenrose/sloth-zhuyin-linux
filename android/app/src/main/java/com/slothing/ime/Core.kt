@@ -57,6 +57,9 @@ class Core {
         if (handle != 0L) { nativeDestroy(handle); handle = 0L }
     }
 
+    /** Debug/benchmark: space-separated bopomofo syllables -> best sentence. */
+    fun decodeBest(syllables: String): String = nativeDecodeBest(handle, syllables)
+
     // ---- context & modes ---------------------------------------------------
     /** Left-of-caret text for the LM (InputConnection.getTextBeforeCursor). */
     fun setContext(text: String) = nativeSetContext(handle, text)
@@ -133,6 +136,7 @@ class Core {
     // ---- native surface (bound by Java_com_slothing_ime_Core_*) -----------
     private external fun nativeInit(model: ByteArray, sylVocab: ByteArray, char2id: ByteArray, table: ByteArray, threads: Int): Long
     private external fun nativeReady(handle: Long): Boolean
+    private external fun nativeDecodeBest(handle: Long, syls: String): String
     private external fun nativeDestroy(handle: Long)
     private external fun nativeSetContext(handle: Long, ctx: String)
     private external fun nativeSetEnglishMode(handle: Long, on: Boolean)

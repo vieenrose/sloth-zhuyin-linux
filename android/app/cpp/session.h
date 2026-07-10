@@ -78,6 +78,16 @@ public:
 
     bool ready() const { return segmenter_ != nullptr && dec_ != nullptr; }
 
+    // Debug/benchmark only: decode a syllable run straight through the injected
+    // Decoder (bypasses the keyboard + segmenter), returning the best sentence.
+    // Used by the on-device accuracy self-test to score against the reference.
+    std::string decodeBest(const std::vector<std::string> &syls) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (!dec_) return {};
+        auto r = dec_->decode(syls, 1, std::string());
+        return r.sentences.empty() ? std::string() : r.sentences[0];
+    }
+
     // ---- context from the app (InputConnection.getTextBeforeCursor) --------
     void setContext(std::string ctx) {
         std::lock_guard<std::mutex> lk(mu_);
