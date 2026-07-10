@@ -43,6 +43,8 @@ const T=[
   ['Python',         'en:Python',                              'capital preserved, word whole'],
   ['ji3m/4Python',   'zh:ㄨㄛˇ | zh:ㄩㄥˋ | en:Python',        'capital mid-stream in auto zh/en'],
   ['iPhone',         'en:iPhone',                              'capital not first, still one word'],
+  ['do',             'en:do',                                  'known 2-letter word stays English'],
+  ["let's",          "en:let's",                               'apostrophe rides the English run'],
 ];
 let pass=0,fail=0;
 for(const [keys,exp,desc] of T){

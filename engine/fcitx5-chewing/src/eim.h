@@ -120,7 +120,9 @@ private:
     // asynchronously and show the sentence as the preedit while Composing.
     void scheduleLiveDecode(InputContext *ic);
     // Begin a decode for the current buffer (spawn the worker).
-    void startDecode(InputContext *ic);
+    // commitDirect: decode then commit immediately (Enter path, 新注音
+    // style) instead of opening the segment-choosing window (↓ path).
+    void startDecode(InputContext *ic, bool commitDirect = false);
     // Enter segment-conversion for the decoded sentences (best seeds the
     // per-segment selection).
     void showConversionChoices(InputContext *ic,

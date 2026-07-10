@@ -605,7 +605,7 @@ document.addEventListener('keydown',e=>{
   else if(k==='`'){ toggleSymbols(); e.preventDefault(); }               // ` opens symbol menu (微軟/自然)
   else if(enMode && k.length===1){ feedKey(k); e.preventDefault(); }  // English mode: literal (feedKey applies width)
   else if(k in PUNCT){ feedKey(k); e.preventDefault(); }
-  else if(k.length===1&&(DACHEN[k]||k in TONEK||/[A-Za-z0-9]/.test(k))){ feedKey(k); e.preventDefault(); }
+  else if(k.length===1&&(DACHEN[k]||k in TONEK||/[A-Za-z0-9']/.test(k))){ feedKey(k); e.preventDefault(); }
 });
 document.addEventListener('keyup',e=>{ if(e.key==='Shift'&&shiftAlone){ shiftAlone=false; toggleEnMode(); } });
 $('commit').onclick=()=>commitSentence();

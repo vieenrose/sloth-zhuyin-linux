@@ -138,9 +138,15 @@ public:
             }
         }
         // a lone English token that is exactly one valid syllable IS zhuyin
+        // — unless it is a known English word (do/is/he must stay English)
         if (out.size() == 1 && !out[0].zh) {
-            if (auto v = wholeSyllable(out[0].v); !v.empty()) {
-                return {{true, v}};
+            std::string lower = out[0].v;
+            std::transform(lower.begin(), lower.end(), lower.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            if (!segmentWords().count(lower)) {
+                if (auto v = wholeSyllable(out[0].v); !v.empty()) {
+                    return {{true, v}};
+                }
             }
         }
         return out;

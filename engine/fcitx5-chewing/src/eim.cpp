@@ -764,7 +764,7 @@ void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
     });
 }
 
-void ChewingEngine::startDecode(InputContext *ic) {
+void ChewingEngine::startDecode(InputContext *ic, bool commitDirect) {
     commitRun();
     if (composingEmpty() || phoneticTable_.empty()) {
         convertNotice_ = phoneticTable_.empty() ? "無音表" : "";
@@ -845,7 +845,7 @@ void ChewingEngine::startDecode(InputContext *ic) {
             return t.zh && phoneticTable_.count(t.v);
         });
 
-    worker_ = std::thread([this, icRef, generation, n, pureZh,
+    worker_ = std::thread([this, icRef, generation, n, pureZh, commitDirect,
                            toks = std::vector<slothing::SegTok>(committedToks_),
                            positions = std::move(positions),
                            context = std::move(context)]() {
@@ -938,7 +938,7 @@ void ChewingEngine::startDecode(InputContext *ic) {
                 break;
             }
         }
-        dispatcher_.schedule([this, icRef, generation,
+        dispatcher_.schedule([this, icRef, generation, commitDirect,
                               verified = std::move(verified),
                               ranked = std::move(ranked),
                               failNotice = std::move(failNotice)]() {
@@ -959,6 +959,10 @@ void ChewingEngine::startDecode(InputContext *ic) {
                 convertPositions_ = ranked; // model-score candidate order
             }
             convertBuffer_ = verified.front();
+            if (commitDirect) { // Enter: one keypress commits (新注音)
+                acceptConversion(ic, verified.front());
+                return;
+            }
             showConversionChoices(ic, verified);
         });
     });
@@ -1711,7 +1715,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
                 acceptConversion(ic, livePreedit_);
                 return;
             }
-            startDecode(ic);
+            startDecode(ic, /*commitDirect=*/true);
         }
         return;
     }
@@ -1815,7 +1819,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         // segmenter re-decides zh/en live (auto code-switch, no mode key).
         const bool feeds = slothing::dachenMap().count(c) ||
                            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                           (c >= '0' && c <= '9');
+                           (c >= '0' && c <= '9') || c == '\'';
         if (feeds) {
             keyEvent.filterAndAccept();
             rawKeys_ += c;

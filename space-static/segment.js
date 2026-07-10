@@ -96,7 +96,7 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
     // a lone English token that is exactly one valid syllable IS zhuyin
     // (standalone soft syllable: ㄍㄜ=ek, ㄋㄧ=su), which the soft penalty
     // would otherwise have flipped to English.
-    if(out.length===1 && out[0].t==='en'){
+    if(out.length===1 && out[0].t==='en' && !words.has(out[0].v.toLowerCase())){
       const v=wholeSyllable(out[0].v); if(v) return [{t:'zh',v}];
     }
     return out;
