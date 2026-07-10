@@ -82,10 +82,16 @@ mistyped syllables from context. Full reproduction pipeline (dataset → labels
 
 ## Repository layout
 
-- `engine/fcitx5-chewing/` — **Slothing**, the fcitx5 addon. Now libchewing-
-  free: the raw keystream is segmented by `src/segment.h` (the same zh/en
-  code-switch DP as the web demo, ported + unit-tested in lock-step);
-  the convert key sends the typed syllables to the daemon's decode path.
+- `engine/common/` — the **frontend-free shared core** (single implementation,
+  offline unit tests): the zh/en DP segmenter `segment.h` (lock-step with the
+  web demo), the zhuyin keyboard FSM, the slothingd protocol client, and the
+  whole interaction state machine `core.h` (candidate window, highlight loop,
+  pick-triggered re-scoring, learn diff). Both engines are built on it.
+- `engine/fcitx5-chewing/` — **Slothing**, the fcitx5 addon (the fcitx5
+  adapter over the shared core). libchewing-free.
+- `engine/ibus-slothing/` — **Slothing**, the IBus engine (for GNOME users):
+  same core, same behavior; ships a headless end-to-end test (private
+  ibus-daemon, key-by-key assertions).
 - `engine/slothingd/` — the decode daemons: **`slothingd_e.py`** (current; a
   Unix-socket onnxruntime daemon serving SlothLM-E at ~1 ms/decode, tonal or
   toneless, English passthrough) and the legacy llama.cpp/GBNF `slothingd.cpp`
@@ -99,6 +105,9 @@ mistyped syllables from context. Full reproduction pipeline (dataset → labels
 - `eval/` — scored zhuyin→sentence test set and harnesses (rerank, decode,
   chewing-parity).
 - `ARCHITECTURE.md`, `RESEARCH-LLM-IME.md`, `MODEL_BENCHMARKS.md`, `MIGRATION.md`.
+
+IBus users (GNOME): see `engine/ibus-slothing/README.md` (same core, same
+key behavior).
 
 ## Build & install the fcitx5 addon
 
@@ -134,6 +143,8 @@ packaging/install-slothingd-service.sh   # auto-start at login (systemd user)
 - [x] Demo + desktop daemon on the SlothLM-E ONNX model (5 MB int8, lossless)
 - [x] Full reproducibility bundle on the HF model repo
 - [x] Typo tolerance — model-scored edit-distance-1 repair (demo + daemon)
+- [x] IBus engine (GNOME): frontend-free core extracted and shared; behavior
+  identical to the fcitx5 addon
 - [ ] Per-phrase Down-rank; packaging (.deb)
 - [ ] (Future, long-document context) hybrid Transformer + SSM decoder
 

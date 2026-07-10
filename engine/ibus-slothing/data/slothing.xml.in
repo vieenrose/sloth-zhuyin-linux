@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component>
+  <name>org.freedesktop.IBus.Slothing</name>
+  <description>Slothing: LLM-powered zhuyin IME (libchewing-free)</description>
+  <exec>@CMAKE_INSTALL_FULL_LIBEXECDIR@/ibus-engine-slothing --ibus</exec>
+  <version>@PROJECT_VERSION@</version>
+  <author>sloth-zhuyin-linux</author>
+  <license>LGPL-2.1-or-later</license>
+  <homepage>https://github.com/vieenrose/sloth-zhuyin-linux</homepage>
+  <textdomain>ibus-slothing</textdomain>
+  <engines>
+    <engine>
+      <name>slothing</name>
+      <language>zh_TW</language>
+      <license>LGPL-2.1-or-later</license>
+      <author>sloth-zhuyin-linux</author>
+      <icon>ibus-slothing</icon>
+      <layout>us</layout>
+      <longname>Slothing 注音</longname>
+      <description>Slothing: LLM-powered zhuyin IME (libchewing-free)</description>
+      <rank>0</rank>
+    </engine>
+  </engines>
+</component>

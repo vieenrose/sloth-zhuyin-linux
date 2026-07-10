@@ -8,9 +8,11 @@
 #ifndef _FCITX5_CHEWING_EIM_H_
 #define _FCITX5_CHEWING_EIM_H_
 
-// Slothing: a libchewing-free zhuyin input method. The keyboard is the
-// dependency-free ZhuyinBuffer FSM (zhuyin.h); the decoder is the local
-// SlothLM model via slothingd's decode mode. No libchewing.
+// Slothing: a libchewing-free zhuyin input method. The IME state machine
+// (token buffer, segment-conversion window, re-scoring, learning) lives in
+// the frontend-free shared core (engine/common/core.h) also used by the
+// IBus engine; this class is the fcitx5 adapter: key decoding, async decode
+// workers, and painting. No libchewing.
 #include <atomic>
 #include <cstdint>
 #include <fcitx-config/configuration.h>
@@ -26,14 +28,13 @@
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputmethodengine.h>
 #include <fcitx/instance.h>
-#include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
+#include "core.h"
 #include "segment.h"
 #include "zhuyin.h"
 
@@ -97,18 +98,19 @@ public:
 
     // Commit the composed sentence, clear the buffer, back to Composing.
     void acceptConversion(InputContext *ic, const std::string &sentence);
-    // Segment-conversion: set the focused segment to candidate `candIdx` and
-    // advance focus (number key / click on a segment candidate).
+    // Segment-conversion: set the focused segment to candidate `candIdx`
+    // (number key / click on a segment candidate).
     void pickSegment(InputContext *ic, int candIdx);
     // Set the focused segment AND the next one from a 2-char phrase candidate
-    // (per-phrase Down-rank), then advance focus past both.
+    // (per-phrase Down-rank).
     void pickPhrase(InputContext *ic, int start, const std::string &phrase);
 
 private:
-    // Pull-model, three states. Composing: the ZhuyinBuffer accumulates typed
-    // bopomofo (shown as the preedit); no LLM work. The convert key sends the
-    // syllables to slothingd's decode mode (Converting) and shows the decoded
-    // sentence as an editable segment list (Choosing).
+    // Pull-model, three states. Composing: the token buffer accumulates typed
+    // runs (shown as the preedit) with live decode. Enter/↓ send the
+    // syllables to slothingd's decode mode (Converting) and either commit
+    // directly or show the decoded sentence as an editable segment list
+    // (Choosing).
     enum class ConvertState { Composing, Converting, Choosing };
 
     void updateUI(InputContext *ic);
@@ -127,24 +129,22 @@ private:
     // per-segment selection).
     void showConversionChoices(InputContext *ic,
                                const std::vector<std::string> &sentences);
-    std::string composedSentence() const;
     void renderSegments(InputContext *ic);
     void cancelConversion(InputContext *ic, std::string notice = {});
     void stopWorker();
     void loadPhoneticTable();
+    // Document context before the cursor, when the app exposes it (conditions
+    // the decode via the model's hint channel).
+    std::string surroundingContext(InputContext *ic) const;
 
     Instance *instance_;
     ChewingConfig config_;
     EventDispatcher dispatcher_;
 
-    // Composing state, web-demo style: the raw keystream of the current run
-    // (re-segmented live into zh/en tokens) plus the finalized tokens of
-    // earlier runs (a run ends on a tone key or space).
-    std::string rawKeys_;
-    std::vector<slothing::SegTok> committedToks_;
-    // Insertion cursor over committedToks_ (token granularity): index into
-    // the token list where the current run / new input lands. -1 = end.
-    int tokCursor_ = -1;
+    // Shared frontend-free state machine (engine/common/core.h).
+    slothing::ComposingCore comp_;
+    slothing::ChoosingCore choosing_;
+
     // Manual modes (微軟 conventions): lone-Shift toggles forced-English
     // (literal input, no segmentation); Shift+Space toggles 全形/半形.
     bool enMode_ = false;
@@ -161,47 +161,19 @@ private:
     // first ambiguous segment.
     int pendingFocus_ = -1;
     std::unique_ptr<slothing::Segmenter> segmenter_; // built from the table
-    bool composingEmpty() const {
-        return rawKeys_.empty() && committedToks_.empty();
-    }
-    void commitRun();
 
     ConvertState convertState_ = ConvertState::Composing;
-    // The decode's per-syllable candidate lists, interval spans (1 char each),
-    // and the syllables it was started for. Main thread only.
     std::string convertBuffer_; // best decoded sentence (seed / original)
+    // Positions/intervals/syllables computed at decode start; handed to
+    // choosing_.begin() when the reply arrives.
     std::vector<std::vector<std::string>> convertPositions_;
     std::vector<std::pair<int, int>> convertIntervals_;
     std::vector<std::string> convertSyllables_;
-    // Token list the conversion was started for (zh syllable / en literal);
-    // en tokens become single-candidate segments and get spaces on commit.
     std::vector<slothing::SegTok> convertToks_;
-    // One selected candidate index per interval, and which segment the arrows
-    // act on.
-    std::vector<int> segSel_;
-    // Selection state when Choosing began — diffed at commit to learn the
-    // user's corrections (sent to the daemon's persistent store).
-    std::vector<int> initialSel_;
-    // Segments the user explicitly picked (hints for re-scoring; also the
-    // only positions the learn store records).
-    std::set<int> userFixed_;
-    // Re-decode the sentence conditioned on the user's picks (hint-aware
-    // model) and update the segments the user has NOT touched.
-    void rescoreChoosing(InputContext *ic);
-    int segFocus_ = 0;
-    // Candidate window visibility (chewing: a pick CLOSES the window; ↓
-    // reopens it; Esc closes it before cancelling the whole conversion).
-    bool candListOpen_ = true;
-    // ←→ highlight over the 詞 (aux) options: -1 = highlight is in the char
-    // list; >=0 = phrase index. Enter confirms whichever is highlighted.
-    int phraseHl_ = -1;
-    // Model-ranked 2-char phrase candidates per focus position, fetched
-    // lazily from the daemon while Choosing. Main thread only.
-    std::map<int, std::vector<std::pair<int, std::string>>> phraseCands_;
 
     // Live (modeless) conversion state: the decoded preedit (spaces around
     // English) and the tokens it corresponds to. Used only when it matches
-    // the current committedToks_.
+    // the current comp_.toks.
     std::string livePreedit_; // joined display (commit form)
     std::vector<std::string> liveDisp_; // per-token display, aligned to toks
     std::vector<slothing::SegTok> liveToks_;
