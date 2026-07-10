@@ -121,6 +121,21 @@ int main() {
     }
     check(committed == "，", "Shift+, commits ， directly");
 
+    // ---- English words with a manual space keep the space on commit -------
+    // "web app" (last word has no trailing tone/space, so it commits via the
+    // decode path) must stay "web app", not collapse to "webapp".
+    committed.clear();
+    for (char c : std::string("web app")) {
+        key(ctx, (guint)c);
+    }
+    spin_ms(400);
+    key(ctx, IBUS_KEY_Return);
+    for (int i = 0; i < 20 && committed.empty(); i++) {
+        spin_ms(250);
+    }
+    check(committed == "web app",
+          "manual space between English words survives commit");
+
     printf("\n%s\n", failures ? "FAILURES" : "all passed");
     return failures ? 1 : 0;
 }

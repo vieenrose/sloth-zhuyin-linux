@@ -505,13 +505,17 @@ void ChewingEngine::startDecode(InputContext *ic, bool commitDirect) {
                 }
             }
         } else {
-            // mixed zh/en: best decode per zh run, en literal in between
-            std::string sentence;
+            // mixed zh/en: decode each zh run, keep en literals — build a
+            // per-token display and join with joinDisplay so English runs get
+            // the same spacing as the preedit (a raw `sentence += tok.v`
+            // dropped the spaces the user typed between words: "web app" ->
+            // "webapp").
+            std::vector<std::string> disp;
             bool ok = true;
             size_t i = 0;
             while (i < toks.size() && !workerStop_.load()) {
                 if (!toks[i].zh) {
-                    sentence += toks[i].v;
+                    disp.push_back(toks[i].v);
                     i++;
                     continue;
                 }
@@ -524,14 +528,23 @@ void ChewingEngine::startDecode(InputContext *ic, bool commitDirect) {
                     slothing::queryDecoder(run, 1, "", inflightFd_, err);
                 if (!sentences.empty() &&
                     utf8::lengthValidated(sentences[0]) == run.size()) {
-                    sentence += sentences[0];
+                    const std::string &sent = sentences[0];
+                    for (size_t k = 0, off = 0; k < run.size(); k++) {
+                        size_t len = utf8::ncharByteLength(sent.begin() + off, 1);
+                        disp.push_back(sent.substr(off, len));
+                        off += len;
+                    }
                 } else {
                     ok = false;
                     break;
                 }
             }
-            if (ok && !sentence.empty()) {
-                verified.push_back(std::move(sentence));
+            if (ok && !disp.empty()) {
+                std::string sentence =
+                    joinDisplay(toks, disp, -1, std::string()).text;
+                if (!sentence.empty()) {
+                    verified.push_back(std::move(sentence));
+                }
             }
         }
         if (workerStop_.load()) {

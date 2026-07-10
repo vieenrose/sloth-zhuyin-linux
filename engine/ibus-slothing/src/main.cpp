@@ -189,6 +189,15 @@ struct SlothingImpl {
     void setPreedit(const std::string &text, size_t cursorBytes,
                     int hlFromByte = -1, int hlToByte = -1) {
         if (text.empty()) {
+            // Blank the preedit explicitly (empty text, invisible, CLEAR mode)
+            // THEN hide. A bare hide is not enough for terminal/CLI clients:
+            // they don't clear on hide, and under the old COMMIT mode they
+            // committed the last char instead of dropping it — so backspacing
+            // the final character re-landed it in the buffer. GUI/Electron
+            // clients cleared fine, which is why it was CLI-only.
+            IBusText *empty = ibus_text_new_from_string("");
+            ibus_engine_update_preedit_text_with_mode(
+                engine(), empty, 0, FALSE, IBUS_ENGINE_PREEDIT_CLEAR);
             ibus_engine_hide_preedit_text(engine());
             return;
         }
@@ -208,8 +217,14 @@ struct SlothingImpl {
         }
         const guint cursor = g_utf8_strlen(
             text.substr(0, std::min(cursorBytes, text.size())).c_str(), -1);
+        // CLEAR, not COMMIT: COMMIT tells the client to commit the preedit
+        // whenever it ends (hide / focus-out), so backspacing the last char
+        // would land it in the document instead of clearing it (both en+zh).
+        // Every real commit path here is explicit (acceptConversion,
+        // flushPending, passthrough, symbols), so the preedit must be pure
+        // display that vanishes when cleared.
         ibus_engine_update_preedit_text_with_mode(
-            engine(), t, cursor, TRUE, IBUS_ENGINE_PREEDIT_COMMIT);
+            engine(), t, cursor, TRUE, IBUS_ENGINE_PREEDIT_CLEAR);
     }
 
     void setAux(const std::string &text) {
@@ -557,12 +572,17 @@ struct SlothingImpl {
                     }
                 }
             } else {
-                std::string sentence;
+                // mixed zh/en: decode each zh run, keep en literals — but
+                // build a per-token display and join it with joinDisplay so
+                // English runs get the same spacing as the preedit (a raw
+                // `sentence += tok.v` dropped the spaces the user typed
+                // between words: "web app" -> "webapp").
+                std::vector<std::string> disp;
                 bool ok = true;
                 size_t i = 0;
                 while (i < toks.size() && !workerStop.load()) {
                     if (!toks[i].zh) {
-                        sentence += toks[i].v;
+                        disp.push_back(toks[i].v);
                         i++;
                         continue;
                     }
@@ -575,14 +595,23 @@ struct SlothingImpl {
                         queryDecoder(run, 1, "", inflightFd, err);
                     if (!sentences.empty() &&
                         utf8Length(sentences[0]) == run.size()) {
-                        sentence += sentences[0];
+                        const std::string &sent = sentences[0];
+                        for (size_t k = 0, off = 0; k < run.size(); k++) {
+                            size_t len = utf8SeqLen(sent[off]);
+                            disp.push_back(sent.substr(off, len));
+                            off += len;
+                        }
                     } else {
                         ok = false;
                         break;
                     }
                 }
-                if (ok && !sentence.empty()) {
-                    verified.push_back(std::move(sentence));
+                if (ok && !disp.empty()) {
+                    std::string sentence =
+                        joinDisplay(toks, disp, -1, std::string()).text;
+                    if (!sentence.empty()) {
+                        verified.push_back(std::move(sentence));
+                    }
                 }
             }
             if (workerStop.load()) {
