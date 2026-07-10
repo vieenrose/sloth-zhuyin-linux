@@ -312,7 +312,15 @@ void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {
 
 void ChewingEngine::renderComposing(InputContext *ic) {
     ic->inputPanel().reset();
-    std::string pre = buffer_.preedit();
+    // Live conversion (微軟新注音 style): show decoded Chinese for the
+    // completed syllables + the pending syllable's bopomofo at the tail.
+    // Only when the decode matches the current buffer; otherwise raw bopomofo.
+    std::string pre;
+    if (!livePreedit_.empty() && liveSyllables_ == buffer_.syllables()) {
+        pre = livePreedit_ + buffer_.pending();
+    } else {
+        pre = buffer_.preedit();
+    }
     if (!pre.empty()) {
         const auto useClient = ic->capabilityFlags().test(CapabilityFlag::Preedit);
         Text preedit(pre, useClient ? TextFormatFlag::Underline
@@ -373,6 +381,52 @@ void ChewingEngine::cancelConversion(InputContext *ic, std::string notice) {
     segFocus_ = 0;
     // keep buffer_ so the user can keep editing / retry
     updateUI(ic);
+}
+
+void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
+    const auto &syllables = buffer_.syllables();
+    if (syllables.empty() || phoneticTable_.empty()) {
+        livePreedit_.clear();
+        liveSyllables_.clear();
+        return;
+    }
+    // every syllable must have candidates, or the decode can't cover it
+    for (const auto &syl : syllables) {
+        auto it = phoneticTable_.find(syl);
+        if (it == phoneticTable_.end() || it->second.empty()) {
+            return; // keep the last good live preedit (or raw bopomofo)
+        }
+    }
+    stopWorker();
+    const uint64_t generation = ++liveGeneration_;
+    auto icRef = ic->watch();
+    worker_ = std::thread(
+        [this, icRef, generation,
+         syllables = std::vector<std::string>(syllables)]() {
+            RerankError err = RerankError::None;
+            auto sentences = queryDecoder(syllables, 1, "", inflightFd_, err);
+            if (workerStop_.load()) {
+                return;
+            }
+            std::string best =
+                sentences.empty() ? std::string() : std::move(sentences[0]);
+            dispatcher_.schedule([this, icRef, generation, syllables,
+                                  best = std::move(best)]() {
+                if (generation != liveGeneration_ ||
+                    convertState_ != ConvertState::Composing) {
+                    return; // stale, or user moved on
+                }
+                auto *ic = icRef.get();
+                if (!ic) {
+                    return;
+                }
+                if (!best.empty()) {
+                    livePreedit_ = best;
+                    liveSyllables_ = syllables;
+                } // decode failure: keep raw bopomofo (silent fallback)
+                renderComposing(ic);
+            });
+        });
 }
 
 void ChewingEngine::startDecode(InputContext *ic) {
@@ -648,6 +702,9 @@ void ChewingEngine::acceptConversion(InputContext *ic,
     ic->commitString(sentence);
     convertState_ = ConvertState::Composing;
     convertGeneration_++;
+    liveGeneration_++;
+    livePreedit_.clear();
+    liveSyllables_.clear();
     buffer_.clear();
     convertBuffer_.clear();
     convertPositions_.clear();
@@ -752,10 +809,21 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         return; // let Ctrl+Return etc. reach the app
     }
 
+    // ↓ while composing: enter per-character selection (微軟新注音 idiom).
+    if (keyEvent.key().check(FcitxKey_Down)) {
+        if (!buffer_.empty() && buffer_.pending().empty()) {
+            keyEvent.filterAndAccept();
+            startDecode(ic);
+        }
+        return;
+    }
+
     if (keyEvent.key().check(FcitxKey_Escape)) {
         if (!buffer_.empty()) {
             keyEvent.filterAndAccept();
             buffer_.clear();
+            livePreedit_.clear();
+            liveSyllables_.clear();
             renderComposing(ic);
         }
         return;
@@ -764,27 +832,43 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
     if (keyEvent.key().check(FcitxKey_BackSpace)) {
         if (!buffer_.empty()) {
             keyEvent.filterAndAccept();
+            const size_t before = buffer_.syllables().size();
             buffer_.backspace();
+            if (buffer_.syllables().size() != before) {
+                scheduleLiveDecode(ic);
+            }
             renderComposing(ic);
         }
         return;
     }
 
-    // Enter with a buffer: decode + commit the top sentence directly (fast
-    // path, no segment UI). Empty buffer: let Enter reach the app.
+    // Enter with a buffer: if the live preedit is fresh and the buffer is
+    // settled, commit it instantly; otherwise decode-then-commit as before.
     if (keyEvent.key().check(FcitxKey_Return)) {
         if (!buffer_.empty()) {
             keyEvent.filterAndAccept();
+            if (!livePreedit_.empty() &&
+                liveSyllables_ == buffer_.syllables() &&
+                buffer_.pending().empty()) {
+                acceptConversion(ic, livePreedit_);
+                return;
+            }
             startDecode(ic);
         }
         return;
     }
 
-    // A zhuyin / tone key: feed the FSM.
+    // A zhuyin / tone key: feed the FSM. When a syllable completes (the
+    // committed count grows), kick a live decode so the preedit shows
+    // Chinese, 微軟新注音-style.
     if (keyEvent.key().isSimple()) {
         char c = static_cast<char>(keyEvent.key().sym() & 0xff);
+        const size_t before = buffer_.syllables().size();
         if (buffer_.key(c)) {
             keyEvent.filterAndAccept();
+            if (buffer_.syllables().size() != before) {
+                scheduleLiveDecode(ic);
+            }
             renderComposing(ic);
             return;
         }

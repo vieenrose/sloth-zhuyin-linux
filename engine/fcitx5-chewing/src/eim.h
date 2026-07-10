@@ -109,8 +109,13 @@ private:
     enum class ConvertState { Composing, Converting, Choosing };
 
     void updateUI(InputContext *ic);
-    // Redraw the composing preedit (the typed bopomofo).
+    // Redraw the composing preedit: live-decoded Chinese when fresh, with the
+    // pending (incomplete) syllable's bopomofo appended; raw bopomofo as the
+    // fallback (decoder unavailable / not yet returned).
     void renderComposing(InputContext *ic);
+    // 微軟新注音-style live conversion: after each completed syllable, decode
+    // asynchronously and show the sentence as the preedit while Composing.
+    void scheduleLiveDecode(InputContext *ic);
     // Begin a decode for the current buffer (spawn the worker).
     void startDecode(InputContext *ic);
     // Enter segment-conversion for the decoded sentences (best seeds the
@@ -144,6 +149,12 @@ private:
     // Model-ranked 2-char phrase candidates per focus position, fetched
     // lazily from the daemon while Choosing. Main thread only.
     std::map<int, std::vector<std::string>> phraseCands_;
+
+    // Live (modeless) conversion state: the decoded sentence and the
+    // syllables it corresponds to. Valid only when it matches the buffer.
+    std::string livePreedit_;
+    std::vector<std::string> liveSyllables_;
+    uint64_t liveGeneration_ = 0;
 
     std::string convertNotice_;
     std::unique_ptr<EventSourceTime> convertTimer_;
