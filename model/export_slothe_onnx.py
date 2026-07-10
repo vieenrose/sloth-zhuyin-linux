@@ -24,7 +24,8 @@ def main():
     c=ckpt["config"]
     hints_on=c.get("char_hints",False)
     model=SlothE(c["n_syl"],c["n_char"],c["dim"],c["depth"],c["heads"],c["kv"],c["ffn"],
-                 embed_norm=c.get("embed_norm",False), char_hints=hints_on)
+                 embed_norm=c.get("embed_norm",False), char_hints=hints_on,
+                 tie_hints=c.get("tie_hints",False))
     model.load_state_dict(ckpt["model"]); model.eval()
 
     syl=torch.zeros(1,6,dtype=torch.long)

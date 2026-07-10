@@ -687,14 +687,27 @@ void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
             joinDisplay(committedToks_, liveDisp_, -1, std::string()).text;
         return;
     }
+    // document context: committed text before the cursor, when the app
+    // exposes it (conditions the decode via the model's hint channel)
+    std::string ctx;
+    if (ic->capabilityFlags().test(CapabilityFlag::SurroundingText) &&
+        ic->surroundingText().isValid()) {
+        const auto &st = ic->surroundingText();
+        const std::string &t = st.text();
+        auto tLen = utf8::lengthValidated(t);
+        if (tLen != utf8::INVALID_LENGTH && st.cursor() <= tLen) {
+            ctx = t.substr(0, utf8::ncharByteLength(t.begin(), st.cursor()));
+        }
+    }
     stopWorker();
     const uint64_t generation = ++liveGeneration_;
     auto icRef = ic->watch();
-    worker_ = std::thread([this, icRef, generation,
+    worker_ = std::thread([this, icRef, generation, ctx = std::move(ctx),
                            toks = committedToks_]() {
         // Decode each contiguous zh run separately (the daemon input is
         // syllables-only; en runs are passthrough); one display per token.
         std::vector<std::string> disp;
+        std::string runCtx = ctx; // grows with decoded runs
         size_t i = 0;
         bool allOk = true;
         while (i < toks.size() && !workerStop_.load()) {
@@ -710,10 +723,11 @@ void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
                 i++;
             }
             RerankError err = RerankError::None;
-            auto sentences = queryDecoder(run, 1, "", inflightFd_, err);
+            auto sentences = queryDecoder(run, 1, runCtx, inflightFd_, err);
             if (!sentences.empty() &&
                 utf8::lengthValidated(sentences[0]) == run.size()) {
                 const std::string &sent = sentences[0];
+                runCtx += sent;
                 for (size_t k = 0, off = 0; k < run.size(); k++) {
                     size_t len = utf8::ncharByteLength(sent.begin() + off, 1);
                     disp.push_back(sent.substr(off, len));

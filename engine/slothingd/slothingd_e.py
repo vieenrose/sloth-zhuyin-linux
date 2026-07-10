@@ -175,17 +175,26 @@ class Decoder:
             feed["hints"] = hints_vec
         return self.sess.run(None, feed)
 
-    def decode(self, syllables, n, hints=None):
-        """hints: {position: char} user corrections; with a hint-conditioned
-        model the whole sentence re-scores around them (新注音-style)."""
+    CTX_MAX = 12
+
+    def decode(self, syllables, n, hints=None, context=""):
+        """hints: {position: char} user corrections; context: committed text
+        before the cursor. Both condition the decode (hint channel); with a
+        context/hint-trained model the whole sentence re-scores around them."""
+        # context chars ride the hint channel on <pad>-id prefix positions
+        ctx = [c for c in context if c in self.char2id][-self.CTX_MAX:] \
+            if (context and self.has_hints) else []
+        L = len(ctx)
         hint_ids = None
-        if hints and self.has_hints:
-            hint_ids = np.zeros((1, len(syllables)), dtype=np.int64)
-            for k, ch in hints.items():
+        if (hints or ctx) and self.has_hints:
+            hint_ids = np.zeros((1, L + len(syllables)), dtype=np.int64)
+            for j, c in enumerate(ctx):
+                hint_ids[0, j] = self.char2id[c] + 1
+            for k, ch in (hints or {}).items():
                 i = int(k)
                 if 0 <= i < len(syllables) and ch in self.char2id:
-                    hint_ids[0, i] = self.char2id[ch] + 1
-        ids = [self.syl_vocab.get(s, 1) for s in syllables]
+                    hint_ids[0, L + i] = self.char2id[ch] + 1
+        ids = [0] * L + [self.syl_vocab.get(s, 1) for s in syllables]
         cand_override = {}
         # typo correction: an impossible syllable (no legal chars) is replaced
         # by the edit-distance-1 correction the model itself scores highest —
@@ -200,14 +209,14 @@ class Decoder:
                 continue
             batch = np.tile(np.array(ids, dtype=np.int64), (len(fixes), 1))
             for j, (v, _) in enumerate(fixes):
-                batch[j, i] = self.syl_vocab[v]
+                batch[j, L + i] = self.syl_vocab[v]
             am = np.ones_like(batch, dtype=bool)
             hb = np.tile(hint_ids, (len(fixes), 1)) if hint_ids is not None else None
             lgb = self._run(batch, am, hb)[0]
             best_j, best_v = 0, -np.inf
             typed_len = len([c for c in s if c not in TONES])
             for j, (fv, cs) in enumerate(fixes):
-                v = max(lgb[j, i, self.char2id[c]] for c in cs
+                v = max(lgb[j, L + i, self.char2id[c]] for c in cs
                         if c in self.char2id)
                 # prior: a MISSED key (longer corrected base) is the common
                 # slip; deletions (shorter base) drop typed information
@@ -215,12 +224,12 @@ class Decoder:
                 v += 1.5 * (base_len - typed_len)
                 if v > best_v:
                     best_v, best_j = v, j
-            ids[i] = self.syl_vocab[fixes[best_j][0]]
+            ids[L + i] = self.syl_vocab[fixes[best_j][0]]
             cand_override[i] = [(c, self.char2id[c]) for c in fixes[best_j][1]
                                 if c in self.char2id]
         sid = np.array([ids], dtype=np.int64)
         amask = np.ones_like(sid, dtype=bool)
-        lg = self._run(sid, amask, hint_ids)[0][0]
+        lg = self._run(sid, amask, hint_ids)[0][0][L:]   # drop ctx positions
         bonus = self._bonus(syllables)
         best, margins = [], []          # per position: char + (margin, runner-up)
         ranked = []                     # per position: chars by model score
@@ -282,7 +291,8 @@ class Decoder:
         if req.get("phrase_at") is not None:   # 2-char phrase candidates
             phrases, probs = self.phrases(syllables, int(req["phrase_at"]), n)
             return {"sentences": phrases, "scores": probs}
-        sentences, ranked = self.decode(syllables, n, hints=req.get("hints"))
+        sentences, ranked = self.decode(syllables, n, hints=req.get("hints"),
+                                        context=req.get("context") or "")
         return {"sentences": sentences, "candidates": ranked}
 
     def handle_any(self, req):

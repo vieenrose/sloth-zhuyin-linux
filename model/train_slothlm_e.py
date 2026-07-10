@@ -23,10 +23,22 @@ from torch.utils.data import DataLoader, Dataset
 
 # ---- data ----
 class AlignedBin(Dataset):
-    """Records [N][syl*N][char*N] in a uint16 stream."""
+    """Records [N][syl*N][char*N] in a uint16 stream.
 
-    def __init__(self, path):
+    Optional v2 training features:
+    - ctx_p: prepend the PREVIOUS corpus sentence's tail chars (record k-2,
+      same tone-mode) as context positions — syl id 0 (<pad>) + the char as a
+      forced hint; label -100. Teaches document-context conditioning.
+    - typo (dict syl_id -> [neighbor ids]) + typo_p: corrupt one input
+      syllable to an ED1-valid neighbor (label unchanged) — robustness that
+      stabilizes serving-side typo-repair scoring.
+    """
+
+    CTX_MAX = 12
+
+    def __init__(self, path, ctx_p=0.0, typo=None, typo_p=0.0):
         self.data = np.fromfile(path, dtype=np.uint16)
+        self.ctx_p, self.typo, self.typo_p = ctx_p, typo, typo_p
         self.idx = []
         i, d = 0, self.data
         while i < len(d):
@@ -43,20 +55,78 @@ class AlignedBin(Dataset):
         syl = self.data[s:s + n].astype(np.int64)
         chr_ = self.data[s + n:s + 2 * n].astype(np.int64)
         chr_[chr_ == 65535] = -100          # English positions: passthrough, no loss
-        return torch.from_numpy(syl), torch.from_numpy(chr_)
+        if self.typo is not None and self.typo_p > 0 and np.random.rand() < self.typo_p:
+            zh = np.nonzero(chr_ >= 0)[0]
+            if len(zh):
+                i = int(np.random.choice(zh))
+                nb = self.typo.get(int(syl[i]))
+                if nb:
+                    syl[i] = int(nb[np.random.randint(len(nb))])
+        forced = np.zeros(n, dtype=np.int64)   # hint ids forced by context
+        if self.ctx_p > 0 and k >= 2 and np.random.rand() < self.ctx_p:
+            ps, pn = self.idx[k - 2]
+            pch = self.data[ps + pn:ps + 2 * pn].astype(np.int64)
+            pch = pch[pch != 65535][-self.CTX_MAX:]
+            if len(pch):
+                L = len(pch)
+                syl = np.concatenate([np.zeros(L, dtype=np.int64), syl])
+                chr_ = np.concatenate([np.full(L, -100, dtype=np.int64), chr_])
+                forced = np.concatenate([pch + 1, forced])
+        return (torch.from_numpy(syl), torch.from_numpy(chr_),
+                torch.from_numpy(forced))
 
 
 def collate(batch, pad=0):
-    n = max(len(s) for s, _ in batch)
+    n = max(len(s) for s, _, _ in batch)
     B = len(batch)
     syl = torch.zeros(B, n, dtype=torch.long)
     chr_ = torch.full((B, n), -100, dtype=torch.long)   # ignore_index
     mask = torch.zeros(B, n, dtype=torch.bool)
-    for i, (s, c) in enumerate(batch):
+    forced = torch.zeros(B, n, dtype=torch.long)
+    for i, (s, c, f) in enumerate(batch):
         syl[i, :len(s)] = s
         chr_[i, :len(c)] = c
         mask[i, :len(s)] = True
-    return syl, chr_, mask
+        forced[i, :len(f)] = f
+    return syl, chr_, mask, forced
+
+
+def build_typo_neighbors(syl_vocab):
+    """syl_id -> ED1-valid neighbor ids (same tone): one bopomofo symbol
+    substituted, inserted, or deleted."""
+    TONES = set("ˊˇˋ˙")
+    by_key = {}
+    for s, i in syl_vocab.items():
+        if s.startswith("<"):
+            continue
+        tone = "".join(c for c in s if c in TONES)
+        base = tuple(c for c in s if c not in TONES)
+        by_key.setdefault((tone, len(base)), []).append((base, i))
+    out = {}
+    for s, i in syl_vocab.items():
+        if s.startswith("<"):
+            continue
+        tone = "".join(c for c in s if c in TONES)
+        base = tuple(c for c in s if c not in TONES)
+        nb = []
+        for dl in (-1, 0, 1):
+            for other, j in by_key.get((tone, len(base) + dl), []):
+                if j == i:
+                    continue
+                # ED1 check for same/±1 length tuples
+                a, b = base, other
+                if len(a) == len(b):
+                    if sum(x != y for x, y in zip(a, b)) == 1:
+                        nb.append(j)
+                else:
+                    s1, s2 = (a, b) if len(a) < len(b) else (b, a)
+                    for p in range(len(s2)):
+                        if s2[:p] + s2[p + 1:] == s1:
+                            nb.append(j)
+                            break
+        if nb:
+            out[i] = nb
+    return out
 
 
 # ---- model ----
@@ -138,14 +208,20 @@ class Block(nn.Module):
 
 class SlothE(nn.Module):
     def __init__(self, n_syl, n_char, dim=384, depth=8, heads=6, kv=2, ffn=1024,
-                 embed_norm=False, char_hints=False):
+                 embed_norm=False, char_hints=False, tie_hints=False):
         super().__init__()
         self.embed = nn.Embedding(n_syl, dim)
         # optional conditioning channel: observed/user-corrected chars
         # (id 0 = no hint, else char_id+1). Enables 新注音-style re-scoring
-        # of the whole sentence after an interactive correction.
-        self.hint_embed = nn.Embedding(n_char + 1, dim,
-                                       padding_idx=0) if char_hints else None
+        # of the whole sentence after an interactive correction. When tied,
+        # hint vectors come from the output head's char matrix (+1 learned
+        # "none" row) — costs ~0 params instead of n_char*dim.
+        self.hint_tied = char_hints and tie_hints
+        if char_hints and not tie_hints:
+            self.hint_embed = nn.Embedding(n_char + 1, dim, padding_idx=0)
+        else:
+            self.hint_embed = None
+        self.hint_none = nn.Parameter(torch.zeros(dim)) if self.hint_tied else None
         self.embed_norm = RMSNorm(dim) if embed_norm else None  # ModernBERT post-embed norm
         self.blocks = nn.ModuleList([Block(dim, heads, kv, ffn) for _ in range(depth)])
         self.norm = RMSNorm(dim)
@@ -161,7 +237,10 @@ class SlothE(nn.Module):
     def forward(self, syl, amask, hints=None):
         pos = torch.arange(syl.shape[1], device=syl.device)
         x = self.embed(syl)
-        if self.hint_embed is not None and hints is not None:
+        if hints is not None and self.hint_tied:
+            w = torch.cat([self.hint_none.unsqueeze(0), self.head.weight], 0)
+            x = x + F.embedding(hints, w)
+        elif self.hint_embed is not None and hints is not None:
             x = x + self.hint_embed(hints)
         if self.embed_norm is not None:
             x = self.embed_norm(x)
@@ -190,6 +269,12 @@ def main():
     ap.add_argument("--char-hints", action="store_true",
                     help="train with random char hints (conditioning channel "
                          "for interactive re-scoring)")
+    ap.add_argument("--tie-hints", action="store_true",
+                    help="tie hint vectors to the output head (~0 params)")
+    ap.add_argument("--typo-noise", type=float, default=0.0,
+                    help="p(corrupt one syllable to an ED1-valid neighbor)")
+    ap.add_argument("--context", type=float, default=0.0,
+                    help="p(prepend previous sentence tail as context hints)")
     args = ap.parse_args()
 
     from transformers import AutoTokenizer
@@ -200,12 +285,15 @@ def main():
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
-    ds = AlignedBin(args.data)
+    typo_map = build_typo_neighbors(syl_vocab) if args.typo_noise > 0 else None
+    ds = AlignedBin(args.data, ctx_p=args.context, typo=typo_map,
+                    typo_p=args.typo_noise)
     dl = DataLoader(ds, batch_size=args.batch, shuffle=True, num_workers=8,
                     collate_fn=collate, pin_memory=True, drop_last=True)
     model = SlothE(len(syl_vocab), len(tok), args.dim, args.depth,
                    args.heads, args.kv_heads, args.ffn,
-                   embed_norm=args.embed_norm, char_hints=args.char_hints).to(dev)
+                   embed_norm=args.embed_norm, char_hints=args.char_hints,
+                   tie_hints=args.tie_hints).to(dev)
     print(f"SlothLM-E {sum(p.numel() for p in model.parameters())/1e6:.1f}M params")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95),
                             weight_decay=0.1)
@@ -215,15 +303,18 @@ def main():
     model.train()
     step = 0
     for ep in range(math.ceil(args.epochs)):
-        for syl, chr_, mask in dl:
-            syl, chr_, mask = syl.to(dev), chr_.to(dev), mask.to(dev)
+        for syl, chr_, mask, forced in dl:
+            syl, chr_, mask, forced = (syl.to(dev), chr_.to(dev),
+                                       mask.to(dev), forced.to(dev))
             hints = None
             if args.char_hints:
                 # reveal 0-30% of true chars per sequence as hints; the model
-                # learns to condition the rest of the sentence on them
+                # learns to condition the rest of the sentence on them.
+                # context positions carry their char as a FORCED hint.
                 reveal_p = torch.rand(syl.shape[0], 1, device=dev) * 0.3
                 reveal = (torch.rand(syl.shape, device=dev) < reveal_p) & (chr_ >= 0)
                 hints = torch.where(reveal, chr_ + 1, torch.zeros_like(chr_))
+                hints = torch.where(forced > 0, forced, hints)
             with torch.autocast(dev, dtype=torch.bfloat16, enabled=dev == "cuda"):
                 logits = model(syl, mask, hints)
                 loss = F.cross_entropy(logits.reshape(-1, logits.shape[-1]),
@@ -247,7 +338,10 @@ def main():
                            "dim": args.dim, "depth": args.depth,
                            "heads": args.heads, "kv": args.kv_heads,
                            "ffn": args.ffn, "embed_norm": args.embed_norm,
-                           "char_hints": args.char_hints}},
+                           "char_hints": args.char_hints,
+                           "tie_hints": args.tie_hints,
+                           "trained_ctx": args.context > 0,
+                           "trained_typo_noise": args.typo_noise}},
                os.path.join(args.out, "slothe.pt"))
     json.dump(syl_vocab, open(os.path.join(args.out, "syl_vocab.json"), "w",
                               encoding="utf-8"), ensure_ascii=False)

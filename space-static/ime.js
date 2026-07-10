@@ -318,13 +318,15 @@ async function runPreview(){
     // it. Shorter context => faster (decode time ~ segment length, not whole
     // buffer) and no long-sequence truncation.
     const zhChars=[], zhCands=[]; let seg=[], segIdx=[]; let ci=0;
+    let ctxAcc=$('out').value.slice(-CTX_MAX);   // document context (committed)
     const flushSeg=async()=>{
       const zh=seg.filter(t=>t.t==='zh').map(t=>toneless?strip(t.v):t.v);
       // user picks (overrides) condition the whole segment's re-decode
       const hints={}; let rel=0;
       for(let q=0;q<seg.length;q++) if(seg[q].t==='zh'){
         const oi=segIdx[q]; if(overrides[oi]) hints[rel]=overrides[oi]; rel++; }
-      const r=zh.length?await decodeZh(zh,{},hints):{chars:[],cands:[]};
+      const r=zh.length?await decodeZh(zh,{},hints,ctxAcc):{chars:[],cands:[]};
+      if(r.chars.length) ctxAcc=(ctxAcc+r.chars.join('')).slice(-CTX_MAX);
       let zc=0;
       for(const tok of seg) if(tok.t==='zh'){ zhCands.push(r.cands[zc]); zhChars.push(r.chars[zc]); zc++; }
       seg=[];
@@ -404,18 +406,23 @@ function typoFixes(syl){const tone=[...syl].filter(c=>TONES.includes(c)).join(''
 function candSet(syl){const out=[],ids=[];for(const c of candChars(syl)){const i=char2id[c];if(i!=null&&!ids.includes(i)){ids.push(i);out.push(c);}}return{chars:out,ids};}
 // one bidirectional forward pass over the syllable sequence -> per-position logits
 let modelHasHints=false;   // set at init from the session's input names
-async function encForward(syls, hintIds){
-  const ids=syls.map(s=>sylVocab[s]??1), T=ids.length;
+const CTX_MAX=12;
+async function encForward(syls, hintIds, ctxChars){
+  // context = committed text before the cursor, riding the hint channel on
+  // <pad>-id prefix positions (matches training)
+  const ctx=(modelHasHints&&ctxChars)?[...ctxChars].filter(c=>char2id[c]!=null).slice(-CTX_MAX):[];
+  const L=ctx.length;
+  const ids=[...new Array(L).fill(0), ...syls.map(s=>sylVocab[s]??1)], T=ids.length;
   const feed={
     syl:new ort.Tensor('int64',BigInt64Array.from(ids.map(BigInt)),[1,T]),
     amask:new ort.Tensor('bool',Uint8Array.from(new Array(T).fill(1)),[1,T]),
   };
   if(modelHasHints){
-    const h=hintIds||new Array(T).fill(0);
+    const h=[...ctx.map(c=>char2id[c]+1), ...(hintIds||new Array(syls.length).fill(0))];
     feed.hints=new ort.Tensor('int64',BigInt64Array.from(h.map(BigInt)),[1,T]);
   }
   const out=await session.run(feed);
-  return {data:out.logits.data, V:out.logits.dims[2], T};
+  return {data:out.logits.data, V:out.logits.dims[2], T, L};
 }
 // batched forward for typo scoring: rows = variants of the same sentence
 async function encForwardBatch(rows){
@@ -428,7 +435,7 @@ async function encForwardBatch(rows){
   return {data:out.logits.data, V:out.logits.dims[2], T};
 }
 const LEARN_BONUS=6.0;   // calibrated: flips 在/再-scale gaps, spares 的/重新
-async function decodeZh(sylsIn, forced={}, hints={}){
+async function decodeZh(sylsIn, forced={}, hints={}, ctx=''){
   // typo tolerance: an impossible syllable (no legal chars) is replaced by
   // the edit-distance-1 correction the model itself scores highest. Legal
   // syllables never enter this path.
@@ -456,16 +463,16 @@ async function decodeZh(sylsIn, forced={}, hints={}){
     hintIds=new Array(syls.length).fill(0);
     for(const k in hints){ const id=char2id[hints[k]]; if(id!=null) hintIds[+k]=id+1; }
   }
-  const {data,V,T}=await encForward(syls, hintIds);
+  const {data,V,L}=await encForward(syls, hintIds, ctx);
   const chars=[], ranked=[];
-  for(let i=0;i<T;i++){
-    const {chars:cc,ids}=sets[i];
+  for(let i0=0;i0<syls.length;i0++){
+    const {chars:cc,ids}=sets[i0];
     // model-score candidate order (chewing/新注音 rank by score, not table)
-    const scored=cc.map((c,k)=>({c,v:data[i*V+ids[k]] + (learn[syls[i]]===c?LEARN_BONUS:0)}))
+    const scored=cc.map((c,k)=>({c,v:data[(L+i0)*V+ids[k]] + (learn[syls[i0]]===c?LEARN_BONUS:0)}))
                    .sort((a,b)=>b.v-a.v);
     ranked.push(scored.map(x=>x.c));
-    if(forced[i]!=null){ chars.push(forced[i]); continue; }
-    chars.push(scored.length?scored[0].c:syls[i]);
+    if(forced[i0]!=null){ chars.push(forced[i0]); continue; }
+    chars.push(scored.length?scored[0].c:syls[i0]);
   }
   return{chars,cands:ranked};
 }
