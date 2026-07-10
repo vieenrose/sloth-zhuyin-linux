@@ -441,8 +441,13 @@ async function decodeZh(sylsIn, forced={}, hints={}){
     const rows=fixes.map(f=>{const r=[...baseIds];r[i]=sylVocab[f.syl];return r;});
     const {data:bd,V:bV}=await encForwardBatch(rows);
     let bj=0,bv=-Infinity;
-    fixes.forEach((f,j)=>{ for(const c of f.chars){ const id=char2id[c];
-      if(id!=null){ const v=bd[(j*syls.length+i)*bV+id]; if(v>bv){bv=v;bj=j;} } } });
+    const typedLen=strip(syls[i]).length;
+    fixes.forEach((f,j)=>{ let best=-Infinity;
+      for(const c of f.chars){ const id=char2id[c];
+        if(id!=null){ const v=bd[(j*syls.length+i)*bV+id]; if(v>best)best=v; } }
+      // prior: a MISSED key (longer corrected base) is the common slip
+      best += 1.5*(strip(f.syl).length - typedLen);
+      if(best>bv){bv=best;bj=j;} });
     syls[i]=fixes[bj].syl;
   }
   const sets=syls.map(candSet);

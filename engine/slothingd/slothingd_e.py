@@ -205,9 +205,14 @@ class Decoder:
             hb = np.tile(hint_ids, (len(fixes), 1)) if hint_ids is not None else None
             lgb = self._run(batch, am, hb)[0]
             best_j, best_v = 0, -np.inf
-            for j, (_, cs) in enumerate(fixes):
+            typed_len = len([c for c in s if c not in TONES])
+            for j, (fv, cs) in enumerate(fixes):
                 v = max(lgb[j, i, self.char2id[c]] for c in cs
                         if c in self.char2id)
+                # prior: a MISSED key (longer corrected base) is the common
+                # slip; deletions (shorter base) drop typed information
+                base_len = len([c for c in fv if c not in TONES])
+                v += 1.5 * (base_len - typed_len)
                 if v > best_v:
                     best_v, best_j = v, j
             ids[i] = self.syl_vocab[fixes[best_j][0]]
