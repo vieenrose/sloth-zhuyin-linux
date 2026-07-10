@@ -195,7 +195,7 @@ std::vector<std::string> queryDecoder(const std::vector<std::string> &syllables,
 // ~1 ms; a dead daemon fails the connect instantly.
 std::vector<std::string> queryDecoderWithHints(
     const std::vector<std::string> &syllables,
-    const std::map<int, std::string> &hints) {
+    const std::map<int, std::string> &hints, json *fullOut = nullptr) {
     json req;
     req["syllables"] = syllables;
     req["n"] = 1;
@@ -206,7 +206,7 @@ std::vector<std::string> queryDecoderWithHints(
     req["hints"] = h;
     std::atomic<int> fd{-1};
     RerankError err = RerankError::None;
-    return sendDaemonRequest(req.dump() + "\n", fd, err);
+    return sendDaemonRequest(req.dump() + "\n", fd, err, fullOut);
 }
 
 // Fire-and-forget: persist the user's corrections in the daemon's learn
@@ -1165,10 +1165,43 @@ void ChewingEngine::rescoreChoosing(InputContext *ic) {
             hints[i] = convertPositions_[i][segSel_[i]];
         }
     }
-    auto sentences = queryDecoderWithHints(convertSyllables_, hints);
+    json full;
+    auto sentences = queryDecoderWithHints(convertSyllables_, hints, &full);
     if (sentences.empty() ||
         !matchesPositions(sentences[0], convertPositions_)) {
         return; // daemon down / non-hint model: keep current selections
+    }
+    // hint-conditioned candidate ranking: later ↓ lists reflect the picks
+    if (full.contains("candidates")) {
+        try {
+            auto r = full["candidates"]
+                         .get<std::vector<std::vector<std::string>>>();
+            if (r.size() == convertPositions_.size()) {
+                bool ok = true;
+                for (size_t i = 0; i < r.size(); i++) {
+                    if (r[i].size() != convertPositions_[i].size()) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok) {
+                    // remap current selections to the new ordering first
+                    for (size_t i = 0; i < convertPositions_.size(); i++) {
+                        const std::string cur =
+                            convertPositions_[i][segSel_[i]];
+                        for (size_t j = 0; j < r[i].size(); j++) {
+                            if (r[i][j] == cur) {
+                                segSel_[i] = static_cast<int>(j);
+                                break;
+                            }
+                        }
+                    }
+                    convertPositions_ = std::move(r);
+                    phraseCands_.clear(); // phrase ranks are stale too
+                }
+            }
+        } catch (const std::exception &) {
+        }
     }
     // adopt the re-scored chars for every segment the user hasn't touched
     for (size_t i = 0; i < convertPositions_.size(); i++) {
