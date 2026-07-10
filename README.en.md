@@ -34,7 +34,7 @@ bopomofo keyboard, whole-sentence 免選字 conversion, fully offline. On-device
 decode is the same model as the desktop: **172/230 = 74%** on the 230-case
 免選字 benchmark, identical to the desktop model (99% per-sentence agreement).
 
-<p align="center"><img src="docs/android-boox-v1.png" width="360" alt="Slothing on a BOOX Tab Mini C (Android): Dàqiān bopomofo keyboard + no-candidate-selection conversion (你好)"></p>
+<p align="center"><img src="docs/android-boox-demo.gif" width="460" alt="Slothing on a BOOX Tab Mini C (Android): tapping Dàqiān bopomofo keys, whole-sentence 免選字 conversion to 我在寫程式"></p>
 
 ## What it is
 
