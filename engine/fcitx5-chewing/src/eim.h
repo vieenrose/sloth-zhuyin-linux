@@ -102,7 +102,7 @@ public:
     void pickSegment(InputContext *ic, int candIdx);
     // Set the focused segment AND the next one from a 2-char phrase candidate
     // (per-phrase Down-rank), then advance focus past both.
-    void pickPhrase(InputContext *ic, const std::string &phrase);
+    void pickPhrase(InputContext *ic, int start, const std::string &phrase);
 
 private:
     // Pull-model, three states. Composing: the ZhuyinBuffer accumulates typed
@@ -192,7 +192,7 @@ private:
     int candSpan_ = 2;
     // Model-ranked 2-char phrase candidates per focus position, fetched
     // lazily from the daemon while Choosing. Main thread only.
-    std::map<int, std::vector<std::string>> phraseCands_;
+    std::map<int, std::vector<std::pair<int, std::string>>> phraseCands_;
 
     // Live (modeless) conversion state: the decoded preedit (spaces around
     // English) and the tokens it corresponds to. Used only when it matches

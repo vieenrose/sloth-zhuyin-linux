@@ -219,15 +219,25 @@ void sendLearn(const json &learnBody) {
     }).detach();
 }
 
-std::vector<std::string> queryPhrases(const std::vector<std::string> &syllables,
-                                      int at, int n) {
+std::vector<std::pair<double, std::string>>
+queryPhrasesScored(const std::vector<std::string> &syllables, int at, int n) {
     json req;
     req["syllables"] = syllables;
     req["phrase_at"] = at;
     req["n"] = n;
     std::atomic<int> fd{-1};
     RerankError err = RerankError::None;
-    return sendDaemonRequest(req.dump() + "\n", fd, err);
+    json full;
+    auto phrases = sendDaemonRequest(req.dump() + "\n", fd, err, &full);
+    std::vector<std::pair<double, std::string>> out;
+    for (size_t i = 0; i < phrases.size(); i++) {
+        double p = 0.0;
+        if (full.contains("scores") && i < full["scores"].size()) {
+            p = full["scores"][i].get<double>();
+        }
+        out.emplace_back(p, std::move(phrases[i]));
+    }
+    return out;
 }
 
 } // namespace
@@ -295,15 +305,16 @@ private:
 // (per-phrase Down-rank; one pick fixes a whole word).
 class PhraseCandidateWord : public CandidateWord {
 public:
-    PhraseCandidateWord(ChewingEngine *engine, std::string phrase)
-        : CandidateWord(Text(phrase + "（詞）")), engine_(engine),
+    PhraseCandidateWord(ChewingEngine *engine, int start, std::string phrase)
+        : CandidateWord(Text(phrase)), engine_(engine), start_(start),
           phrase_(std::move(phrase)) {}
     void select(InputContext *inputContext) const override {
-        engine_->pickPhrase(inputContext, phrase_);
+        engine_->pickPhrase(inputContext, start_, phrase_);
     }
 
 private:
     ChewingEngine *engine_;
+    int start_;
     std::string phrase_;
 };
 
@@ -1034,31 +1045,47 @@ void ChewingEngine::renderSegments(InputContext *ic) {
     // One span view at a time (chewing-style): 詞 view shows model-ranked
     // 2-char phrases covering focus..focus+1; 單字 view shows the ranked
     // chars. ↓/↑ cycle the views.
-    const bool zhPair =
-        segFocus_ + 1 < static_cast<int>(convertSyllables_.size()) &&
-        !convertSyllables_[segFocus_].empty() &&
-        !convertSyllables_[segFocus_ + 1].empty();
-    if (zhPair && !phraseCands_.count(segFocus_)) {
+    if (!phraseCands_.count(segFocus_)) {
+        // words COVERING the focused char (chewing/新注音 semantics): both
+        // the (focus-1, focus) and (focus, focus+1) windows, merged by the
+        // model's joint probability.
         std::vector<std::string> syls;
-        int focusInRun = -1;
+        int focusInRun = -1, runStartTok = 0;
         for (int k = 0; k < static_cast<int>(convertSyllables_.size()); k++) {
             if (convertSyllables_[k].empty()) {
                 if (k > segFocus_) break;
                 syls.clear();
+                runStartTok = k + 1;
                 continue;
             }
             if (k == segFocus_) focusInRun = static_cast<int>(syls.size());
             syls.push_back(convertSyllables_[k]);
         }
-        phraseCands_[segFocus_] =
-            focusInRun >= 0 ? queryPhrases(syls, focusInRun, 8)
-                            : std::vector<std::string>();
+        std::vector<std::pair<double, std::pair<int, std::string>>> merged;
+        if (focusInRun >= 0) {
+            for (int w : {focusInRun - 1, focusInRun}) {
+                if (w < 0 || w + 1 >= static_cast<int>(syls.size())) {
+                    continue;
+                }
+                for (auto &[p, ph] : queryPhrasesScored(syls, w, 6)) {
+                    merged.push_back({p, {runStartTok + w, ph}});
+                }
+            }
+        }
+        std::sort(merged.begin(), merged.end(),
+                  [](const auto &a, const auto &b) { return a.first > b.first; });
+        std::vector<std::pair<int, std::string>> out;
+        for (auto &[p, sp] : merged) {
+            if (out.size() >= 8) break;
+            out.push_back(sp);
+        }
+        phraseCands_[segFocus_] = std::move(out);
     }
     const auto &phrases = phraseCands_[segFocus_];
     const bool wordView = candSpan_ == 2 && !phrases.empty();
     if (wordView) {
-        for (const auto &ph : phrases) {
-            list->append(std::make_unique<PhraseCandidateWord>(this, ph));
+        for (const auto &[start, ph] : phrases) {
+            list->append(std::make_unique<PhraseCandidateWord>(this, start, ph));
         }
         list->setGlobalCursorIndex(0);
     } else {
@@ -1081,8 +1108,9 @@ void ChewingEngine::renderSegments(InputContext *ic) {
     ic->updateUserInterface(UserInterfaceComponent::InputPanel);
 }
 
-void ChewingEngine::pickPhrase(InputContext *ic, const std::string &phrase) {
-    const int i = segFocus_;
+void ChewingEngine::pickPhrase(InputContext *ic, int start,
+                               const std::string &phrase) {
+    const int i = start;
     if (i < 0 || i + 1 >= static_cast<int>(convertPositions_.size())) {
         return;
     }

@@ -241,10 +241,10 @@ class Decoder:
         softmax over legal chars, cross-ranked by joint probability (same
         scheme as the web demo's buildPhrases)."""
         if not (0 <= i < len(syllables) - 1):
-            return []
+            return [], []
         c0, c1 = self.cands(syllables[i]), self.cands(syllables[i + 1])
         if not c0 or not c1:
-            return []
+            return [], []
         sid = np.array([[self.syl_vocab.get(s, 1) for s in syllables]],
                        dtype=np.int64)
         amask = np.ones_like(sid, dtype=bool)
@@ -260,13 +260,14 @@ class Decoder:
                   for a, pa in top(c0, i) for b, pb in top(c1, i + 1)]
         scored.sort(key=lambda x: -x[1])
         cut = max(0.06, 0.15 * scored[0][1]) if scored else 0
-        out = []
+        out, probs = [], []
         for ph, p in scored:
             if p < cut or len(out) >= n:
                 break
             if ph not in out:
                 out.append(ph)
-        return out
+                probs.append(p)
+        return out, probs
 
     def handle(self, req):
         syllables = req.get("syllables") or []
@@ -274,8 +275,8 @@ class Decoder:
         if not syllables:
             return {"sentences": []}
         if req.get("phrase_at") is not None:   # 2-char phrase candidates
-            return {"sentences":
-                    self.phrases(syllables, int(req["phrase_at"]), n)}
+            phrases, probs = self.phrases(syllables, int(req["phrase_at"]), n)
+            return {"sentences": phrases, "scores": probs}
         sentences, ranked = self.decode(syllables, n, hints=req.get("hints"))
         return {"sentences": sentences, "candidates": ranked}
 

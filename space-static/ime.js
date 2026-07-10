@@ -115,26 +115,39 @@ function openFix(i){
 let phrase=null, phraseBusy=false, phraseFor=-1;
 function softmaxOver(data,base,ids){let mx=-Infinity;for(const id of ids)if(data[base+id]>mx)mx=data[base+id];
   let z=0;const e={};for(const id of ids){e[id]=Math.exp(data[base+id]-mx);z+=e[id];}return{e,z};}
-async function buildPhrases(i){
-  const next=i+1;
-  if(next>=committed.length||committed[next].t!=='zh'){ return; }
+async function pairScores(a,b){   // 2-char phrases for zh tokens a,b -> [{ph,j}]
   const tl=$('toneless').checked;
-  const s0=tl?strip(committed[i].v):committed[i].v, s1=tl?strip(committed[next].v):committed[next].v;
+  const s0=tl?strip(committed[a].v):committed[a].v, s1=tl?strip(committed[b].v):committed[b].v;
   const c0=candSet(s0), c1=candSet(s1);
-  if(!c0.ids.length||!c1.ids.length) return;
+  if(!c0.ids.length||!c1.ids.length) return [];
+  const {data,V}=await encForward([s0,s1]);
+  const {e:e0,z:z0}=softmaxOver(data,0,c0.ids);
+  const {e:e1,z:z1}=softmaxOver(data,V,c1.ids);
+  const p0=c0.ids.map((id,k)=>({c:c0.chars[k],p:e0[id]/z0})).sort((x,y)=>y.p-x.p).slice(0,5);
+  const p1=c1.ids.map((id,k)=>({c:c1.chars[k],p:e1[id]/z1})).sort((x,y)=>y.p-x.p).slice(0,5);
+  const scored=[];
+  for(const x of p0) for(const y of p1) scored.push({ph:x.c+y.c, j:x.p*y.p});
+  scored.sort((x,y)=>y.j-x.j);
+  const top=scored[0]?scored[0].j:0;
+  return scored.filter(x=>x.j>=Math.max(0.06,0.15*top)).slice(0,6);
+}
+async function buildPhrases(i){
+  // words COVERING the focused char (chewing/新注音): both the (i-1,i) and
+  // (i,i+1) windows, merged by joint probability.
   phraseBusy=true; phraseFor=i; if(fix===i) render();
   try{
-    const {data,V}=await encForward([s0,s1]); if(phraseFor!==i) return;
-    const {e:e0,z:z0}=softmaxOver(data,0,c0.ids);
-    const {e:e1,z:z1}=softmaxOver(data,V,c1.ids);
-    const p0=c0.ids.map((id,k)=>({c:c0.chars[k],p:e0[id]/z0})).sort((a,b)=>b.p-a.p).slice(0,5);
-    const p1=c1.ids.map((id,k)=>({c:c1.chars[k],p:e1[id]/z1})).sort((a,b)=>b.p-a.p).slice(0,5);
-    const scored=[];
-    for(const a of p0){ let bp=-1,bc=p1[0].c; for(const b of p1) if(b.p>bp){bp=b.p;bc=b.c;} scored.push({ph:a.c+bc, j:a.p*bp}); }
-    scored.sort((a,b)=>b.j-a.j);
-    const top=scored[0]?scored[0].j:0;
-    const kept=scored.filter(x=>x.j>=Math.max(0.06, 0.15*top)).map(x=>x.ph);
-    if(phraseFor===i){ phrase=[...new Set(kept)]; if(fix===i) render(); }
+    const wins=[];
+    if(i-1>=0&&committed[i-1].t==='zh') wins.push(i-1);
+    if(i+1<committed.length&&committed[i+1].t==='zh') wins.push(i);
+    const merged=[];
+    for(const w of wins){
+      for(const s of await pairScores(w,w+1)) merged.push({ph:s.ph, at:w, j:s.j});
+      if(phraseFor!==i) return;
+    }
+    merged.sort((a,b)=>b.j-a.j);
+    const seen=new Set(), kept=[];
+    for(const m of merged){ const key=m.at+':'+m.ph; if(seen.has(key))continue; seen.add(key); kept.push(m); if(kept.length>=8)break; }
+    if(phraseFor===i){ phrase=kept; if(fix===i) render(); }
   }catch(e){ console.error(e); }
   finally{ if(phraseFor===i) phraseBusy=false; }
 }
@@ -149,14 +162,13 @@ function pickCand(j){                 // j is index within current page
   pvKey=null; schedulePreview();      // re-score the sentence around the pick
   render();
 }
-function pickPhrase(p){               // p = 2-char phrase for [fix, fix+1]
-  const chars=[...p];
-  overrides[fix]=chars[0];
-  // next zh token
-  let n=fix+1; while(n<committed.length&&committed[n].t!=='zh') n++;
+function pickPhrase(p){               // p = {ph, at}: 2-char phrase at [at, at+1]
+  const at=p.at!=null?p.at:fix, chars=[...(p.ph||p)];
+  overrides[at]=chars[0];
+  let n=at+1; while(n<committed.length&&committed[n].t!=='zh') n++;
   if(n<committed.length&&chars[1]) overrides[n]=chars[1];
   const tl=$('toneless').checked;
-  learn[tl?strip(committed[fix].v):committed[fix].v]=chars[0];
+  learn[tl?strip(committed[at].v):committed[at].v]=chars[0];
   if(n<committed.length&&chars[1]) learn[tl?strip(committed[n].v):committed[n].v]=chars[1];
   saveLearn();
   pvKey=null; schedulePreview();      // re-score the sentence around the pick
@@ -252,9 +264,9 @@ function render(){
     const lbl=document.createElement('span'); lbl.className='pg'; lbl.textContent='詞';
     phEl.appendChild(lbl);
     const seen=new Set();
-    phrase.forEach((p,pi)=>{ if(seen.has(p))return; seen.add(p);
+    phrase.forEach((p,pi)=>{ const key=p.at+':'+p.ph; if(seen.has(key))return; seen.add(key);
       const b=document.createElement('button'); b.className='cand ph';
-      b.innerHTML='<span class="n">⇧'+(pi+1)+'</span>'+p;
+      b.innerHTML='<span class="n">⇧'+(pi+1)+'</span>'+p.ph;
       b.onclick=()=>pickPhrase(p); phEl.appendChild(b); });
   } else if(fix>=0 && phraseBusy){
     const s=document.createElement('span'); s.className='pg'; s.textContent='組詞中…'; phEl.appendChild(s);
