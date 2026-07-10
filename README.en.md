@@ -6,7 +6,7 @@ from-scratch model decodes it to Traditional Chinese under a phonetic-legality
 constraint, so every character is a real reading of what you typed — never a
 hallucination.
 
-**中文說明: [README.zh-TW.md](README.zh-TW.md)**
+**中文說明（預設）: [README.md](README.md)**
 
 > **Live demo (free, runs entirely in your browser):**
 > **https://huggingface.co/spaces/Luigi/slothing-web**
@@ -35,7 +35,7 @@ statistical):
 | | SlothLM (v1) | **SlothLM-E** (v2) |
 |---|---|---|
 | type | causal decoder-LM (Llama) | **bidirectional encoder** |
-| params | ~34M | **3.9M (NAS)** |
+| params | ~34M | **3.8M (NAS + weight tying)** |
 | decode | autoregressive | **non-autoregressive, 1 pass** |
 | tonal accuracy | ~beats chewing | **83% (chewing 71%)** |
 | tone-free accuracy | weak | **70%** — usable tone-free typing |
@@ -44,13 +44,16 @@ statistical):
 Zhuyin decode is *aligned sequence labeling* (N syllables → N characters, 1:1,
 each constrained), so a **bidirectional encoder** fits the task far better than
 a causal decoder: it sees the whole sentence (right-context disambiguation:
-行走/銀行) and decodes in one pass. The current model is **3.9M parameters**,
+行走/銀行) and decodes in one pass. The current model is **3.8M parameters**,
 found by an 18-config Hyperband **neural architecture search** over the sub-5M
 space and trained on **g2pW context-aware readings** (neural Taiwan polyphone
-disambiguation — the data fix that broke the ~73% 免選字 ceiling rule-based
-g2p imposed). Custom byte-level tokenizer (one token per bopomofo symbol / Han
-character). Full reproduction pipeline (dataset → labels → NAS → training →
-ONNX) ships with the model on HF. See `model/DESIGN.md` and `model/DESIGN-E.md`.
+disambiguation). It carries a **char-hint channel** (weight-tied to the output
+head, ~0 params): user picks feed back as hints and the whole sentence
+**re-scores** around them, 新注音-style; the same channel carries **document
+context** (committed text before the cursor — after 我妹妹說, 他很漂亮 flips
+to **她**很漂亮) and is trained with **typo noise** so the model repairs
+mistyped syllables from context. Full reproduction pipeline (dataset → labels
+→ NAS → training → ONNX) ships with the model on HF. See `model/DESIGN.md` and `model/DESIGN-E.md`.
 
 ## Features
 
@@ -63,10 +66,19 @@ ONNX) ships with the model on HF. See `model/DESIGN.md` and `model/DESIGN-E.md`.
   English (ASUS-IME style). English passes through verbatim; code-switch
   (`我用 Python 寫 code`) just works.
 - **Chewing-shaped editing** — inline conversion, one-Enter commit, preedit
-  cursor + mid-sentence editing, paged candidates with number-key selection,
-  punctuation, per-position + LLM-ranked phrase candidates, session learning.
-- **Validated against libchewing** — every model/decode change must pass
-  `eval/chewing_parity.py` (SlothLM ≥ chewing) before shipping.
+  cursor + mid-sentence editing, **model-score-ranked** paged candidates
+  (↓ opens, word/char span views, number-key selection), punctuation + \`
+  symbol menu, Shift 中/英 toggle, Shift+Space fullwidth.
+- **Picks re-score the sentence** — correct one character and the rest
+  re-decodes around your choice (the hint channel); picks are also
+  **persistently learned** (calibrated logit bonuses that flip near-ties
+  without polluting strong-context words).
+- **Typo tolerant** — impossible syllables are repaired by the model from
+  context (edit distance 1).
+- **UI behavior verified against real libchewing** — the `eval/ui-parity/`
+  differential suite compares per-keystroke UI state (12/12 interaction
+  contracts pass); model quality is gated by `eval/chewing_parity.py` and a
+  230-sentence 免選字 set.
 
 ## Repository layout
 
@@ -115,7 +127,10 @@ packaging/install-slothingd-service.sh   # auto-start at login (systemd user)
 - [x] SlothLM (34M decoder) v1 — superseded by SlothLM-E, removed from HF
 - [x] Web demo — in-browser, free, chewing-shaped UX
 - [x] Tone-free mode, auto zh/en, code-switch, session learning
-- [x] SlothLM-E bidirectional encoder; NAS-found 3.9M + g2pW labels
+- [x] SlothLM-E bidirectional encoder; NAS-found 3.8M + g2pW labels
+- [x] Char-hint channel: pick re-scoring, document context, typo repair (tied weights, ~0 params)
+- [x] 新注音-style live conversion in fcitx (no convert key) + chewing-grade candidate window
+- [x] Differential UI-parity suite vs real libchewing (parity measured, not case-by-case)
 - [x] Demo + desktop daemon on the SlothLM-E ONNX model (5 MB int8, lossless)
 - [x] Full reproducibility bundle on the HF model repo
 - [x] Typo tolerance — model-scored edit-distance-1 repair (demo + daemon)
