@@ -86,6 +86,11 @@ int main(int argc, char **argv) {
         {"iPhone", "en:iPhone", "capital not first, still one word"},
         {"do", "en:do", "known 2-letter word stays English"},
         {"let's", "en:let's", "apostrophe rides the English run"},
+        {"upgjbj4", "zh:ㄧㄣ | zh:ㄕㄨ | zh:ㄖㄨˋ",
+         "toneless zh run stays zhuyin (音輸入), not English 'upgj'"},
+        {"upgj", "zh:ㄧㄣ | zh:ㄕㄨ", "confident multi-syllable run -> zhuyin"},
+        {"hello", "en:hello",
+         "English that coincidentally tiles (via 1-symbol syllables) stays en"},
     };
     for (const auto &[keys, want, desc] : T) {
         std::string got = show(seg, keys);

@@ -45,6 +45,8 @@ const T=[
   ['iPhone',         'en:iPhone',                              'capital not first, still one word'],
   ['do',             'en:do',                                  'known 2-letter word stays English'],
   ["let's",          "en:let's",                               'apostrophe rides the English run'],
+  ['upgjbj4',        'zh:ㄧㄣ | zh:ㄕㄨ | zh:ㄖㄨˋ',            'toneless zh run stays zhuyin (音輸入)'],
+  ['upgj',           'zh:ㄧㄣ | zh:ㄕㄨ',                       'confident multi-syllable run -> zhuyin'],
 ];
 let pass=0,fail=0;
 for(const [keys,exp,desc] of T){

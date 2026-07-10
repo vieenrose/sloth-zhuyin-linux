@@ -137,19 +137,56 @@ public:
                 }
             }
         }
-        // a lone English token that is exactly one valid syllable IS zhuyin
-        // — unless it is a known English word (do/is/he must stay English)
-        if (out.size() == 1 && !out[0].zh) {
-            std::string lower = out[0].v;
-            std::transform(lower.begin(), lower.end(), lower.begin(),
-                           [](unsigned char c) { return std::tolower(c); });
-            if (!segmentWords().count(lower)) {
-                if (auto v = wholeSyllable(out[0].v); !v.empty()) {
-                    return {{true, v}};
+        // Any English token that is NOT a dictionary word but parses cleanly
+        // and completely into valid zhuyin syllables IS zhuyin: a zhuyin user
+        // typed a pronounceable run, so the proactive code-switch to English
+        // is wrong (e.g. "upgj" = ㄧㄣㄕㄨ = 音輸, "ek" = ㄍㄜ). Dictionary
+        // words (do/model/web/app) and non-parseable runs (python, banana)
+        // stay English. Generalizes the old lone-syllable rule to mid-stream
+        // runs so "5j4upgjbj4z83" -> 注音輸入法 instead of "注 upgj 入法".
+        auto symCount = [](const std::string &syl) {
+            int n = 0;
+            for (size_t i = 0; i < syl.size();) {
+                unsigned char c = syl[i];
+                i += (c >= 0xF0) ? 4 : (c >= 0xE0) ? 3 : (c >= 0xC0) ? 2 : 1;
+                n++;
+            }
+            return n;
+        };
+        std::vector<SegTok> refined;
+        for (auto &t : out) {
+            if (!t.zh) {
+                std::string lower = t.v;
+                std::transform(lower.begin(), lower.end(), lower.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+                if (!segmentWords().count(lower)) {
+                    // A lone single syllable (incl. single vowels ㄧ/ㄨ/ㄚ…)
+                    // is zhuyin — the original lone-syllable rule.
+                    if (auto w = wholeSyllable(t.v); !w.empty()) {
+                        refined.push_back({true, std::move(w)});
+                        continue;
+                    }
+                    // A multi-syllable run is zhuyin only if EVERY syllable is
+                    // multi-symbol (2–3 keys). That keeps genuine runs like
+                    // "upgj"=ㄧㄣㄕㄨ (音輸) but rejects English words that
+                    // merely tile through single-letter syllables ("hello" =
+                    // ㄘ|ㄍㄠ|ㄠ|ㄟ).
+                    auto syls = fullZhParse(t.v);
+                    bool confident = syls.size() >= 2;
+                    for (const auto &s : syls) {
+                        if (symCount(s) < 2) confident = false;
+                    }
+                    if (confident) {
+                        for (auto &s : syls) {
+                            refined.push_back({true, std::move(s)});
+                        }
+                        continue;
+                    }
                 }
             }
+            refined.push_back(std::move(t));
         }
-        return out;
+        return refined;
     }
 
 private:
@@ -198,6 +235,31 @@ private:
             if (s.len == static_cast<int>(keys.size())) return s.v;
         }
         return {};
+    }
+
+    // If `keys` tiles COMPLETELY into valid (non-typo) zhuyin syllables,
+    // return them; else empty. Reachability DP so a greedy dead-end doesn't
+    // reject a run that actually parses.
+    std::vector<std::string> fullZhParse(const std::string &keys) const {
+        const int n = static_cast<int>(keys.size());
+        std::vector<int> from(n + 1, -2); // -2 = unreached, -1 = start
+        std::vector<std::string> tok(n + 1);
+        from[0] = -1;
+        for (int i = 0; i < n; i++) {
+            if (from[i] == -2) continue;
+            for (const auto &s : zhAt(keys, i)) {
+                if (s.typo) continue;
+                if (from[i + s.len] == -2) {
+                    from[i + s.len] = i;
+                    tok[i + s.len] = s.v;
+                }
+            }
+        }
+        if (from[n] == -2) return {};
+        std::vector<std::string> syls;
+        for (int i = n; i > 0; i = from[i]) syls.push_back(tok[i]);
+        std::reverse(syls.begin(), syls.end());
+        return syls;
     }
 
     std::set<std::string> validBase_;

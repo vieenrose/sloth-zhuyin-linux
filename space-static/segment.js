@@ -61,6 +61,19 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
     for(const s of zhAt(keys,0)) if(s.len===keys.length) return s.v;
     return null;
   }
+  // Does `keys` tile COMPLETELY into valid (non-typo) zhuyin syllables?
+  // Reachability so a greedy dead-end doesn't reject a parseable run.
+  function fullZhParse(keys){
+    const n=keys.length, from=new Array(n+1).fill(-2), tok=new Array(n+1);
+    from[0]=-1;
+    for(let i=0;i<n;i++){ if(from[i]===-2) continue;
+      for(const s of zhAt(keys,i)){ if(s.typo) continue;
+        if(from[i+s.len]===-2){ from[i+s.len]=i; tok[i+s.len]=s.v; } } }
+    if(from[n]===-2) return null;
+    const syls=[]; for(let i=n;i>0;i=from[i]) syls.push(tok[i]); syls.reverse();
+    return syls;
+  }
+  const symCount = s => [...s].length; // toneless syllable: chars = symbols
   return function segment(keys){
     const n=keys.length;
     const dp=new Array(n+1).fill(null); dp[0]={cost:0,toks:[]};
@@ -93,12 +106,23 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
       const p=out[out.length-1];
       if(t.t==='en' && p && p.t==='en') p.v+=t.v; else out.push({...t});
     }
-    // a lone English token that is exactly one valid syllable IS zhuyin
-    // (standalone soft syllable: ㄍㄜ=ek, ㄋㄧ=su), which the soft penalty
-    // would otherwise have flipped to English.
-    if(out.length===1 && out[0].t==='en' && !words.has(out[0].v.toLowerCase())){
-      const v=wholeSyllable(out[0].v); if(v) return [{t:'zh',v}];
+    // A non-dictionary English token that parses cleanly as zhuyin IS zhuyin
+    // (the proactive code-switch was wrong): a lone syllable (ㄍㄜ=ek, incl.
+    // single vowels), or a multi-syllable run where EVERY syllable is
+    // multi-symbol ("upgj"=ㄧㄣㄕㄨ=音輸). English words that merely tile
+    // through single-letter syllables ("hello"=ㄘ|ㄍㄠ|ㄠ|ㄟ) stay English.
+    const refined=[];
+    for(const t of out){
+      if(t.t==='en' && !words.has(t.v.toLowerCase())){
+        const w=wholeSyllable(t.v);
+        if(w){ refined.push({t:'zh',v:w}); continue; }
+        const syls=fullZhParse(t.v);
+        if(syls && syls.length>=2 && syls.every(s=>symCount(s)>=2)){
+          for(const v of syls) refined.push({t:'zh',v}); continue;
+        }
+      }
+      refined.push({...t});
     }
-    return out;
+    return refined;
   };
 }
