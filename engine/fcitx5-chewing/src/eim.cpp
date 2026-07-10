@@ -697,6 +697,7 @@ void ChewingEngine::showConversionChoices(
     convertTimer_.reset();
 
     phraseCands_.clear();
+    visCursor_ = -1;
     segSel_.assign(convertPositions_.size(), 0);
     const std::string &best = sentences.empty() ? convertBuffer_ : sentences[0];
     for (size_t i = 0; i < convertPositions_.size(); i++) {
@@ -805,11 +806,33 @@ void ChewingEngine::renderSegments(InputContext *ic) {
         list->append(std::make_unique<SegmentCandidateWord>(
             this, static_cast<int>(j), cands[j]));
     }
-    list->setGlobalCursorIndex(nPhrase + segSel_[segFocus_]);
+    list->setGlobalCursorIndex(visCursor_ >= 0 ? visCursor_
+                                               : nPhrase + segSel_[segFocus_]);
     ic->inputPanel().setCandidateList(std::move(list));
     ic->inputPanel().setAuxDown(Text("←→ 選詞　↑↓ 換字　⏎ 確認　Esc 取消"));
     ic->updatePreedit();
     ic->updateUserInterface(UserInterfaceComponent::InputPanel);
+}
+
+void ChewingEngine::previewPhrase(const std::string &phrase) {
+    const int i = segFocus_;
+    if (i < 0 || i + 1 >= static_cast<int>(convertPositions_.size())) {
+        return;
+    }
+    auto c0len = utf8::ncharByteLength(phrase.begin(), 1);
+    std::string c0 = phrase.substr(0, c0len);
+    std::string c1 = phrase.substr(c0len);
+    auto setSel = [this](int pos, const std::string &ch) {
+        const auto &cands = convertPositions_[pos];
+        for (size_t j = 0; j < cands.size(); j++) {
+            if (cands[j] == ch) {
+                segSel_[pos] = static_cast<int>(j);
+                return;
+            }
+        }
+    };
+    setSel(i, c0);
+    setSel(i + 1, c1);
 }
 
 void ChewingEngine::pickPhrase(InputContext *ic, const std::string &phrase) {
@@ -833,6 +856,7 @@ void ChewingEngine::pickPhrase(InputContext *ic, const std::string &phrase) {
     setSel(i, c0);
     setSel(i + 1, c1);
     // advance focus past the phrase, to the next ambiguous segment
+    visCursor_ = -1;
     segFocus_ = i + 1;
     for (int k = i + 2; k < static_cast<int>(convertPositions_.size()); k++) {
         if (convertPositions_[k].size() > 1) {
@@ -852,6 +876,7 @@ void ChewingEngine::pickSegment(InputContext *ic, int candIdx) {
         candIdx < static_cast<int>(convertPositions_[segFocus_].size())) {
         segSel_[segFocus_] = candIdx;
     }
+    visCursor_ = -1;
     for (int i = segFocus_ + 1; i < static_cast<int>(convertPositions_.size());
          i++) {
         if (convertPositions_[i].size() > 1) {
@@ -910,6 +935,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             for (int i = segFocus_ + 1; i < nseg; i++) {
                 if (convertPositions_[i].size() > 1) {
                     segFocus_ = i;
+                    visCursor_ = -1;
                     break;
                 }
             }
@@ -917,15 +943,39 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             for (int i = segFocus_ - 1; i >= 0; i--) {
                 if (convertPositions_[i].size() > 1) {
                     segFocus_ = i;
+                    visCursor_ = -1;
                     break;
                 }
             }
         } else if (keyEvent.key().check(FcitxKey_Down) ||
+                   keyEvent.key().check(FcitxKey_Up) ||
                    (keyEvent.key().check(FcitxKey_space) &&
                     *config_.SpaceAsSelection)) {
-            foc = (foc + 1) % ncand;
-        } else if (keyEvent.key().check(FcitxKey_Up)) {
-            foc = (foc - 1 + ncand) % ncand;
+            // cycle the VISIBLE list: phrase entries first, then the chars.
+            // Landing on a phrase previews it (sets this and the next
+            // segment); landing on a char restores the next segment.
+            const auto pit = phraseCands_.find(segFocus_);
+            const int nPhrase =
+                pit != phraseCands_.end()
+                    ? static_cast<int>(pit->second.size())
+                    : 0;
+            const int nvis = nPhrase + ncand;
+            const int d = keyEvent.key().check(FcitxKey_Up) ? -1 : 1;
+            if (visCursor_ < 0) {
+                visCursor_ = nPhrase + foc;
+                savedNextSel_ = (segFocus_ + 1 < nseg)
+                                    ? segSel_[segFocus_ + 1]
+                                    : 0;
+            }
+            visCursor_ = (visCursor_ + d + nvis) % nvis;
+            if (visCursor_ >= nPhrase) {
+                foc = visCursor_ - nPhrase;
+                if (segFocus_ + 1 < nseg) {
+                    segSel_[segFocus_ + 1] = savedNextSel_;
+                }
+            } else {
+                previewPhrase(pit->second[visCursor_]);
+            }
         } else if (keyEvent.key().isSimple()) {
             const char *selkeys =
                 builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];

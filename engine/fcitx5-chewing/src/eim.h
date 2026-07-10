@@ -102,6 +102,9 @@ public:
     // Set the focused segment AND the next one from a 2-char phrase candidate
     // (per-phrase Down-rank), then advance focus past both.
     void pickPhrase(InputContext *ic, const std::string &phrase);
+    // Apply a 2-char phrase to the focused + next segment WITHOUT advancing
+    // focus (arrow-cursor preview).
+    void previewPhrase(const std::string &phrase);
 
 private:
     // Pull-model, three states. Composing: the ZhuyinBuffer accumulates typed
@@ -159,6 +162,10 @@ private:
     // act on.
     std::vector<int> segSel_;
     int segFocus_ = 0;
+    // Arrow-cursor over the VISIBLE candidate list (phrases prepended before
+    // the per-char candidates). -1 = synced to segSel_. Reset on focus move.
+    int visCursor_ = -1;
+    int savedNextSel_ = 0; // focus+1's selection before a phrase preview
     // Model-ranked 2-char phrase candidates per focus position, fetched
     // lazily from the daemon while Choosing. Main thread only.
     std::map<int, std::vector<std::string>> phraseCands_;
