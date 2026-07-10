@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  E-ink palette: pure black ink on white, plus two grays that survive a 16-level
+  grayscale panel. No hues, no gradients, no elevation — every surface is a flat
+  fill so a page refresh is a single clean redraw.
+-->
+<resources>
+    <color name="eink_bg">#FFFFFFFF</color>
+    <color name="eink_ink">#FF000000</color>
+    <color name="eink_edge">#FF000000</color>
+    <color name="eink_key">#FFFFFFFF</color>
+    <color name="eink_fn_key">#FFE6E6E6</color>
+    <color name="eink_pressed_bg">#FF000000</color>
+    <color name="eink_pressed_ink">#FFFFFFFF</color>
+    <color name="eink_focus_bg">#FF000000</color>
+    <color name="eink_focus_ink">#FFFFFFFF</color>
+    <color name="eink_muted">#FF666666</color>
+</resources>

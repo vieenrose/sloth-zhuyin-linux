@@ -1,0 +1,16 @@
+.gradle/
+build/
+/local.properties
+*.iml
+.idea/
+.cxx/
+
+# Staged at build time from ../model by the copyModelAssets task.
+/app/src/main/assets/slothing/
+
+# Vendored ONNX Runtime (28 MB arm64 .so + headers). Regenerate with:
+#   curl -fsSLO https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/1.27.0/onnxruntime-android-1.27.0.aar
+#   unzip -o -j onnxruntime-android-1.27.0.aar 'headers/*.h'                 -d app/ort/include
+#   unzip -o -j onnxruntime-android-1.27.0.aar 'jni/arm64-v8a/libonnxruntime.so' -d app/ort/lib/arm64-v8a
+/app/ort/
+.kotlin/

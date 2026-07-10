@@ -16,6 +16,7 @@
 #define _SLOTHING_COMMON_CORE_H_
 
 #include "daemon.h"
+#include "decoder.h"
 #include "display.h"
 #include "segment.h"
 #include <algorithm>
@@ -196,6 +197,14 @@ public:
     // lazily from the daemon while Choosing.
     std::map<int, std::vector<std::pair<int, std::string>>> phraseCands;
 
+    // Decode transport. When null (the Linux fcitx5/ibus engines), rescore()
+    // and ensurePhrases() call the Unix-socket free functions in daemon.h,
+    // exactly as before. When set (the on-device Android frontend injects an
+    // in-process OnnxDecoder via SlothingSession), they route through it — so
+    // the same state machine drives both with no behavioral change on Linux.
+    Decoder *decoder_ = nullptr;
+    void setDecoder(Decoder *d) { decoder_ = d; }
+
     // Seed selections from the best decoded sentence; focus lands on
     // pendingFocus (↓ at the cursor's segment) or the first ambiguous one.
     void begin(std::vector<std::vector<std::string>> pos,
@@ -296,7 +305,9 @@ public:
                     if (w < 0 || w + 1 >= static_cast<int>(syls.size())) {
                         continue;
                     }
-                    for (auto &[p, ph] : queryPhrasesScored(syls, w, 6)) {
+                    auto scored = decoder_ ? decoder_->phrasesScored(syls, w, 6)
+                                           : queryPhrasesScored(syls, w, 6);
+                    for (auto &[p, ph] : scored) {
                         merged.push_back({p, {runStartTok + w, ph}});
                     }
                 }
@@ -335,16 +346,30 @@ public:
                 hints[i] = positions[i][segSel[i]];
             }
         }
-        json full;
-        auto sentences = queryDecoderWithHints(syllables, hints, &full);
+        std::vector<std::string> sentences;
+        std::vector<std::vector<std::string>> cand;
+        if (decoder_) {
+            DecodeResult dr = decoder_->decodeWithHints(syllables, hints);
+            sentences = std::move(dr.sentences);
+            cand = std::move(dr.candidates);
+        } else {
+            json full;
+            sentences = queryDecoderWithHints(syllables, hints, &full);
+            if (full.contains("candidates")) {
+                try {
+                    cand = full["candidates"]
+                               .get<std::vector<std::vector<std::string>>>();
+                } catch (const std::exception &) {
+                }
+            }
+        }
         if (sentences.empty() || !matchesPositions(sentences[0], positions)) {
             return; // daemon down / non-hint model: keep current selections
         }
-        if (full.contains("candidates")) {
-            try {
-                auto r = full["candidates"]
-                             .get<std::vector<std::vector<std::string>>>();
-                if (r.size() == positions.size()) {
+        {
+            {
+                auto &r = cand;
+                if (!r.empty() && r.size() == positions.size()) {
                     bool ok = true;
                     for (size_t i = 0; i < r.size(); i++) {
                         if (r[i].size() != positions[i].size()) {
@@ -367,7 +392,6 @@ public:
                         phraseCands.clear(); // phrase ranks are stale too
                     }
                 }
-            } catch (const std::exception &) {
             }
         }
         // adopt the re-scored chars for every segment the user hasn't touched
