@@ -42,10 +42,13 @@ statistical):
 Zhuyin decode is *aligned sequence labeling* (N syllables → N characters, 1:1,
 each constrained), so a **bidirectional encoder** fits the task far better than
 a causal decoder: it sees the whole sentence (right-context disambiguation:
-行走/銀行), decodes in one pass, and is half the size. Both are trained
-from scratch on Traditional-Chinese text + synthetic tasks (zhuyin↔text,
-tone-free, code-switch), with a **custom byte-level tokenizer** (one token per
-bopomofo symbol / Han character). See `model/DESIGN.md` and `model/DESIGN-E.md`.
+行走/銀行) and decodes in one pass. The current model is **3.9M parameters**,
+found by an 18-config Hyperband **neural architecture search** over the sub-5M
+space and trained on **g2pW context-aware readings** (neural Taiwan polyphone
+disambiguation — the data fix that broke the ~73% 免選字 ceiling rule-based
+g2p imposed). Custom byte-level tokenizer (one token per bopomofo symbol / Han
+character). Full reproduction pipeline (dataset → labels → NAS → training →
+ONNX) ships with the model on HF. See `model/DESIGN.md` and `model/DESIGN-E.md`.
 
 ## Features
 
@@ -68,14 +71,16 @@ bopomofo symbol / Han character). See `model/DESIGN.md` and `model/DESIGN-E.md`.
 - `engine/fcitx5-chewing/` — **Slothing**, the fcitx5 addon. Now libchewing-
   free: keystrokes are parsed by `src/zhuyin.h` (a dependency-free Dàqiān FSM);
   the convert key sends the typed syllables to the daemon's decode path.
-- `engine/slothingd/` — **slothingd**, a small Unix-socket daemon (llama.cpp C
-  API) that decodes syllables under the phonetic-legality GBNF grammar, tonal
-  or toneless, with English passthrough for code-switch.
+- `engine/slothingd/` — the decode daemons: **`slothingd_e.py`** (current; a
+  Unix-socket onnxruntime daemon serving SlothLM-E at ~1 ms/decode, tonal or
+  toneless, English passthrough) and the legacy llama.cpp/GBNF `slothingd.cpp`
+  for GGUF decoder models.
 - `model/` — the models: tokenizer, data prep, training + eval for SlothLM
   (decoder) and **SlothLM-E** (encoder), `phonetic_table.tsv` (syllable → legal
   chars), and `chewing_parity.py` (the validation gate).
 - `space-static/` — the web demo (`sdk: static`): the full IME UI running the
-  model in-browser via ONNX / Transformers.js — free, never sleeps, no server.
+  model in-browser via onnxruntime-web (~5 MB int8 ONNX, works on iOS Safari)
+  — free, never sleeps, no server.
 - `eval/` — scored zhuyin→sentence test set and harnesses (rerank, decode,
   chewing-parity).
 - `ARCHITECTURE.md`, `RESEARCH-LLM-IME.md`, `MODEL_BENCHMARKS.md`, `MIGRATION.md`.
@@ -94,18 +99,21 @@ Add **Slothing** (🦥) via `fcitx5-configtool`. Then set up the local model +
 daemon:
 
 ```sh
-sh scripts/setup-llm.sh          # llama.cpp + model + slothingd
+pip install onnxruntime numpy    # daemon deps
+hf download Luigi/slothlm-e-4m-zhuyin --local-dir model/slothe_4m_onnx \
+    --include 'onnx/*' 'syl_vocab.json'   # then move onnx/* up a level
 packaging/run-slothingd.sh       # start the decoder (manual by design)
 ```
 
 ## Roadmap (highlights)
 
 - [x] libchewing-free engine (keyboard FSM + LLM decode)
-- [x] SlothLM (34M decoder) trained, on HF, with Q4/Q8 GGUF
+- [x] SlothLM (34M decoder) v1 — superseded by SlothLM-E, removed from HF
 - [x] Web demo — in-browser, free, chewing-shaped UX
 - [x] Tone-free mode, auto zh/en, code-switch, session learning
-- [x] SlothLM-E (16M bidirectional encoder) — smaller/faster/better; finalizing
-- [ ] Swap the demo + desktop daemon to the SlothLM-E ONNX model
+- [x] SlothLM-E bidirectional encoder; NAS-found 3.9M + g2pW labels
+- [x] Demo + desktop daemon on the SlothLM-E ONNX model (5 MB int8, lossless)
+- [x] Full reproducibility bundle on the HF model repo
 - [ ] Per-phrase Down-rank; typo tolerance; packaging (.deb)
 - [ ] (Future, long-document context) hybrid Transformer + SSM decoder
 
