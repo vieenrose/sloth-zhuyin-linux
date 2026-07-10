@@ -428,10 +428,14 @@ async function encForward(syls, hintIds, ctxChars){
 async function encForwardBatch(rows){
   const B=rows.length, T=rows[0].length, flat=[];
   for(const r of rows) for(const id of r) flat.push(BigInt(id));
-  const out=await session.run({
+  const feed={
     syl:new ort.Tensor('int64',BigInt64Array.from(flat),[B,T]),
     amask:new ort.Tensor('bool',Uint8Array.from(new Array(B*T).fill(1)),[B,T]),
-  });
+  };
+  if(modelHasHints){
+    feed.hints=new ort.Tensor('int64',BigInt64Array.from(new Array(B*T).fill(0n)),[B,T]);
+  }
+  const out=await session.run(feed);
   return {data:out.logits.data, V:out.logits.dims[2], T};
 }
 const LEARN_BONUS=6.0;   // calibrated: flips 在/再-scale gaps, spares 的/重新
