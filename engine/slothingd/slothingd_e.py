@@ -218,12 +218,14 @@ class Decoder:
         lg = self._run(sid, amask, hint_ids)[0][0]
         bonus = self._bonus(syllables)
         best, margins = [], []          # per position: char + (margin, runner-up)
+        ranked = []                     # per position: chars by model score
         for i, s in enumerate(syllables):
             cs = cand_override.get(i) or self.cands(s)
             if not cs:                  # unknown syllable: no legal decode
-                return []
+                return [], []
             scored = sorted(((lg[i, tid] + bonus.get((i, ch), 0.0), ch)
                              for ch, tid in cs), reverse=True)
+            ranked.append([ch for _, ch in scored])
             best.append(scored[0][1])
             if len(scored) > 1:
                 margins.append((scored[0][0] - scored[1][0], i, scored[1][1]))
@@ -232,7 +234,7 @@ class Decoder:
             s = best[:]
             s[i] = alt
             out.append("".join(s))
-        return out
+        return out, ranked
 
     def phrases(self, syllables, i, n):
         """Model-ranked 2-char phrases for positions i,i+1: per-position
@@ -274,8 +276,8 @@ class Decoder:
         if req.get("phrase_at") is not None:   # 2-char phrase candidates
             return {"sentences":
                     self.phrases(syllables, int(req["phrase_at"]), n)}
-        return {"sentences":
-                self.decode(syllables, n, hints=req.get("hints"))}
+        sentences, ranked = self.decode(syllables, n, hints=req.get("hints"))
+        return {"sentences": sentences, "candidates": ranked}
 
     def handle_any(self, req):
         if req.get("learn") is not None:       # user picks -> persist

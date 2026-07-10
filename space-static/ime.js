@@ -437,16 +437,17 @@ async function decodeZh(sylsIn, forced={}, hints={}){
     for(const k in hints){ const id=char2id[hints[k]]; if(id!=null) hintIds[+k]=id+1; }
   }
   const {data,V,T}=await encForward(syls, hintIds);
-  const chars=[];
+  const chars=[], ranked=[];
   for(let i=0;i<T;i++){
+    const {chars:cc,ids}=sets[i];
+    // model-score candidate order (chewing/新注音 rank by score, not table)
+    const scored=cc.map((c,k)=>({c,v:data[i*V+ids[k]] + (learn[syls[i]]===c?LEARN_BONUS:0)}))
+                   .sort((a,b)=>b.v-a.v);
+    ranked.push(scored.map(x=>x.c));
     if(forced[i]!=null){ chars.push(forced[i]); continue; }
-    const {chars:cc,ids}=sets[i]; let best=cc[0], bv=-Infinity;
-    for(let k=0;k<ids.length;k++){
-      const v=data[i*V+ids[k]] + (learn[syls[i]]===cc[k]?LEARN_BONUS:0);
-      if(v>bv){bv=v;best=cc[k];} }
-    chars.push(best!=null?best:syls[i]);
+    chars.push(scored.length?scored[0].c:syls[i]);
   }
-  return{chars,cands:sets.map(s=>s.chars)};
+  return{chars,cands:ranked};
 }
 
 // ---- keyboard UI ----

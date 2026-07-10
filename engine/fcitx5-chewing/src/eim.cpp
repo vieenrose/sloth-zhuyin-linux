@@ -105,7 +105,8 @@ enum class RerankError { None, Connect, Io, Empty };
 // this thread at teardown.
 std::vector<std::string> sendDaemonRequest(const std::string &req,
                                            std::atomic<int> &fdSlot,
-                                           RerankError &err) {
+                                           RerankError &err,
+                                           json *fullOut = nullptr) {
     err = RerankError::Empty;
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -160,6 +161,9 @@ std::vector<std::string> sendDaemonRequest(const std::string &req,
     try {
         json parsed = json::parse(resp);
         if (parsed.contains("sentences")) {
+            if (fullOut) {
+                *fullOut = parsed;
+            }
             auto sentences = parsed["sentences"].get<std::vector<std::string>>();
             if (!sentences.empty()) {
                 err = RerankError::None;
@@ -174,13 +178,14 @@ std::vector<std::string> sendDaemonRequest(const std::string &req,
 std::vector<std::string> queryDecoder(const std::vector<std::string> &syllables,
                                       int n, const std::string &context,
                                       std::atomic<int> &fdSlot,
-                                      RerankError &err) {
+                                      RerankError &err,
+                                      json *fullOut = nullptr) {
     if (syllables.empty()) {
         err = RerankError::Empty;
         return {};
     }
     return sendDaemonRequest(buildDecodeRequest(syllables, n, context), fdSlot,
-                             err);
+                             err, fullOut);
 }
 
 // Model-ranked 2-char phrase candidates for positions (at, at+1). Synchronous
@@ -821,20 +826,43 @@ void ChewingEngine::startDecode(InputContext *ic) {
                            context = std::move(context)]() {
         RerankError err = RerankError::None;
         std::vector<std::string> verified;
+        std::vector<std::vector<std::string>> ranked;
         if (pureZh) {
-            // single request, n-best sentences (the original path)
+            // single request, n-best sentences (the original path); the
+            // reply also carries per-position candidates ranked by model
+            // score — the candidate UI shows those instead of table order
             std::vector<std::string> syls;
             for (const auto &t : toks) {
                 syls.push_back(t.v);
             }
+            json full;
             for (auto &sentence :
-                 queryDecoder(syls, n, context, inflightFd_, err)) {
+                 queryDecoder(syls, n, context, inflightFd_, err, &full)) {
                 if (!matchesPositions(sentence, positions)) {
                     continue;
                 }
                 if (std::find(verified.begin(), verified.end(), sentence) ==
                     verified.end()) {
                     verified.push_back(std::move(sentence));
+                }
+            }
+            if (full.contains("candidates")) {
+                try {
+                    auto r = full["candidates"]
+                                 .get<std::vector<std::vector<std::string>>>();
+                    if (r.size() == positions.size()) {
+                        bool ok = true;
+                        for (size_t i = 0; i < r.size(); i++) {
+                            if (r[i].size() != positions[i].size()) {
+                                ok = false;
+                                break;
+                            }
+                        }
+                        if (ok) {
+                            ranked = std::move(r);
+                        }
+                    }
+                } catch (const std::exception &) {
                 }
             }
         } else {
@@ -887,6 +915,7 @@ void ChewingEngine::startDecode(InputContext *ic) {
         }
         dispatcher_.schedule([this, icRef, generation,
                               verified = std::move(verified),
+                              ranked = std::move(ranked),
                               failNotice = std::move(failNotice)]() {
             if (generation != convertGeneration_ ||
                 convertState_ != ConvertState::Converting) {
@@ -901,6 +930,9 @@ void ChewingEngine::startDecode(InputContext *ic) {
                 cancelConversion(ic, failNotice);
                 return;
             }
+            if (!ranked.empty()) {
+                convertPositions_ = ranked; // model-score candidate order
+            }
             convertBuffer_ = verified.front();
             showConversionChoices(ic, verified);
         });
@@ -913,7 +945,7 @@ void ChewingEngine::showConversionChoices(
     convertTimer_.reset();
 
     phraseCands_.clear();
-    visCursor_ = -1;
+    candSpan_ = 2;
     userFixed_.clear();
     segSel_.assign(convertPositions_.size(), 0);
     const std::string &best = sentences.empty() ? convertBuffer_ : sentences[0];
@@ -999,15 +1031,14 @@ void ChewingEngine::renderSegments(InputContext *ic) {
     }
     list->setSelectionKey(selectionKeys);
     list->setLabels(labels);
-    // Per-phrase Down-rank: model-ranked 2-char phrases covering this and
-    // the next segment, fetched lazily once per focus position.
+    // One span view at a time (chewing-style): 詞 view shows model-ranked
+    // 2-char phrases covering focus..focus+1; 單字 view shows the ranked
+    // chars. ↓/↑ cycle the views.
     const bool zhPair =
         segFocus_ + 1 < static_cast<int>(convertSyllables_.size()) &&
         !convertSyllables_[segFocus_].empty() &&
         !convertSyllables_[segFocus_ + 1].empty();
     if (zhPair && !phraseCands_.count(segFocus_)) {
-        // phrase scoring wants a pure-syllable context; use the zh run
-        // around the focus (en tokens have no syllable)
         std::vector<std::string> syls;
         int focusInRun = -1;
         for (int k = 0; k < static_cast<int>(convertSyllables_.size()); k++) {
@@ -1020,52 +1051,34 @@ void ChewingEngine::renderSegments(InputContext *ic) {
             syls.push_back(convertSyllables_[k]);
         }
         phraseCands_[segFocus_] =
-            focusInRun >= 0 ? queryPhrases(syls, focusInRun, 5)
+            focusInRun >= 0 ? queryPhrases(syls, focusInRun, 8)
                             : std::vector<std::string>();
     }
-    int nPhrase = 0;
-    if (auto it = phraseCands_.find(segFocus_); it != phraseCands_.end()) {
-        for (const auto &ph : it->second) {
+    const auto &phrases = phraseCands_[segFocus_];
+    const bool wordView = candSpan_ == 2 && !phrases.empty();
+    if (wordView) {
+        for (const auto &ph : phrases) {
             list->append(std::make_unique<PhraseCandidateWord>(this, ph));
-            nPhrase++;
         }
-    }
-    const auto &cands = convertPositions_[segFocus_];
-    for (size_t j = 0; j < cands.size(); j++) {
-        list->append(std::make_unique<SegmentCandidateWord>(
-            this, static_cast<int>(j), cands[j]));
-    }
-    const int curIdx =
-        visCursor_ >= 0 ? visCursor_ : nPhrase + segSel_[segFocus_];
-    list->setGlobalCursorIndex(curIdx);
-    if (*config_.PageSize > 0) { // jump to the highlighted candidate's page
-        list->setPage(curIdx / *config_.PageSize);
+        list->setGlobalCursorIndex(0);
+    } else {
+        const auto &cands = convertPositions_[segFocus_];
+        for (size_t j = 0; j < cands.size(); j++) {
+            list->append(std::make_unique<SegmentCandidateWord>(
+                this, static_cast<int>(j), cands[j]));
+        }
+        const int curIdx = segSel_[segFocus_];
+        list->setGlobalCursorIndex(curIdx);
+        if (*config_.PageSize > 0) {
+            list->setPage(curIdx / *config_.PageSize);
+        }
     }
     ic->inputPanel().setCandidateList(std::move(list));
-    ic->inputPanel().setAuxDown(Text("←→ 選詞　↑↓ 換字　⏎ 確認　Esc 取消"));
+    ic->inputPanel().setAuxDown(
+        Text(std::string(candSpan_ == 2 ? "【詞】" : "【單字】") +
+             "　↓ 換長度　←→ 移動　1-9 選　⏎ 確認　Esc 取消"));
     ic->updatePreedit();
     ic->updateUserInterface(UserInterfaceComponent::InputPanel);
-}
-
-void ChewingEngine::previewPhrase(const std::string &phrase) {
-    const int i = segFocus_;
-    if (i < 0 || i + 1 >= static_cast<int>(convertPositions_.size())) {
-        return;
-    }
-    auto c0len = utf8::ncharByteLength(phrase.begin(), 1);
-    std::string c0 = phrase.substr(0, c0len);
-    std::string c1 = phrase.substr(c0len);
-    auto setSel = [this](int pos, const std::string &ch) {
-        const auto &cands = convertPositions_[pos];
-        for (size_t j = 0; j < cands.size(); j++) {
-            if (cands[j] == ch) {
-                segSel_[pos] = static_cast<int>(j);
-                return;
-            }
-        }
-    };
-    setSel(i, c0);
-    setSel(i + 1, c1);
 }
 
 void ChewingEngine::pickPhrase(InputContext *ic, const std::string &phrase) {
@@ -1092,7 +1105,7 @@ void ChewingEngine::pickPhrase(InputContext *ic, const std::string &phrase) {
     userFixed_.insert(i + 1);
     rescoreChoosing(ic);
     // advance focus past the phrase, to the next ambiguous segment
-    visCursor_ = -1;
+    candSpan_ = 2;
     segFocus_ = i + 1;
     for (int k = i + 2; k < static_cast<int>(convertPositions_.size()); k++) {
         if (convertPositions_[k].size() > 1) {
@@ -1153,7 +1166,7 @@ void ChewingEngine::pickSegment(InputContext *ic, int candIdx) {
         userFixed_.insert(segFocus_);
         rescoreChoosing(ic); // 新注音-style: the pick re-scores the rest
     }
-    visCursor_ = -1;
+    candSpan_ = 2;
     for (int i = segFocus_ + 1; i < static_cast<int>(convertPositions_.size());
          i++) {
         if (convertPositions_[i].size() > 1) {
@@ -1314,7 +1327,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             for (int i = segFocus_ + 1; i < nseg; i++) {
                 if (convertPositions_[i].size() > 1) {
                     segFocus_ = i;
-                    visCursor_ = -1;
+                    candSpan_ = 2;
                     break;
                 }
             }
@@ -1322,7 +1335,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             for (int i = segFocus_ - 1; i >= 0; i--) {
                 if (convertPositions_[i].size() > 1) {
                     segFocus_ = i;
-                    visCursor_ = -1;
+                    candSpan_ = 2;
                     break;
                 }
             }
@@ -1345,31 +1358,8 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
                    keyEvent.key().check(FcitxKey_Up) ||
                    (keyEvent.key().check(FcitxKey_space) &&
                     *config_.SpaceAsSelection)) {
-            // cycle the VISIBLE list: phrase entries first, then the chars.
-            // Landing on a phrase previews it (sets this and the next
-            // segment); landing on a char restores the next segment.
-            const auto pit = phraseCands_.find(segFocus_);
-            const int nPhrase =
-                pit != phraseCands_.end()
-                    ? static_cast<int>(pit->second.size())
-                    : 0;
-            const int nvis = nPhrase + ncand;
-            const int d = keyEvent.key().check(FcitxKey_Up) ? -1 : 1;
-            if (visCursor_ < 0) {
-                visCursor_ = nPhrase + foc;
-                savedNextSel_ = (segFocus_ + 1 < nseg)
-                                    ? segSel_[segFocus_ + 1]
-                                    : 0;
-            }
-            visCursor_ = (visCursor_ + d + nvis) % nvis;
-            if (visCursor_ >= nPhrase) {
-                foc = visCursor_ - nPhrase;
-                if (segFocus_ + 1 < nseg) {
-                    segSel_[segFocus_ + 1] = savedNextSel_;
-                }
-            } else {
-                previewPhrase(pit->second[visCursor_]);
-            }
+            // chewing-style span cycling: 詞 view <-> 單字 view
+            candSpan_ = (candSpan_ == 2) ? 1 : 2;
         } else if (keyEvent.key().isSimple()) {
             const char *selkeys =
                 builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];
@@ -1508,13 +1498,12 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         if (!composingEmpty()) {
             keyEvent.filterAndAccept();
             commitRun();
+            // candidates open for the char BEFORE the cursor (新注音); at
+            // the end of the buffer that's the last character.
+            const int n = static_cast<int>(committedToks_.size());
             pendingFocus_ =
-                tokCursor_ < 0
-                    ? -1
-                    : std::max(0, std::min(tokCursor_,
-                                           static_cast<int>(
-                                               committedToks_.size()) -
-                                               1));
+                tokCursor_ < 0 ? n - 1
+                               : std::max(0, std::min(tokCursor_ - 1, n - 1));
             startDecode(ic);
         }
         return;
