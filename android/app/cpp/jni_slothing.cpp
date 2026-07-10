@@ -231,6 +231,15 @@ JNI(jstring, nativeGetLive)(JNIEnv *env, jobject, jlong h) {
 JNI(jobjectArray, nativeGetLiveSuggestions)(JNIEnv *env, jobject, jlong h) {
     return toStringArray(env, sess(h)->getLiveSuggestions());
 }
+JNI(jobjectArray, nativeGetLastWordCands)(JNIEnv *env, jobject, jlong h) {
+    return toStringArray(env, sess(h)->getLastWordCands());
+}
+JNI(jstring, nativeGetLastWordCurrent)(JNIEnv *env, jobject, jlong h) {
+    return utf8ToJstr(env, sess(h)->getLastWordCurrent());
+}
+JNI(jboolean, nativePickLastWord)(JNIEnv *env, jobject, jlong h, jstring ch) {
+    return sess(h)->pickLastWord(jstrToUtf8(env, ch)) ? JNI_TRUE : JNI_FALSE;
+}
 JNI(void, nativeCommitSentence)(JNIEnv *env, jobject, jlong h, jstring s) {
     sess(h)->commitSentence(jstrToUtf8(env, s));
 }

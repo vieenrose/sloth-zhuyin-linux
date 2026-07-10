@@ -302,6 +302,13 @@ class SlothingImeService : InputMethodService(),
         if (core.getCommit().isNotEmpty()) commitDrain() else paintChoosing()
     }.let {}
 
+    override fun onPickLastWord(ch: String) {
+        if (core.pickLastWord(ch)) {
+            ic()?.setComposingText(core.getLive(), 1)
+            showSuggestions()          // refresh the selected chip
+        }
+    }
+
     override fun onMoveFocus(dir: Int) = scope.launch {
         core.moveFocus(dir)
         core.ensurePhrases()                  // pre-warm 詞 for the new focus (worker)
@@ -342,10 +349,14 @@ class SlothingImeService : InputMethodService(),
         }
     }
 
-    /** Refresh the always-visible composing-time suggestion strip. */
+    /** Refresh the always-visible composing-time suggestion strip: last-word
+     *  candidates first (mobile convention), then sentence alternates. */
     private fun showSuggestions() {
         if (!::candidateBar.isInitialized) return
-        val shown = candidateBar.renderSuggestions(core.getLiveSuggestions())
+        val shown = candidateBar.renderComposing(
+            core.getLastWordCands(), core.getLastWordCurrent(),
+            core.getLiveSuggestions(),
+        )
         candidateBar.visibility = if (shown) View.VISIBLE else View.INVISIBLE
     }
 

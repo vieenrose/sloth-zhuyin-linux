@@ -282,6 +282,8 @@ public:
         }
         std::vector<std::string> disp;
         std::vector<std::string> nbest; // whole-buffer alternatives (pure zh)
+        std::vector<std::string> lastCands; // ranked chars for the LAST zh token
+        int lastIdx = -1;
         std::string runCtx = ctx;
         bool allOk = true;
         for (size_t i = 0; i < toks.size();) {
@@ -299,6 +301,15 @@ public:
                 utf8Length(res.sentences[0]) == run.size()) {
                 const std::string &s = res.sentences[0];
                 if (wholeBuffer) nbest = res.sentences;
+                // mobile convention (Gboard/iOS/Rime): candidates for the last
+                // word in the buffer show AUTOMATICALLY — capture the ranked
+                // chars of the final zh token from the same decode reply
+                if (i == toks.size() && !res.candidates.empty()) {
+                    lastCands = res.candidates.back();
+                    if (static_cast<int>(lastCands.size()) > kLastCands)
+                        lastCands.resize(kLastCands);
+                    lastIdx = static_cast<int>(toks.size()) - 1;
+                }
                 runCtx += s;
                 for (size_t k = 0, off = 0; k < run.size(); k++) {
                     size_t len = utf8SeqLen(s[off]);
@@ -315,10 +326,24 @@ public:
         if (gen != liveGen_ || state_ != State::Composing || !allOk) {
             return false; // stale or partial: keep whatever we had
         }
+        // re-apply the user's in-composition picks (and prune stale ones)
+        for (auto it = liveFixed_.begin(); it != liveFixed_.end();) {
+            const int idx = it->first;
+            if (idx < static_cast<int>(toks.size()) && toks[idx].zh &&
+                toks[idx].v == it->second.first &&
+                idx < static_cast<int>(disp.size())) {
+                disp[idx] = it->second.second;
+                ++it;
+            } else {
+                it = liveFixed_.erase(it); // token gone or resegmented
+            }
+        }
         liveDisp_ = std::move(disp);
         liveToks_ = std::move(toks);
         livePreedit_ = joinDisplay(liveToks_, liveDisp_, -1, std::string()).text;
         liveSents_ = std::move(nbest);
+        liveLastCands_ = std::move(lastCands);
+        liveLastIdx_ = lastIdx;
         return true;
     }
 
@@ -335,6 +360,42 @@ public:
         std::lock_guard<std::mutex> lk(mu_);
         if (comp_.toks.empty() || liveToks_ != comp_.toks) return {};
         return liveSents_;
+    }
+
+    // Auto candidates for the LAST word in the buffer (mobile convention) —
+    // model-ranked chars of the final zh token, from the live decode. Fresh
+    // only; empty when the last token is English or the buffer is empty.
+    std::vector<std::string> getLastWordCands() {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (comp_.toks.empty() || liveToks_ != comp_.toks || liveLastIdx_ < 0)
+            return {};
+        return liveLastCands_;
+    }
+
+    // The char currently displayed for the last word (for the selected chip).
+    std::string getLastWordCurrent() {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (comp_.toks.empty() || liveToks_ != comp_.toks || liveLastIdx_ < 0 ||
+            liveLastIdx_ >= static_cast<int>(liveDisp_.size()))
+            return {};
+        return liveDisp_[liveLastIdx_];
+    }
+
+    // Tap on a last-word candidate chip: replace that character IN PLACE and
+    // keep composing (no modal window). The pick sticks across further typing
+    // (re-applied after every live decode) and is learned on commit.
+    bool pickLastWord(const std::string &ch) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (ch.empty() || state_ != State::Composing || liveLastIdx_ < 0 ||
+            liveLastIdx_ >= static_cast<int>(comp_.toks.size()) ||
+            liveToks_ != comp_.toks ||
+            liveLastIdx_ >= static_cast<int>(liveDisp_.size()))
+            return false;
+        liveFixed_[liveLastIdx_] = {comp_.toks[liveLastIdx_].v, ch};
+        liveDisp_[liveLastIdx_] = ch;
+        livePreedit_ =
+            joinDisplay(liveToks_, liveDisp_, -1, std::string()).text;
+        return true;
     }
 
     // Tap on a suggestion chip: commit that sentence outright (Gboard-style
@@ -488,6 +549,14 @@ public:
         std::lock_guard<std::mutex> lk(mu_);
         comp_.commitRun(segmenter_.get(), enMode_);
         if (!livePreedit_.empty() && liveToks_ == comp_.toks) {
+            // in-composition picks are explicit user corrections: learn them
+            // (same semantics as the Choosing window's learn-diff)
+            if (!liveFixed_.empty() && dec_) {
+                json chars = json::array();
+                for (auto &kv : liveFixed_)
+                    chars.push_back({kv.second.first, kv.second.second});
+                dec_->learn(json{{"chars", chars}, {"phrases", json::array()}});
+            }
             stageCommit(livePreedit_);
             hardClear();
             return true;
@@ -704,6 +773,9 @@ private:
         liveDisp_.clear();
         liveToks_.clear();
         liveSents_.clear();
+        liveLastCands_.clear();
+        liveLastIdx_ = -1;
+        liveFixed_.clear();
     }
     void hardClear() {
         state_ = State::Composing;
@@ -733,11 +805,17 @@ private:
     std::string pendingCommit_;
 
     static constexpr int kLiveNBest = 5;
+    static constexpr int kLastCands = 8;
 
     std::string livePreedit_;
     std::vector<std::string> liveDisp_;
     std::vector<SegTok> liveToks_;
     std::vector<std::string> liveSents_; // n-best for the suggestion strip
+    std::vector<std::string> liveLastCands_; // ranked chars, last zh token
+    int liveLastIdx_ = -1;
+    // in-composition picks: token index -> (syllable, chosen char); re-applied
+    // after every live decode, learned on commit
+    std::map<int, std::pair<std::string, std::string>> liveFixed_;
     uint64_t liveGen_ = 0;
 
     std::mutex mu_;

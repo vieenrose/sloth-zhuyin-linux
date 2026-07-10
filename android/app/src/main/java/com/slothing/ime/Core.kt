@@ -88,6 +88,12 @@ class Core {
     fun getLive(): String = nativeGetLive(handle)
     /** n-best sentence suggestions for the always-visible strip ([0] = shown inline). */
     fun getLiveSuggestions(): Array<String> = nativeGetLiveSuggestions(handle)
+    /** Auto candidates for the LAST word in the buffer (mobile convention). */
+    fun getLastWordCands(): Array<String> = nativeGetLastWordCands(handle)
+    /** The char currently shown for the last word (selected-chip state). */
+    fun getLastWordCurrent(): String = nativeGetLastWordCurrent(handle)
+    /** Tap a last-word chip: replace that char in place, keep composing. */
+    fun pickLastWord(ch: String): Boolean = nativePickLastWord(handle, ch)
     /** Tap on a suggestion chip: commit that sentence outright, then drain [getCommit]. */
     fun commitSentence(s: String) = nativeCommitSentence(handle, s)
     /** 符 strip tap: insert a literal symbol (token while composing, else direct commit). */
@@ -160,6 +166,9 @@ class Core {
     private external fun nativeDecodeLive(handle: Long): Boolean
     private external fun nativeGetLive(handle: Long): String
     private external fun nativeGetLiveSuggestions(handle: Long): Array<String>
+    private external fun nativeGetLastWordCands(handle: Long): Array<String>
+    private external fun nativeGetLastWordCurrent(handle: Long): String
+    private external fun nativePickLastWord(handle: Long, ch: String): Boolean
     private external fun nativeCommitSentence(handle: Long, s: String)
     private external fun nativeInsertSymbol(handle: Long, s: String): Int
 

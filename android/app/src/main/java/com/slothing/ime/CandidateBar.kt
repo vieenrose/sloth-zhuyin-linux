@@ -29,6 +29,8 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
         fun onPickPhrase(phrase: Phrase)
         /** Tap on a composing-time sentence suggestion: commit it outright. */
         fun onPickSuggestion(sentence: String)
+        /** Tap on a last-word candidate: replace that char, keep composing. */
+        fun onPickLastWord(ch: String)
         /** ‹ › chips while Choosing: move the focused segment (desktop ←→). */
         fun onMoveFocus(dir: Int)
     }
@@ -110,6 +112,41 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
             strip.addView(chip)
         }
         return sentences.isNotEmpty()
+    }
+
+    /**
+     * The full composing strip, mobile convention: candidates for the LAST
+     * word in the buffer show automatically (tap = replace in place, keep
+     * composing), then the whole-sentence alternates (tap = commit).
+     */
+    fun renderComposing(
+        lastCands: Array<String>,
+        lastCurrent: String,
+        sentences: Array<String>,
+    ): Boolean {
+        strip.removeAllViews()
+        scrollX = 0
+        var shown = false
+        if (lastCands.isNotEmpty()) {
+            strip.addView(labelChip("字"))
+            for (c in lastCands) {
+                val chip = chip(c, phrase = false, selected = c == lastCurrent)
+                chip.setOnClickListener { listener?.onPickLastWord(c) }
+                strip.addView(chip)
+                shown = true
+            }
+        }
+        if (sentences.isNotEmpty()) {
+            if (shown) strip.addView(divider())
+            strip.addView(labelChip("句"))
+            sentences.forEachIndexed { i, s ->
+                val chip = chip(s, phrase = true, selected = i == 0)
+                chip.setOnClickListener { listener?.onPickSuggestion(s) }
+                strip.addView(chip)
+                shown = true
+            }
+        }
+        return shown
     }
 
     fun clear() {
