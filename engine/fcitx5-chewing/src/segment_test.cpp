@@ -80,6 +80,10 @@ int main(int argc, char **argv) {
         {"ek", "zh:ㄍㄜ", "standalone pure-letter syllable"},
         {"vp3", "zh:ㄒㄣˇ", "typo syllable + tone accepted"},
         {"ji3vp3", "zh:ㄨㄛˇ | zh:ㄒㄣˇ", "typo syllable in context"},
+        {"Python", "en:Python", "capital preserved, word whole"},
+        {"ji3m/4Python", "zh:ㄨㄛˇ | zh:ㄩㄥˋ | en:Python",
+         "capital mid-stream in auto zh/en"},
+        {"iPhone", "en:iPhone", "capital not first, still one word"},
     };
     for (const auto &[keys, want, desc] : T) {
         std::string got = show(seg, keys);

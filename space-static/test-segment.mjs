@@ -40,6 +40,9 @@ const T=[
   ['ek',             'zh:ㄍㄜ',                                'standalone pure-letter syllable 哥 (post-process)'],
   ['vp3',            'zh:ㄒㄣˇ',                               'typo syllable + tone accepted (decoder repairs)'],
   ['ji3vp3',         'zh:ㄨㄛˇ | zh:ㄒㄣˇ',                    'typo syllable in zhuyin context'],
+  ['Python',         'en:Python',                              'capital preserved, word whole'],
+  ['ji3m/4Python',   'zh:ㄨㄛˇ | zh:ㄩㄥˋ | en:Python',        'capital mid-stream in auto zh/en'],
+  ['iPhone',         'en:iPhone',                              'capital not first, still one word'],
 ];
 let pass=0,fail=0;
 for(const [keys,exp,desc] of T){
