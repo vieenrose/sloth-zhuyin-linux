@@ -13,6 +13,8 @@ hallucination.
 > Type on the on-screen Dàqiān keyboard or your physical keyboard — Chinese,
 > English, and mixed input auto-detected with no mode key.
 
+<p align="center"><img src="docs/demo.gif" width="640" alt="Slothing web demo — typing zhuyin with live LLM decode and zh/en code-switch"></p>
+
 ## What it is
 
 Slothing replaces the statistical decoder of a traditional zhuyin IME (like
