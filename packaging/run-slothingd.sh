@@ -1,7 +1,8 @@
 #!/bin/sh
-# Manual launcher for the Slothing LLM reranker (slothingd + LFM2.5-230M).
-# Run this by hand whenever you want the reranker active; Ctrl+C to stop.
-# The fcitx5 engine talks to it over the socket derived below.
+# Manual launcher for the Slothing decode daemon (slothingd_e.py + SlothLM-E
+# 4M ONNX). Run this by hand whenever you want LLM decode active; Ctrl+C to
+# stop. The fcitx5 engine talks to it over the socket derived below.
+# (The old llama.cpp/GGUF slothingd remains at engine/slothingd/build/.)
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -17,8 +18,9 @@ else
     SOCKET="/tmp/slothingd.sock"
 fi
 
-MODEL="$REPO_DIR/llm/models/lfm2.5-230m-q4/LFM2.5-230M-Q4_0.gguf"
-BIN="$REPO_DIR/engine/slothingd/build/slothingd"
+MODEL="$REPO_DIR/model/slothe_4m_onnx"
+TABLE="$REPO_DIR/model/phonetic_table.tsv"
+DAEMON="$REPO_DIR/engine/slothingd/slothingd_e.py"
 
 # Restart loop: the daemon vanished once under heavy system load (likely
 # OOM-killed; nothing in its own log), which silently disables reranking until
@@ -33,7 +35,7 @@ fails=0
 while :; do
     start=$(date +%s)
     echo "$(date '+%F %T') starting slothingd on $SOCKET" >&2
-    "$BIN" -m "$MODEL" -s "$SOCKET"
+    python3 "$DAEMON" --model "$MODEL" --table "$TABLE" -s "$SOCKET"
     code=$?
     end=$(date +%s)
 

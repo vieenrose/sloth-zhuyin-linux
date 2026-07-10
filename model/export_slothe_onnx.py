@@ -22,7 +22,8 @@ def main():
 
     ckpt=torch.load(os.path.join(args.model,"slothe.pt"),map_location="cpu")
     c=ckpt["config"]
-    model=SlothE(c["n_syl"],c["n_char"],c["dim"],c["depth"],c["heads"],c["kv"],c["ffn"])
+    model=SlothE(c["n_syl"],c["n_char"],c["dim"],c["depth"],c["heads"],c["kv"],c["ffn"],
+                 embed_norm=c.get("embed_norm",False))
     model.load_state_dict(ckpt["model"]); model.eval()
 
     syl=torch.zeros(1,6,dtype=torch.long)

@@ -137,9 +137,11 @@ class Block(nn.Module):
 
 
 class SlothE(nn.Module):
-    def __init__(self, n_syl, n_char, dim=384, depth=8, heads=6, kv=2, ffn=1024):
+    def __init__(self, n_syl, n_char, dim=384, depth=8, heads=6, kv=2, ffn=1024,
+                 embed_norm=False):
         super().__init__()
         self.embed = nn.Embedding(n_syl, dim)
+        self.embed_norm = RMSNorm(dim) if embed_norm else None  # ModernBERT post-embed norm
         self.blocks = nn.ModuleList([Block(dim, heads, kv, ffn) for _ in range(depth)])
         self.norm = RMSNorm(dim)
         self.head = nn.Linear(dim, n_char, bias=False)
@@ -154,6 +156,8 @@ class SlothE(nn.Module):
     def forward(self, syl, amask):
         pos = torch.arange(syl.shape[1], device=syl.device)
         x = self.embed(syl)
+        if self.embed_norm is not None:
+            x = self.embed_norm(x)
         for b in self.blocks:
             x = b(x, pos, amask)
         return self.head(self.norm(x))
@@ -174,6 +178,8 @@ def main():
     ap.add_argument("--epochs", type=float, default=2.0)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--steps", type=int, default=0, help="cap steps (smoke test)")
+    ap.add_argument("--embed-norm", action="store_true",
+                    help="ModernBERT post-embedding RMSNorm")
     args = ap.parse_args()
 
     from transformers import AutoTokenizer
@@ -188,7 +194,8 @@ def main():
     dl = DataLoader(ds, batch_size=args.batch, shuffle=True, num_workers=8,
                     collate_fn=collate, pin_memory=True, drop_last=True)
     model = SlothE(len(syl_vocab), len(tok), args.dim, args.depth,
-                   args.heads, args.kv_heads, args.ffn).to(dev)
+                   args.heads, args.kv_heads, args.ffn,
+                   embed_norm=args.embed_norm).to(dev)
     print(f"SlothLM-E {sum(p.numel() for p in model.parameters())/1e6:.1f}M params")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95),
                             weight_decay=0.1)
@@ -212,9 +219,9 @@ def main():
             step += 1
             if step % 50 == 0:
                 print(f"step {step}/{total} loss {loss.item():.3f}", flush=True)
-            if args.steps and step >= args.steps:
+            if step >= total:
                 break
-        if args.steps and step >= args.steps:
+        if step >= total:
             break
 
     os.makedirs(args.out, exist_ok=True)
@@ -222,7 +229,7 @@ def main():
                 "config": {"n_syl": len(syl_vocab), "n_char": len(tok),
                            "dim": args.dim, "depth": args.depth,
                            "heads": args.heads, "kv": args.kv_heads,
-                           "ffn": args.ffn}},
+                           "ffn": args.ffn, "embed_norm": args.embed_norm}},
                os.path.join(args.out, "slothe.pt"))
     json.dump(syl_vocab, open(os.path.join(args.out, "syl_vocab.json"), "w",
                               encoding="utf-8"), ensure_ascii=False)
