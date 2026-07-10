@@ -228,9 +228,10 @@ function render(){
     const lbl=document.createElement('span'); lbl.className='pg'; lbl.textContent='詞';
     phEl.appendChild(lbl);
     const seen=new Set();
-    phrase.forEach(p=>{ if(seen.has(p))return; seen.add(p);
+    phrase.forEach((p,pi)=>{ if(seen.has(p))return; seen.add(p);
       const b=document.createElement('button'); b.className='cand ph';
-      b.textContent=p; b.onclick=()=>pickPhrase(p); phEl.appendChild(b); });
+      b.innerHTML='<span class="n">⇧'+(pi+1)+'</span>'+p;
+      b.onclick=()=>pickPhrase(p); phEl.appendChild(b); });
   } else if(fix>=0 && phraseBusy){
     const s=document.createElement('span'); s.className='pg'; s.textContent='組詞中…'; phEl.appendChild(s);
   }
@@ -294,7 +295,7 @@ async function runPreview(){
           const syl=toneless?strip(tok.v):tok.v;
           const cands=zhCands[zc];
           let ch=zhChars[zc]; if(ch==null||!cands.includes(ch)) ch=cands[0];  // never fall back to bopomofo
-          if(learn[syl]&&cands.includes(learn[syl])) ch=learn[syl];  // learned pick wins
+          // (learned picks are applied inside decodeZh as logit bonuses)
           pvChars.push(ch); pvCands.push(cands); zc++;
         } else { pvChars.push(tok.v); pvCands.push([tok.v]); }
       }
@@ -375,6 +376,7 @@ async function encForwardBatch(rows){
   });
   return {data:out.logits.data, V:out.logits.dims[2], T};
 }
+const LEARN_BONUS=6.0;   // calibrated: flips 在/再-scale gaps, spares 的/重新
 async function decodeZh(sylsIn, forced={}){
   // typo tolerance: an impossible syllable (no legal chars) is replaced by
   // the edit-distance-1 correction the model itself scores highest. Legal
@@ -398,7 +400,9 @@ async function decodeZh(sylsIn, forced={}){
   for(let i=0;i<T;i++){
     if(forced[i]!=null){ chars.push(forced[i]); continue; }
     const {chars:cc,ids}=sets[i]; let best=cc[0], bv=-Infinity;
-    for(let k=0;k<ids.length;k++){ const v=data[i*V+ids[k]]; if(v>bv){bv=v;best=cc[k];} }
+    for(let k=0;k<ids.length;k++){
+      const v=data[i*V+ids[k]] + (learn[syls[i]]===cc[k]?LEARN_BONUS:0);
+      if(v>bv){bv=v;best=cc[k];} }
     chars.push(best!=null?best:syls[i]);
   }
   return{chars,cands:sets.map(s=>s.chars)};
@@ -470,6 +474,10 @@ document.addEventListener('keydown',e=>{
   }
   // candidate-fix mode: numbers pick, arrows page, Esc closes
   if(fix>=0){
+    if(e.shiftKey && e.code && e.code.startsWith('Digit')){   // ⇧1-9 = 詞
+      const idx=e.code.charCodeAt(5)-49;
+      if(phrase && phrase[idx]){ pickPhrase(phrase[idx]); e.preventDefault(); return; }
+    }
     if(k>='1'&&k<='9'){ pickCand(k.charCodeAt(0)-49); e.preventDefault(); return; }
     if(k==='ArrowDown'||k==='ArrowUp'){
       const pages=Math.ceil((pvCands[fix]||[]).length/PAGE), d=k==='ArrowDown'?1:-1;
