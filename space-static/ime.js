@@ -94,14 +94,16 @@ function backspace(){
   render();
 }
 function moveCursor(d){
-  if(hasRun()) commitRun();          // close the run before moving
+  if(hasRun()) return;               // chewing: arrows ignored while composing a syllable
   fix=-1;
   cursor=Math.max(0,Math.min(committed.length,cursor+d));
   render();
 }
+let preFixCursor=-1;
 function openFix(i){
   if(i<0||i>=committed.length||committed[i].t!=='zh') return;
   if(pvKey!==bufKey()) return;       // wait for decode
+  preFixCursor=cursor; cursor=i;     // chewing: cursor moves onto the char
   fix=i; fixPage=0; phrase=null; phraseBusy=false;
   const sel=displayFor(i), cands=pvCands[i]||[];
   const at=cands.indexOf(sel); if(at>=0) fixPage=Math.floor(at/PAGE);
@@ -158,6 +160,7 @@ function pickCand(j){                 // j is index within current page
   overrides[fix]=cands[idx];
   const syl=$('toneless').checked?strip(committed[fix].v):committed[fix].v;
   learn[syl]=cands[idx]; saveLearn();
+  if(preFixCursor>=0){ cursor=preFixCursor; preFixCursor=-1; } // chewing: restore
   fix=-1; phrase=null;
   pvKey=null; schedulePreview();      // re-score the sentence around the pick
   render();
@@ -528,6 +531,8 @@ document.addEventListener('keydown',e=>{
   }
   // candidate-fix mode: numbers pick, arrows page, Esc closes
   if(fix>=0){
+    // chewing: the candidate window is MODAL — selection keys act, ←→ move
+    // the disambiguation target (window follows), everything else is ignored.
     if(e.shiftKey && e.code && e.code.startsWith('Digit')){   // ⇧1-9 = 詞
       const idx=e.code.charCodeAt(5)-49;
       if(phrase && phrase[idx]){ pickPhrase(phrase[idx]); e.preventDefault(); return; }
@@ -536,16 +541,25 @@ document.addEventListener('keydown',e=>{
     if(k==='ArrowDown'||k==='ArrowUp'){
       const pages=Math.ceil((pvCands[fix]||[]).length/PAGE), d=k==='ArrowDown'?1:-1;
       if(pages>1){fixPage=(fixPage+d+pages)%pages;render();} e.preventDefault(); return; }
-    if(k==='Escape'){ fix=-1; render(); e.preventDefault(); return; }
-    if(k==='Enter'){ fix=-1; render(); e.preventDefault(); return; }
+    if(k==='ArrowLeft'||k==='ArrowRight'){   // chewing: ←→ page candidates
+      const pages=Math.ceil((pvCands[fix]||[]).length/PAGE), d=k==='ArrowRight'?1:-1;
+      if(pages>1){fixPage=(fixPage+d+pages)%pages;render();} e.preventDefault(); return; }
+    if(k==='Escape'){
+      if(preFixCursor>=0){ cursor=preFixCursor; preFixCursor=-1; }
+      fix=-1; render(); e.preventDefault(); return; }
+    e.preventDefault(); return;   // Enter, zhuyin keys, etc: ignored (modal)
   }
   if(k==='Enter'){ if(committed.length||hasRun()){commitSentence();e.preventDefault();} }
   else if(k===' '){ if(hasRun()){feedKey(' ');e.preventDefault();} else if(committed.length) e.preventDefault(); }
   else if(k==='Backspace'){ if(committed.length||hasRun()){backspace();e.preventDefault();} }
+  else if(k==='Home'){ if(committed.length||hasRun()){ if(!hasRun()){cursor=0; fix=-1; render();} e.preventDefault(); } }
+  else if(k==='End'){ if(committed.length||hasRun()){ if(!hasRun()){cursor=committed.length; fix=-1; render();} e.preventDefault(); } }
   else if(k==='ArrowLeft'){ if(committed.length||hasRun()){moveCursor(-1);e.preventDefault();} }
   else if(k==='ArrowRight'){ if(committed.length||hasRun()){moveCursor(1);e.preventDefault();} }
-  else if(k==='ArrowDown'){ if(cursor>0&&committed[cursor-1]&&committed[cursor-1].t==='zh'){openFix(cursor-1);e.preventDefault();} }
-  else if(k==='Escape'){ clearAll(); render(); }
+  else if(k==='ArrowDown'){ // chewing: char AT the cursor; at end, the last char
+    const t=(cursor<committed.length)?cursor:cursor-1;
+    if(t>=0&&committed[t]&&committed[t].t==='zh'){openFix(t);e.preventDefault();} }
+  else if(k==='Escape'){ if(hasRun()){ resetRun(); } render(); }
   else if(k==='`'){ toggleSymbols(); e.preventDefault(); }               // ` opens symbol menu (微軟/自然)
   else if(enMode && k.length===1){ feedKey(k); e.preventDefault(); }  // English mode: literal (feedKey applies width)
   else if(k in PUNCT){ feedKey(k); e.preventDefault(); }
@@ -555,6 +569,18 @@ document.addEventListener('keyup',e=>{ if(e.key==='Shift'&&shiftAlone){ shiftAlo
 $('commit').onclick=()=>commitSentence();
 $('clear').onclick=()=>{ clearAll(); render(); };
 $('toneless').onchange=()=>{ pvKey=null; render(); };
+
+// test hook for the differential UI-parity suite (eval/ui-parity): the
+// observable UI state, same schema as chewing_trace.c (structure only).
+window.__ui = () => ({
+  zh: committed.length,
+  bopo: hasRun() ? 1 : 0,
+  cand: (fix >= 0 || symbolMode) ? 1 : 0,
+  cursor: cursor,
+  out: $('out').value.length,
+  settled: !hasRun() || true,
+  fresh: pvKey === bufKey() || !committed.some(t => t.t === 'zh'),
+});
 
 (async function init(){
   const txt=await (await fetch('./phonetic_table.tsv')).text();

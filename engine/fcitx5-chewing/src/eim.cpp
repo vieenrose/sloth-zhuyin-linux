@@ -1325,6 +1325,9 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             return;
         }
         if (keyEvent.key().check(FcitxKey_Return)) {
+            if (candListOpen_) {
+                return; // chewing: Enter ignored while the window is open
+            }
             // learn the user's corrections (changed zh segments + adjacent
             // changed pairs as phrases) before committing
             json chars = json::array(), phrases = json::array();
@@ -1511,7 +1514,9 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             return; // nothing composed: let the app have the key
         }
         keyEvent.filterAndAccept();
-        commitRun();
+        if (!rawKeys_.empty()) {
+            return; // chewing: arrows ignored while composing a syllable
+        }
         const int n = static_cast<int>(committedToks_.size());
         int cur = tokCursor_ < 0 ? n : tokCursor_;
         if (keyEvent.key().check(FcitxKey_Left)) {
@@ -1535,27 +1540,25 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         if (!composingEmpty()) {
             keyEvent.filterAndAccept();
             commitRun();
-            // candidates open for the char BEFORE the cursor (新注音); at
-            // the end of the buffer that's the last character.
+            // chewing: candidates for the char AT the cursor; at the end of
+            // the buffer, the last character.
             const int n = static_cast<int>(committedToks_.size());
             pendingFocus_ =
                 tokCursor_ < 0 ? n - 1
-                               : std::max(0, std::min(tokCursor_ - 1, n - 1));
+                               : std::max(0, std::min(tokCursor_, n - 1));
             startDecode(ic);
         }
         return;
     }
 
     if (keyEvent.key().check(FcitxKey_Escape)) {
-        if (!composingEmpty()) {
+        // chewing: Esc clears only the pending bopomofo, never converted text
+        if (!rawKeys_.empty()) {
             keyEvent.filterAndAccept();
             rawKeys_.clear();
-            committedToks_.clear();
-            tokCursor_ = -1;
-            livePreedit_.clear();
-            liveDisp_.clear();
-            liveToks_.clear();
             renderComposing(ic);
+        } else if (!composingEmpty()) {
+            keyEvent.filterAndAccept(); // swallow, keep the sentence
         }
         return;
     }
