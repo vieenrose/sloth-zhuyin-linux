@@ -957,6 +957,7 @@ void ChewingEngine::showConversionChoices(
 
     phraseCands_.clear();
     candSpan_ = 2;
+    candListOpen_ = true;
     userFixed_.clear();
     segSel_.assign(convertPositions_.size(), 0);
     const std::string &best = sentences.empty() ? convertBuffer_ : sentences[0];
@@ -1024,6 +1025,14 @@ void ChewingEngine::renderSegments(InputContext *ic) {
         ic->inputPanel().setClientPreedit(preedit);
     } else {
         ic->inputPanel().setPreedit(preedit);
+    }
+
+    if (!candListOpen_) {
+        ic->inputPanel().setAuxDown(
+            Text("←→ 移動　↓ 選字　⏎ 上字　Esc 取消"));
+        ic->updatePreedit();
+        ic->updateUserInterface(UserInterfaceComponent::InputPanel);
+        return;
     }
 
     auto list = std::make_unique<CommonCandidateList>();
@@ -1132,15 +1141,10 @@ void ChewingEngine::pickPhrase(InputContext *ic, int start,
     userFixed_.insert(i);
     userFixed_.insert(i + 1);
     rescoreChoosing(ic);
-    // advance focus past the phrase, to the next ambiguous segment
+    // chewing: the pick CLOSES the candidate window; focus stays on the word
+    segFocus_ = i;
+    candListOpen_ = false;
     candSpan_ = 2;
-    segFocus_ = i + 1;
-    for (int k = i + 2; k < static_cast<int>(convertPositions_.size()); k++) {
-        if (convertPositions_[k].size() > 1) {
-            segFocus_ = k;
-            break;
-        }
-    }
     renderSegments(ic);
 }
 
@@ -1194,14 +1198,9 @@ void ChewingEngine::pickSegment(InputContext *ic, int candIdx) {
         userFixed_.insert(segFocus_);
         rescoreChoosing(ic); // 新注音-style: the pick re-scores the rest
     }
+    // chewing: the pick CLOSES the candidate window; the cursor stays put
+    candListOpen_ = false;
     candSpan_ = 2;
-    for (int i = segFocus_ + 1; i < static_cast<int>(convertPositions_.size());
-         i++) {
-        if (convertPositions_[i].size() > 1) {
-            segFocus_ = i;
-            break;
-        }
-    }
     renderSegments(ic);
 }
 
@@ -1316,6 +1315,11 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             return;
         }
         if (keyEvent.key().check(FcitxKey_Escape)) {
+            if (candListOpen_) {         // close the window first (chewing)
+                candListOpen_ = false;
+                renderSegments(ic);
+                return;
+            }
             cancelConversion(ic);
             renderComposing(ic);
             return;
@@ -1386,8 +1390,13 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
                    keyEvent.key().check(FcitxKey_Up) ||
                    (keyEvent.key().check(FcitxKey_space) &&
                     *config_.SpaceAsSelection)) {
-            // chewing-style span cycling: 詞 view <-> 單字 view
-            candSpan_ = (candSpan_ == 2) ? 1 : 2;
+            if (!candListOpen_) {        // reopen at the focused char
+                candListOpen_ = true;
+                candSpan_ = 2;
+            } else {
+                // chewing-style span cycling: 詞 view <-> 單字 view
+                candSpan_ = (candSpan_ == 2) ? 1 : 2;
+            }
         } else if (keyEvent.key().isSimple()) {
             const char *selkeys =
                 builtin_selectkeys[static_cast<int>(*config_.SelectionKey)];

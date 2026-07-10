@@ -190,6 +190,9 @@ private:
     // Candidate span view, chewing-style: ↓ cycles longest-span first.
     // 2 = 詞 view (2-char phrases covering focus..focus+1), 1 = 單字 view.
     int candSpan_ = 2;
+    // Candidate window visibility (chewing: a pick CLOSES the window; ↓
+    // reopens it; Esc closes it before cancelling the whole conversion).
+    bool candListOpen_ = true;
     // Model-ranked 2-char phrase candidates per focus position, fetched
     // lazily from the daemon while Choosing. Main thread only.
     std::map<int, std::vector<std::pair<int, std::string>>> phraseCands_;
