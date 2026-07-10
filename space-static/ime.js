@@ -492,12 +492,29 @@ async function decodeZh(sylsIn, forced={}, hints={}, ctx=''){
 }
 
 // ---- keyboard UI ----
+// On phones, render the iOS zhuyin arrangement: the SAME Dàqiān columns
+// (Apple uses this exact grid), bopomofo-only caps, ⌫/、/⏎ as a right-hand
+// function column — instantly familiar to iPhone 注音 users.
 const kb=$('kb');
 const keyBtns=[];
-ROWS.forEach(row=>{const r=document.createElement('div');r.className='krow';
+const iosKb = matchMedia('(pointer:coarse) and (max-width:600px)').matches
+              || new URLSearchParams(location.search).get('kb')==='ios';
+if(iosKb) document.body.classList.add('ioskb');
+ROWS.forEach((row,ri)=>{const r=document.createElement('div');r.className='krow';
   row.forEach(key=>{const b=document.createElement('button');b.className='key';
     const sym=DACHEN[key]?DACHEN[key][0]:(key in TONEK?TONEK[key]:'');
-    b.onclick=()=>feedKey(key);r.appendChild(b);keyBtns.push({b,key,sym});});kb.appendChild(r);});
+    b.onclick=()=>feedKey(key);r.appendChild(b);keyBtns.push({b,key,sym});});
+  if(iosKb){ // right-hand function column, iOS-style
+    const fns=[
+      {t:'⌫', f:()=>{ if(committed.length||hasRun()) backspace(); }},
+      {t:'、', f:()=>directPunct('、')},
+      {t:'？', f:()=>directPunct('？')},
+      {t:'⏎', f:()=>commitSentence()},
+    ][ri];
+    if(fns){ const b=document.createElement('button'); b.className='key fn';
+      b.innerHTML='<span class="s">'+fns.t+'</span>'; b.onclick=fns.f; r.appendChild(b); }
+  }
+  kb.appendChild(r);});
 // In English mode show the QWERTY letter big (zhuyin small); Chinese mode: zhuyin big.
 function paintKeys(){ for(const {b,key,sym} of keyBtns){
   b.innerHTML=enMode ? '<span class="s">'+key.toUpperCase()+'</span>'

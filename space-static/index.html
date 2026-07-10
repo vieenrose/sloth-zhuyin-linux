@@ -105,12 +105,19 @@
   footer a:hover{color:var(--brown2)}
   footer code{background:var(--panel);border:1px solid var(--border);border-radius:5px;
     padding:.05em .35em;font-size:.92em}
+  /* iOS-style keyboard (phones / ?kb=ios): bopomofo-only caps like the
+     iPhone 注音 keyboard — same Dàqiān grid, no latin hints, right-hand
+     function column. */
+  .ioskb .key .k{display:none}
+  .ioskb .key .s{font-size:1.15rem}
+  .ioskb .key.fn{background:linear-gradient(180deg,#e7d7bd,#d9c3a0);font-weight:700}
+  @media (prefers-color-scheme:dark){ .ioskb .key.fn{background:linear-gradient(180deg,#3d3126,#332821)} }
   /* iPhone / narrow: fluid keys that always fit 11-per-row at any width,
      with iOS-friendly touch height. Rows with fewer keys stay centered. */
   @media (max-width:520px){
     .kb{width:100%;padding:.55rem .35rem .7rem}
     .krow{width:100%;justify-content:center;gap:3px;flex-wrap:wrap}
-    .key{width:calc((100% - 30px)/11);height:44px}
+    .key{width:calc((100% - 33px)/12);height:46px}
     .key .k{font-size:.5rem}.key .s{font-size:1.05rem}
     .key.wide{width:42%}.key.wide2{width:30%;flex:none}
     .pre{font-size:1.3rem}
@@ -147,6 +154,6 @@
     <a href="https://huggingface.co/Luigi/slothlm-e-4m-zhuyin" target="_blank">SlothLM-E 4M</a>
   </footer>
 </main>
-<script type="module" src="./ime.js?v=20260710w"></script>
+<script type="module" src="./ime.js?v=20260710x"></script>
 </body>
 </html>
