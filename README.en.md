@@ -13,7 +13,7 @@ character is a real reading of what you typed — never a hallucination.
 > Type on the on-screen Dàqiān keyboard or your physical keyboard — Chinese,
 > English, and mixed input auto-detected with no mode key.
 
-<p align="center"><img src="docs/demo-v8.gif" width="640" alt="Slothing web demo — typing zhuyin with live LLM decode and zh/en code-switch"></p>
+<p align="center"><img src="docs/demo-web-v9.gif" width="470" alt="Slothing web demo (recorded on a BOOX tablet browser) — typing 我用claude寫注音輸入法: live conversion, auto zh/en, touch candidate strip, tap-to-fix with whole-sentence re-scoring, and 聯想 predictions after commit"></p>
 
 ## Four frontends, one core
 

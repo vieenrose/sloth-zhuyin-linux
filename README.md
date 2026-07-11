@@ -12,7 +12,7 @@
 > 用畫面上的大千鍵盤或實體鍵盤打字——中文、英文、中英混打都會自動辨識,
 > 不用切換模式。
 
-<p align="center"><img src="docs/demo-v8.gif" width="640" alt="Slothing 網頁 demo — 注音即打即解碼,中英混打"></p>
+<p align="center"><img src="docs/demo-web-v9.gif" width="470" alt="Slothing 網頁 demo(BOOX 平板瀏覽器實錄)— 打「我用claude寫注音輸入法」:即打即轉、中英自動切換、觸控候選列、點字改字+整句重評分、上字後聯想接龍"></p>
 
 ## 四種前端,同一個核心
 
