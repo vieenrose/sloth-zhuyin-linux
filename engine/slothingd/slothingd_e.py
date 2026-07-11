@@ -155,7 +155,12 @@ class Decoder:
     def _bonus(self, syllables):
         """(position, char) -> additive logit bonus from learned picks."""
         b = {}
-        CHAR_BONUS, PHRASE_BONUS = 6.0, 8.0
+        # Calibrated 2026-07-11 on the 230-case 免選字 set WITH a heavily-used
+        # learn store: 6/8 over-personalized (59% vs the raw model's 74% —
+        # bonuses flipped correct strong-context picks); 2/3 recovers 74%
+        # while still flipping genuine near-ties (personalized ㄧㄣ->音 needs
+        # >1.0). Sweep: 6/8=59%, 3/4=71%, 2/3=74%+flip, 1/1.5=74% flip lost.
+        CHAR_BONUS, PHRASE_BONUS = 2.0, 3.0
         for i, s in enumerate(syllables):
             ch = self.learn_char.get(s)
             if ch:

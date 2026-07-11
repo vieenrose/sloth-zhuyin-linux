@@ -519,7 +519,7 @@ async function encForwardBatch(rows){
   const out=await session.run(feed);
   return {data:out.logits.data, V:out.logits.dims[2], T};
 }
-const LEARN_BONUS=6.0;   // calibrated: flips 在/再-scale gaps, spares 的/重新
+const LEARN_BONUS=2.0;   // recalibrated 2026-07-11: 6.0 over-personalized (59% vs 74% on the 免選字 set with a used store); 2.0 keeps near-tie flips (ㄧㄣ→音) without overriding strong context
 async function decodeZh(sylsIn, forced={}, hints={}, ctx=''){
   // typo tolerance: an impossible syllable (no legal chars) is replaced by
   // the edit-distance-1 correction the model itself scores highest. Legal

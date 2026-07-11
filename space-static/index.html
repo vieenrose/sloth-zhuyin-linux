@@ -67,7 +67,10 @@
     border-color:var(--brown);font-size:1.05rem}
   .cand.ph.hlp{outline:3px solid var(--ink);outline-offset:1px;transform:translateY(-1px)}
   .pg{color:var(--muted);font-size:.8rem;align-self:center;margin-left:.3rem}
-  .touchdev .cands{min-height:2.55rem}
+  .touchdev .cands{min-height:2.55rem;flex-wrap:nowrap;overflow-x:auto;
+    scrollbar-width:none;align-items:center}
+  .touchdev .cands::-webkit-scrollbar{display:none}
+  .touchdev .cands .cand{flex-shrink:0;white-space:nowrap}
   .hint{color:var(--muted);font-size:.82rem;margin:.35rem 0 .65rem;min-height:1.1rem;letter-spacing:.01em}
   .ctrls{display:flex;gap:.55rem;align-items:center;flex-wrap:wrap}
   .ctrls button{background:linear-gradient(180deg,var(--brown2),var(--brown));color:var(--hi);
@@ -155,6 +158,6 @@
     <a href="https://huggingface.co/Luigi/slothlm-e-4m-zhuyin" target="_blank">SlothLM-E 4M</a>
   </footer>
 </main>
-<script type="module" src="./ime.js?v=20260711d"></script>
+<script type="module" src="./ime.js?v=20260711f"></script>
 </body>
 </html>

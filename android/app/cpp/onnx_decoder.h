@@ -60,7 +60,8 @@ public:
 
 private:
     static constexpr int CTX_MAX = 12;
-    static constexpr double CHAR_BONUS = 6.0, PHRASE_BONUS = 8.0;
+    // calibrated 2026-07-11 (see slothingd_e.py): 6/8 over-personalized
+    static constexpr double CHAR_BONUS = 2.0, PHRASE_BONUS = 3.0;
 
     // one forward: syl[B,T] int64, amask[B,T] bool, (opt) hints[B,T] int64
     // -> logits[B,T,nChar] float. Returns the flat [B*T*nChar] buffer.
