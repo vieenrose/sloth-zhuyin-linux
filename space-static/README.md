@@ -8,14 +8,14 @@ pinned: false
 license: apache-2.0
 short_description: In-browser zhuyin IME decoded by a 3.9M model (no server)
 models:
-  - Luigi/slothlm-e-4m-zhuyin
+  - Luigi/slothlm-e-12m-zhuyin
 ---
 
 # Slothing — a web Zhuyin (Bopomofo) input method
 
 Type Zhuyin on the on-screen Dàqiān keyboard (or your physical keyboard); a
 **3.9M-parameter** from-scratch bidirectional encoder
-([SlothLM-E 4M](https://huggingface.co/Luigi/slothlm-e-4m-zhuyin)) decodes it
+([SlothLM-E 4M](https://huggingface.co/Luigi/slothlm-e-12m-zhuyin)) decodes it
 to Traditional Chinese **entirely in your browser** via onnxruntime-web
 (per-channel int8 ONNX, **~5 MB**, cached after first load; single-thread WASM,
 so it also works on iOS Safari). One forward pass decodes the whole sentence —

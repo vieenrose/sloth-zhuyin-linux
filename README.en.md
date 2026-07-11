@@ -64,7 +64,7 @@ offline contract tests (core_test), a headless IBus end-to-end test, and the
 `eval/ui-parity` differential suite.
 
 - Model + full reproduction pipeline (data → labels → NAS → training → ONNX):
-  [Luigi/slothlm-e-4m-zhuyin](https://huggingface.co/Luigi/slothlm-e-4m-zhuyin)
+  [Luigi/slothlm-e-12m-zhuyin](https://huggingface.co/Luigi/slothlm-e-12m-zhuyin)
 - Architecture & design: `ARCHITECTURE.md`, `model/DESIGN-E.md`, `MODEL_BENCHMARKS.md`
 
 ## Numbers
