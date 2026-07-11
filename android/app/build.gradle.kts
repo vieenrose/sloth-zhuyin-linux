@@ -1,8 +1,17 @@
 import org.gradle.api.tasks.Copy
+import java.util.Properties
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+}
+
+// Release signing — credentials live OUTSIDE the repo in ~/.slothing/
+// keystore.properties (storeFile/storePassword/keyAlias/keyPassword).
+// Absent file => release builds stay unsigned (CI / other machines).
+val signingProps = Properties().apply {
+    val f = File(System.getProperty("user.home"), ".slothing/keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
@@ -54,6 +63,17 @@ android {
     // Layout <srcDir>/<abi>/lib*.so, so "ort/lib" resolves ort/lib/arm64-v8a/libonnxruntime.so.
     sourceSets["main"].jniLibs.srcDirs("ort/lib")
 
+    signingConfigs {
+        if (signingProps.isNotEmpty()) {
+            create("release") {
+                storeFile = file(signingProps.getProperty("storeFile"))
+                storePassword = signingProps.getProperty("storePassword")
+                keyAlias = signingProps.getProperty("keyAlias")
+                keyPassword = signingProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             isMinifyEnabled = false
@@ -65,6 +85,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (signingProps.isNotEmpty()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

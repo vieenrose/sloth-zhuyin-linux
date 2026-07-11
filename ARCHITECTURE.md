@@ -1,6 +1,6 @@
 # Architecture
 
-Slothing is an LLM-assisted Zhuyin (Bopomofo) input method for fcitx5 on
+Slothing(懶音輸入法,全名「樹懶注音輸入法」)is an LLM-assisted Zhuyin (Bopomofo) input method for fcitx5 on
 Linux. It keeps libchewing as the fast, proven decoder and adds an on-demand
 local-LLM conversion step that reranks libchewing's own candidates. Nothing
 leaves the machine.

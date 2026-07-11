@@ -4,8 +4,8 @@
   <extends>org.fcitx.Fcitx5</extends>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>LGPL-2.1+</project_license>
-  <name>Chewing for Fcitx 5</name>
-  <summary>Chewing input method</summary>
+  <name>懶音輸入法 (Slothing)</name>
+  <summary>LLM-powered Zhuyin input method (libchewing-free)</summary>
   <url type="homepage">https://fcitx-im.org</url>
   <url type="bugtracker">https://github.com/fcitx/fcitx5-chewing/issues</url>
   <project_group>Fcitx</project_group>

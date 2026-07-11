@@ -1,5 +1,5 @@
 ---
-title: Slothing — Web Zhuyin IME
+title: 懶音輸入法 Slothing
 emoji: 🦥
 colorFrom: yellow
 colorTo: gray

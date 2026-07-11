@@ -21,7 +21,7 @@ Produces `fcitx5-slothing_<version>_<arch>.deb`. Runtime deps
 resolved automatically via `dpkg-shlibdeps`; `fcitx5-chinese-addons` is
 recommended.
 
-After install, restart fcitx5 and add **Slothing** (懶) via
+After install, restart fcitx5 and add **懶音輸入法** (Slothing) via
 `fcitx5-configtool`, then run `packaging/run-slothingd.sh` to enable LLM
 conversion (Ctrl+Enter).
 

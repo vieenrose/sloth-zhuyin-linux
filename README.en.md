@@ -1,7 +1,8 @@
-# 懶 Slothing — an LLM-powered Zhuyin IME
+# 懶音輸入法 Slothing — an LLM-powered Zhuyin IME
 
-**Type bopomofo; a model converts the whole sentence.** A 3.8M-parameter
-language model trained from scratch decodes zhuyin to Traditional Chinese
+**Type bopomofo; a model converts the whole sentence.** 懶音輸入法 (full name
+樹懶注音輸入法, "Sloth Zhuyin IME"; English name **Slothing**): a 3.8M-parameter
+language model trained from scratch that decodes zhuyin to Traditional Chinese
 locally — libchewing-free, with every character guaranteed to be a legal
 reading of what you typed. Four frontends — desktop (fcitx5, IBus), Android,
 and the browser — share one core and one model.

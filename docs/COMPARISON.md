@@ -1,4 +1,4 @@
-# Slothing vs. Gboard 注音 vs. Boox 內建輸入法（Onyx kime / Rime）
+# 懶音輸入法(Slothing) vs. Gboard 注音 vs. Boox 內建輸入法（Onyx kime / Rime）
 
 Android 上三個可打注音的輸入法的誠實對照。事實均附來源；標「未驗證」者為
 查無公開文件的項目。Slothing 的數字是本 repo 實測（BOOX Tab Mini C,

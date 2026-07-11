@@ -1,6 +1,6 @@
 # ibus-slothing
 
-Slothing 的 IBus 引擎 — 與 fcitx5 版共用同一個前端無關核心
+懶音輸入法(Slothing)的 IBus 引擎 — 與 fcitx5 版共用同一個前端無關核心
 （`engine/common/core.h`），因此互動行為完全一致（酷音/新注音使用者零學習
 成本）：
 
