@@ -95,6 +95,11 @@ class KeyboardView(context: Context) : LinearLayout(context) {
     private var englishKey: TextView? = null
     private var english = false
 
+    // ascii -> key view, for the hardware-keyboard echo (flashKey). Grid keys
+    // map by their QWERTY ascii; specials use control chars: '\b' ⌫, '\n' ⏎,
+    // ' ' space, '<' ，, '>' 。, '\\' 、, '?' ？.
+    private val keyViews = HashMap<Char, View>()
+
     private val pad = dp(3)
 
     init {
@@ -114,6 +119,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                 container.setOnClickListener { listener?.onKey(k) }
                 row.addView(container)
                 bopoKeys.add(BopoKey(main, hint, k, glyph))
+                keyViews[k] = container
             }
             // right-hand iOS function key for this row
             fnColumn.getOrNull(ri)?.let { fn ->
@@ -122,6 +128,12 @@ class KeyboardView(context: Context) : LinearLayout(context) {
                 if (fn.label == "⌫") {
                     // hold-to-repeat (standard mobile-keyboard behavior)
                     attachRepeat(v) { listener?.onBackspace() }
+                }
+                when (fn.label) {
+                    "⌫" -> keyViews['\b'] = v
+                    "、" -> keyViews['\\'] = v
+                    "？" -> keyViews['?'] = v
+                    "⏎" -> keyViews['\n'] = v
                 }
                 row.addView(v)
             }
@@ -142,10 +154,12 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         }
         makeKey("，", weight = 1f, fnKey = true).also {
             it.setOnClickListener { listener?.onKey('<') }   // punctMap: '<' → ，
+            keyViews['<'] = it
             row.addView(it)
         }
         makeKey("。", weight = 1f, fnKey = true).also {
             it.setOnClickListener { listener?.onKey('>') }   // punctMap: '>' → 。
+            keyViews['>'] = it
             row.addView(it)
         }
         // Wide space = 一聲 (tone 1). Long-press opens the ↓ candidate window.
@@ -153,6 +167,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             it.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             it.setOnClickListener { listener?.onKey(' ') }
             it.setOnLongClickListener { listener?.onOpenChoosing(); true }
+            keyViews[' '] = it
             row.addView(it)
         }
         makeKey(context.getString(R.string.key_choose), weight = 1f, fnKey = true).also {
@@ -161,6 +176,29 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             row.addView(it)
         }
         addView(row)
+    }
+
+    /** Hardware-echo hold time. Debug builds may override it via
+     *  `adb shell settings put global slothing_flash_ms N` (demo recording
+     *  needs the pressed state to survive a screencap round-trip). */
+    var flashHoldMs = 250L
+
+    /** Echo a hardware (Bluetooth/USB) key press on the on-screen keyboard:
+     *  momentarily paint the matching key's pressed visual so the user (and
+     *  demo recordings) can see WHICH key was hit. Two clean redraws — no
+     *  animation, e-ink friendly. Uppercase falls back to its lowercase key. */
+    fun flashKey(ascii: Char) {
+        val v = keyViews[ascii] ?: keyViews[ascii.lowercaseChar()] ?: return
+        v.isPressed = true
+        v.postDelayed({ v.isPressed = false }, flashHoldMs)
+    }
+
+    /** flashKey for the 中/英 utility key (lone-Shift hardware toggle). */
+    fun flashEnglishToggle() {
+        englishKey?.let {
+            it.isPressed = true
+            it.postDelayed({ it.isPressed = false }, flashHoldMs)
+        }
     }
 
     /** Repaint the grid for English passthrough vs bopomofo. */

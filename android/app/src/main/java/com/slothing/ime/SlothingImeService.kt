@@ -154,6 +154,15 @@ class SlothingImeService : InputMethodService(),
         keyboard = KeyboardView(this).apply {
             listener = this@SlothingImeService
             setEnglish(english)
+            // debug builds: demo recording can stretch the hardware-key echo
+            // (`adb shell settings put global slothing_flash_ms 900`)
+            val debuggable = (applicationInfo.flags and
+                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            if (debuggable) {
+                android.provider.Settings.Global.getString(
+                    contentResolver, "slothing_flash_ms",
+                )?.toLongOrNull()?.let { flashHoldMs = it }
+            }
         }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -355,6 +364,12 @@ class SlothingImeService : InputMethodService(),
      *  a clean press+release toggles 中/英. */
     private var shiftAlone = false
 
+    /** Echo a consumed hardware key on the on-screen keyboard so the user can
+     *  see WHICH key was hit (specials: '\b' ⌫, '\n' ⏎, ' ' space). */
+    private fun flash(ascii: Char) {
+        if (::keyboard.isInitialized) keyboard.flashKey(ascii)
+    }
+
     /** Keep the keyboard + candidate bar visible while a hardware keyboard
      *  is connected — the default policy hides the input view when
      *  config.keyboard != NOKEYS, which would remove the candidate window
@@ -384,6 +399,7 @@ class SlothingImeService : InputMethodService(),
              keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT) && shiftAlone) {
             shiftAlone = false
             onToggleEnglish()   // lone Shift = 中/英 (desktop convention)
+            if (::keyboard.isInitialized) keyboard.flashEnglishToggle()
             // the release still passes through: the app saw the press
         }
         return super.onKeyUp(keyCode, event)
@@ -398,13 +414,15 @@ class SlothingImeService : InputMethodService(),
                 if (!choosing && core.getPreedit().text.isEmpty()) {
                     return false          // empty buffer: Enter belongs to the app
                 }
+                flash('\n')
                 commitOrConfirm()
                 return true
             }
             KeyEvent.KEYCODE_DEL -> {     // system auto-repeat re-enters here
-                if (choosing) { onBackspace(); return true }
+                if (choosing) { flash('\b'); onBackspace(); return true }
                 val outcome = core.backspace()
                 if (outcome == Core.KeyOutcome.IGNORED) return false
+                flash('\b')
                 applyOutcome(outcome)
                 return true
             }
@@ -498,7 +516,7 @@ class SlothingImeService : InputMethodService(),
      *  (instead of the soft keyboard's synthesized commitText). */
     private fun handleHardAscii(ascii: Char): Boolean {
         if (core.state() == Core.State.CHOOSING) {
-            if (ascii in '1'..'9') onPickCandidate(ascii - '1')
+            if (ascii in '1'..'9') { flash(ascii); onPickCandidate(ascii - '1') }
             return true    // nothing leaks behind the window (onKey parity)
         }
         if (symbolsShowing) hideSymbols()
@@ -508,6 +526,7 @@ class SlothingImeService : InputMethodService(),
             // (flushes composed text first, preserving order — desktop parity)
             val outcome = core.feedKey(ascii.code)
             if (outcome == Core.KeyOutcome.IGNORED) return false
+            flash(ascii)
             applyOutcome(outcome)
             return true
         }
@@ -517,6 +536,7 @@ class SlothingImeService : InputMethodService(),
             core.feedKey(ascii.code)
         }
         if (outcome == Core.KeyOutcome.IGNORED) return false
+        flash(ascii)
         applyOutcome(outcome)
         return true
     }
