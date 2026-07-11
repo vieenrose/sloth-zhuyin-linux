@@ -124,6 +124,7 @@ val copyModelAssets by tasks.registering(Copy::class) {
     }
     from(modelDir) {
         include("phonetic_table.tsv")
+        include("assoc_tc.tsv")   // 聯想 dictionary (built by model/build_assoc.py)
     }
     // on-device accuracy benchmark (230-case 免選字 reference set)
     from(rootProject.file("../eval")) {

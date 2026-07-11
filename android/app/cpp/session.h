@@ -29,6 +29,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
+#include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -69,10 +72,16 @@ class SlothingSession {
 public:
     // dec is owned by the session. table = the phonetic_table.tsv bytes
     // (syllable \t chars), same file the Linux addons install; it seeds both
-    // the reading map and the Segmenter's valid bases.
-    SlothingSession(std::unique_ptr<Decoder> dec, const std::string &table)
+    // the reading map and the Segmenter's valid bases. assocTsv = the 聯想
+    // dictionary (head char \t completions, from model/assoc_tc.tsv);
+    // assocUserPath = the personal bigram store ("" = in-memory only).
+    SlothingSession(std::unique_ptr<Decoder> dec, const std::string &table,
+                    const std::string &assocTsv = std::string(),
+                    std::string assocUserPath = std::string())
         : dec_(std::move(dec)) {
         loadPhoneticTable(table);
+        loadAssoc(assocTsv);
+        loadAssocUser(std::move(assocUserPath));
         choosing_.setDecoder(dec_.get()); // decode-port delta on ChoosingCore
     }
 
@@ -712,6 +721,50 @@ public:
         return s;
     }
 
+    // ---- 聯想 next-word prediction (mobile convention: after a commit the
+    // strip flips from candidates to predictions) ----------------------------
+
+    // Predictions for what follows the last committed character: the user's
+    // own bigrams first (learned from every commit), then the dictionary
+    // completions (assoc_tc.tsv, 微軟新注音-style 聯想). Empty while composing.
+    std::vector<std::string> getPredictions() {
+        std::lock_guard<std::mutex> lk(mu_);
+        std::vector<std::string> out;
+        if (!comp_.empty() || predictTail_.empty()) return out;
+        // personal bigrams, count-ranked
+        std::vector<std::pair<int, std::string>> mine;
+        for (auto &kv : assocUser_)
+            if (kv.first.first == predictTail_)
+                mine.push_back({kv.second, kv.first.second});
+        std::sort(mine.begin(), mine.end(),
+                  [](auto &a, auto &b) { return a.first > b.first; });
+        for (auto &p : mine) {
+            if (out.size() >= kPredictions) break;
+            out.push_back(p.second);
+        }
+        auto it = assoc_.find(predictTail_);
+        if (it != assoc_.end())
+            for (auto &c : it->second) {
+                if (out.size() >= kPredictions) break;
+                if (std::find(out.begin(), out.end(), c) == out.end())
+                    out.push_back(c);
+            }
+        return out;
+    }
+
+    // A prediction chip was tapped and committed by the frontend: learn the
+    // transition and move the tail so predictions chain.
+    void predicted(const std::string &text) {
+        std::lock_guard<std::mutex> lk(mu_);
+        recordAssocLocked(text);
+    }
+
+    // Field switch: predictions from the previous field are stale.
+    void clearPredictions() {
+        std::lock_guard<std::mutex> lk(mu_);
+        predictTail_.clear();
+    }
+
     std::string getNotice() {
         std::lock_guard<std::mutex> lk(mu_);
         return notice_;
@@ -766,7 +819,90 @@ private:
                    : tidySpaces(toksDisplay(comp_.toks));
     }
 
-    void stageCommit(const std::string &s) { pendingCommit_ += s; }
+    void stageCommit(const std::string &s) {
+        pendingCommit_ += s;
+        recordAssocLocked(s); // feed 聯想: personal bigrams + prediction tail
+    }
+
+    // ---- 聯想 internals (callers hold mu_) ---------------------------------
+
+    static bool isCjk(const std::string &cp) {
+        // CJK Unified Ideographs (U+4E00..U+9FFF): E4B880..E9BFBF in UTF-8
+        return cp.size() == 3 &&
+               ((static_cast<unsigned char>(cp[0]) == 0xE4 &&
+                 static_cast<unsigned char>(cp[1]) >= 0xB8) ||
+                (static_cast<unsigned char>(cp[0]) >= 0xE5 &&
+                 static_cast<unsigned char>(cp[0]) <= 0xE9));
+    }
+
+    // Count adjacent CJK bigrams across [predictTail_] + s, advance the tail.
+    void recordAssocLocked(const std::string &s) {
+        std::string prev = predictTail_;
+        bool dirty = false;
+        for (const auto &cp : splitUtf8(s)) {
+            if (!isCjk(cp)) {
+                prev.clear(); // punctuation/latin breaks adjacency
+                continue;
+            }
+            if (!prev.empty()) {
+                assocUser_[{prev, cp}]++;
+                dirty = true;
+            }
+            prev = cp;
+        }
+        predictTail_ = prev; // last CJK char, or "" if s ended non-CJK
+        if (dirty) saveAssocUser();
+    }
+
+    void loadAssoc(const std::string &tsv) {
+        size_t i = 0;
+        while (i < tsv.size()) {
+            size_t nl = tsv.find('\n', i);
+            std::string line = tsv.substr(
+                i, nl == std::string::npos ? std::string::npos : nl - i);
+            i = (nl == std::string::npos) ? tsv.size() : nl + 1;
+            auto tab = line.find('\t');
+            if (tab == std::string::npos) continue;
+            std::string head = line.substr(0, tab);
+            std::vector<std::string> comps;
+            std::string rest = line.substr(tab + 1);
+            size_t j = 0;
+            while (j < rest.size()) {
+                size_t sp = rest.find(' ', j);
+                std::string c = rest.substr(
+                    j, sp == std::string::npos ? std::string::npos : sp - j);
+                if (!c.empty()) comps.push_back(c);
+                if (sp == std::string::npos) break;
+                j = sp + 1;
+            }
+            if (!comps.empty()) assoc_.emplace(std::move(head), std::move(comps));
+        }
+    }
+
+    void loadAssocUser(std::string path) {
+        assocUserFile_ = std::move(path);
+        if (assocUserFile_.empty()) return;
+        std::ifstream f(assocUserFile_);
+        std::string line;
+        while (std::getline(f, line)) {
+            auto t1 = line.find('\t');
+            if (t1 == std::string::npos) continue;
+            auto t2 = line.find('\t', t1 + 1);
+            if (t2 == std::string::npos) continue;
+            int n = std::atoi(line.c_str() + t2 + 1);
+            if (n > 0)
+                assocUser_[{line.substr(0, t1),
+                            line.substr(t1 + 1, t2 - t1 - 1)}] = n;
+        }
+    }
+
+    void saveAssocUser() {
+        if (assocUserFile_.empty()) return;
+        std::ofstream f(assocUserFile_);
+        for (auto &kv : assocUser_)
+            f << kv.first.first << "\t" << kv.first.second << "\t" << kv.second
+              << "\n";
+    }
     void bumpLive() { liveGen_++; }
     void clearLive() {
         livePreedit_.clear();
@@ -791,6 +927,13 @@ private:
     std::unique_ptr<Segmenter> segmenter_;
     std::unordered_map<std::string, std::vector<std::string>> phoneticTable_;
 
+    // 聯想: dictionary head-char -> completions, personal bigram counts, and
+    // the last committed CJK char that predictions key off.
+    std::unordered_map<std::string, std::vector<std::string>> assoc_;
+    std::map<std::pair<std::string, std::string>, int> assocUser_;
+    std::string assocUserFile_;
+    std::string predictTail_;
+
     ComposingCore comp_;
     ChoosingCore choosing_;
     State state_ = State::Composing;
@@ -806,6 +949,7 @@ private:
 
     static constexpr int kLiveNBest = 5;
     static constexpr int kLastCands = 8;
+    static constexpr size_t kPredictions = 8;
 
     std::string livePreedit_;
     std::vector<std::string> liveDisp_;

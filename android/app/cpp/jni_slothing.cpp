@@ -152,7 +152,8 @@ extern "C" {
 
 JNI(jlong, nativeInit)(JNIEnv *env, jobject, jbyteArray model,
                        jbyteArray sylVocab, jbyteArray char2id,
-                       jbyteArray table, jint threads, jstring learnPath) {
+                       jbyteArray table, jint threads, jstring learnPath,
+                       jbyteArray assocTsv, jstring assocUserPath) {
     std::string modelBytes = byteArrayToString(env, model);
     std::string sylBytes = byteArrayToString(env, sylVocab);
     std::string charBytes = byteArrayToString(env, char2id);
@@ -160,7 +161,9 @@ JNI(jlong, nativeInit)(JNIEnv *env, jobject, jbyteArray model,
     auto dec = std::make_unique<OnnxDecoder>(
         modelBytes.data(), modelBytes.size(), sylBytes, charBytes, tableBytes,
         threads, jstrToUtf8(env, learnPath));
-    auto *s = new SlothingSession(std::move(dec), tableBytes);
+    auto *s = new SlothingSession(std::move(dec), tableBytes,
+                                  byteArrayToString(env, assocTsv),
+                                  jstrToUtf8(env, assocUserPath));
     return reinterpret_cast<jlong>(s);
 }
 
@@ -239,6 +242,15 @@ JNI(jstring, nativeGetLastWordCurrent)(JNIEnv *env, jobject, jlong h) {
 }
 JNI(jboolean, nativePickLastWord)(JNIEnv *env, jobject, jlong h, jstring ch) {
     return sess(h)->pickLastWord(jstrToUtf8(env, ch)) ? JNI_TRUE : JNI_FALSE;
+}
+JNI(jobjectArray, nativeGetPredictions)(JNIEnv *env, jobject, jlong h) {
+    return toStringArray(env, sess(h)->getPredictions());
+}
+JNI(void, nativePredicted)(JNIEnv *env, jobject, jlong h, jstring s) {
+    sess(h)->predicted(jstrToUtf8(env, s));
+}
+JNI(void, nativeClearPredictions)(JNIEnv *, jobject, jlong h) {
+    sess(h)->clearPredictions();
 }
 JNI(void, nativeCommitSentence)(JNIEnv *env, jobject, jlong h, jstring s) {
     sess(h)->commitSentence(jstrToUtf8(env, s));

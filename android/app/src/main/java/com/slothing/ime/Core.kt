@@ -47,10 +47,14 @@ class Core {
      * @param table     phonetic_table.tsv bytes (syllable \t chars per line).
      * @param threads   intra-op ORT threads (1–2 on a phone; 0 = ORT decides).
      * @param learnPath on-device learn store (persisted corrections; "" = in-memory only).
+     * @param assocTsv  聯想 dictionary bytes (assoc_tc.tsv; empty = predictions off).
+     * @param assocUserPath personal bigram store ("" = in-memory only).
      */
     fun init(model: ByteArray, sylVocab: ByteArray, char2id: ByteArray,
-             table: ByteArray, threads: Int, learnPath: String = ""): Boolean {
-        handle = nativeInit(model, sylVocab, char2id, table, threads, learnPath)
+             table: ByteArray, threads: Int, learnPath: String = "",
+             assocTsv: ByteArray = ByteArray(0), assocUserPath: String = ""): Boolean {
+        handle = nativeInit(model, sylVocab, char2id, table, threads, learnPath,
+                            assocTsv, assocUserPath)
         return handle != 0L && nativeReady(handle)
     }
 
@@ -94,6 +98,14 @@ class Core {
     fun getLastWordCurrent(): String = nativeGetLastWordCurrent(handle)
     /** Tap a last-word chip: replace that char in place, keep composing. */
     fun pickLastWord(ch: String): Boolean = nativePickLastWord(handle, ch)
+
+    // ---- 聯想 next-word predictions (empty buffer, after a commit) ---------
+    /** Predictions following the last committed char (personal + dictionary). */
+    fun getPredictions(): Array<String> = nativeGetPredictions(handle)
+    /** A prediction chip was committed: learn the transition, chain the tail. */
+    fun predicted(text: String) = nativePredicted(handle, text)
+    /** Field switch: stale predictions must not carry over. */
+    fun clearPredictions() = nativeClearPredictions(handle)
     /** Tap on a suggestion chip: commit that sentence outright, then drain [getCommit]. */
     fun commitSentence(s: String) = nativeCommitSentence(handle, s)
     /** 符 strip tap: insert a literal symbol (token while composing, else direct commit). */
@@ -147,7 +159,7 @@ class Core {
     fun symbolMode(): Boolean = nativeSymbolMode(handle)
 
     // ---- native surface (bound by Java_com_slothing_ime_Core_*) -----------
-    private external fun nativeInit(model: ByteArray, sylVocab: ByteArray, char2id: ByteArray, table: ByteArray, threads: Int, learnPath: String): Long
+    private external fun nativeInit(model: ByteArray, sylVocab: ByteArray, char2id: ByteArray, table: ByteArray, threads: Int, learnPath: String, assocTsv: ByteArray, assocUserPath: String): Long
     private external fun nativeReady(handle: Long): Boolean
     private external fun nativeDecodeBest(handle: Long, syls: String): String
     private external fun nativeDestroy(handle: Long)
@@ -169,6 +181,9 @@ class Core {
     private external fun nativeGetLastWordCands(handle: Long): Array<String>
     private external fun nativeGetLastWordCurrent(handle: Long): String
     private external fun nativePickLastWord(handle: Long, ch: String): Boolean
+    private external fun nativeGetPredictions(handle: Long): Array<String>
+    private external fun nativePredicted(handle: Long, s: String)
+    private external fun nativeClearPredictions(handle: Long)
     private external fun nativeCommitSentence(handle: Long, s: String)
     private external fun nativeInsertSymbol(handle: Long, s: String): Int
 

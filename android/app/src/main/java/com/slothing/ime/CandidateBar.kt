@@ -31,6 +31,8 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
         fun onPickSuggestion(sentence: String)
         /** Tap on a last-word candidate: replace that char, keep composing. */
         fun onPickLastWord(ch: String)
+        /** Tap on a 聯想 prediction: commit it and chain. */
+        fun onPickPrediction(text: String)
         /** ‹ › chips while Choosing: move the focused segment (desktop ←→). */
         fun onMoveFocus(dir: Int)
     }
@@ -147,6 +149,24 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
             }
         }
         return shown
+    }
+
+    /**
+     * 聯想 predictions after a commit (empty buffer): tap = commit + chain.
+     * Timing communicates the mode (mobile convention); the 聯 label is the
+     * subtle cue.
+     */
+    fun renderPredictions(preds: Array<String>): Boolean {
+        strip.removeAllViews()
+        scrollX = 0
+        if (preds.isEmpty()) return false
+        strip.addView(labelChip("聯"))
+        for (p in preds) {
+            val chip = chip(p, phrase = false, selected = false)
+            chip.setOnClickListener { listener?.onPickPrediction(p) }
+            strip.addView(chip)
+        }
+        return true
     }
 
     fun clear() {

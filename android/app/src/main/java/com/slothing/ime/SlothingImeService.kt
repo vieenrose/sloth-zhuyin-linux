@@ -50,7 +50,9 @@ class SlothingImeService : InputMethodService(),
         const val SYL_VOCAB = "slothing/syl_vocab.json"
         const val CHAR2ID = "slothing/char2id.json"
         const val TABLE = "slothing/phonetic_table.tsv"
+        const val ASSOC = "slothing/assoc_tc.tsv"
         const val THREADS = 2
+        const val PREDICT_CHAIN_MAX = 5   // librime-predict-style chain cap
         val TONE_KEYS = setOf('3', '4', '6', '7')     // ime.js TONEK; feed via toneOrSpace
         const val CTX_CHARS = 64                       // left-of-caret context handed to the LM
         // 符 strip: the 常用 row of the desktop ` symbol menu
@@ -74,6 +76,8 @@ class SlothingImeService : InputMethodService(),
             readAsset(TABLE), THREADS,
             // persistent personalization, same format as the desktop learn.tsv
             filesDir.resolve("learn.tsv").absolutePath,
+            // 聯想 dictionary + personal bigram store
+            readAsset(ASSOC), filesDir.resolve("assoc_user.tsv").absolutePath,
         )
         Log.i(TAG, "core.init = $ok, state = ${core.state()}")
         selfTest()
@@ -201,6 +205,8 @@ class SlothingImeService : InputMethodService(),
         if (::keyboard.isInitialized) keyboard.setEnglish(english)
         setContextFromField()
         symbolsShowing = false
+        core.clearPredictions()   // stale predictions must not cross fields
+        predicting = false
         hideBar()
         ic()?.finishComposingText()
     }
@@ -219,6 +225,8 @@ class SlothingImeService : InputMethodService(),
         }
         // Symbol strip open: keys close it and type normally.
         if (symbolsShowing) hideSymbols()
+        // First phonetic key atomically replaces predictions (convention).
+        if (predicting) { hideBar(); predicting = false }
         if (english) {
             // English mode: EVERY key goes through feedKey's passthrough
             // branch (space, digits 3/4/6/7 included — toneOrSpace has no
@@ -307,6 +315,13 @@ class SlothingImeService : InputMethodService(),
             ic()?.setComposingText(core.getLive(), 1)
             showSuggestions()          // refresh the selected chip
         }
+    }
+
+    override fun onPickPrediction(text: String) {
+        ic()?.commitText(text, 1)
+        core.predicted(text)           // learn transition + move the tail
+        predictChain++
+        if (predictChain < PREDICT_CHAIN_MAX) showPredictions() else hideBar()
     }
 
     override fun onMoveFocus(dir: Int) = scope.launch {
@@ -419,8 +434,30 @@ class SlothingImeService : InputMethodService(),
     private fun commitDrain() {
         val ic = ic() ?: return
         val text = core.getCommit()
-        if (text.isNotEmpty()) ic.commitText(text, 1) else ic.finishComposingText()
-        hideBar()
+        if (text.isNotEmpty()) {
+            ic.commitText(text, 1)
+            predictChain = 0
+            showPredictions()   // strip flips to 聯想 (mobile convention)
+        } else {
+            ic.finishComposingText()
+            hideBar()
+        }
+    }
+
+    // ---- 聯想 prediction strip (empty buffer, after a commit) --------------
+    private var predicting = false
+    private var predictChain = 0
+
+    private fun showPredictions() {
+        if (!::candidateBar.isInitialized) return
+        val preds = core.getPredictions()
+        predicting = preds.isNotEmpty()
+        if (predicting) {
+            candidateBar.renderPredictions(preds)
+            candidateBar.visibility = View.VISIBLE
+        } else {
+            hideBar()
+        }
     }
 
     /** Reverse-video the focused segment (BackgroundColorSpan) — matches the
