@@ -7,8 +7,8 @@
 **English: [README.en.md](README.en.md)** ·
 **線上試用(免安裝):[huggingface.co/spaces/Luigi/slothing-web](https://huggingface.co/spaces/Luigi/slothing-web)**
 
-<p align="center"><img src="docs/demo-web-v9.gif" width="470" alt="網頁 demo(BOOX 平板實錄):打「我用claude寫注音輸入法」——即打即轉、中英自動切換、點字改字+整句重評分、上字後聯想"></p>
-<p align="center"><img src="docs/android-boox-demo-v7.gif" width="460" alt="Android 原生輸入法(BOOX e-ink 實錄):大千鍵盤、免選字、改字改詞、聯想接龍"></p>
+<p align="center"><img src="docs/demo-web-v10.gif" width="470" alt="網頁 demo(BOOX 平板實錄):打「我用claude寫注音輸入法」——即打即轉、中英自動切換、點字改字+整句重評分、上字後聯想"></p>
+<p align="center"><img src="docs/android-boox-demo-v8.gif" width="460" alt="Android 原生輸入法(BOOX e-ink 實錄):大千鍵盤、免選字、點字改字+整句重評分、聯想接龍;實體鍵盤按鍵即時回顯"></p>
 
 ## 特色
 
