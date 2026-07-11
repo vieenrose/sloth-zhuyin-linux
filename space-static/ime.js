@@ -61,6 +61,12 @@ const runToks = () => enMode ? (rawKeys ? [{t:'en',v:rawKeys}] : []) : segment(r
 const hasRun = () => rawKeys.length>0;
 const bufKey = () => committed.map(t=>t.t+':'+t.v).join('|')+($('toneless').checked?'#TL':'');
 
+// ?fresh — start from a factory state (demos, testing): drop the persisted
+// learn store + personal 聯想 bigrams before either module reads them
+if (new URLSearchParams(location.search).has('fresh')) {
+  try{ localStorage.removeItem('slothing-learn'); localStorage.removeItem('slothing-assoc'); }catch(e){}
+}
+
 // session learning (persisted): syllable -> last picked char
 let learn = {};
 try{ learn = JSON.parse(localStorage.getItem('slothing-learn')||'{}'); }catch(e){}
