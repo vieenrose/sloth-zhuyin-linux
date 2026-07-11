@@ -297,7 +297,7 @@ function render(){
     // non-empty stops this branch rendering).
     const preds=assoc.predictions();
     if(preds.length){
-      const lbl=document.createElement('span'); lbl.className='pg'; lbl.textContent='聯';
+      const lbl=document.createElement('span'); lbl.className='pg pg-assoc'; lbl.textContent='聯';
       phEl.appendChild(lbl);
       preds.forEach((w,i)=>{
         const b=document.createElement('button'); b.className='cand ph';

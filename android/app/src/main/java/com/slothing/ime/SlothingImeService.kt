@@ -166,7 +166,7 @@ class SlothingImeService : InputMethodService(),
         }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(getColor(R.color.eink_bg))
+            setBackgroundColor(Skin.color(this@SlothingImeService, R.color.eink_bg))
             // fixed-height slot + INVISIBLE (not GONE) so toggling the strip
             // never shifts the keys under the user's finger (e-ink repaint)
             addView(
@@ -670,8 +670,8 @@ class SlothingImeService : InputMethodService(),
             val a = text.offsetByCodePoints(0, hlStart)
             val b = text.offsetByCodePoints(0, hlEnd)
             SpannableString(text).apply {
-                val bg = getColor(R.color.eink_focus_bg)
-                val fg = getColor(R.color.eink_focus_ink)
+                val bg = Skin.color(this@SlothingImeService, R.color.eink_focus_bg)
+                val fg = Skin.color(this@SlothingImeService, R.color.eink_focus_ink)
                 setSpan(BackgroundColorSpan(bg), a, b, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 setSpan(ForegroundColorSpan(fg), a, b, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }

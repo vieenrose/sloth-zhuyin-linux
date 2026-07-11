@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  E-ink palette: pure black ink on white, plus two grays that survive a 16-level
-  grayscale panel. No hues, no gradients, no elevation — every surface is a flat
-  fill so a page refresh is a single clean redraw.
+  Two palettes (docs/THEME.md):
+
+  eink_*  — pure black ink on white plus two grays that survive a 16-level
+            grayscale panel. No hues, no gradients, no elevation — every
+            surface is a flat fill so a page refresh is one clean redraw.
+            Forced on ONYX devices (Skin.EINK), day and night alike.
+
+  sloth_* — 懶音「樹梢」light palette for ordinary LCD/OLED phones; the
+            「夜森林」dark variant lives in values-night/. Bark/amber is the
+            primary (pressed) accent, leaf green the secondary (focus).
 -->
 <resources>
     <color name="eink_bg">#FFFFFFFF</color>
@@ -15,4 +22,15 @@
     <color name="eink_focus_bg">#FF000000</color>
     <color name="eink_focus_ink">#FFFFFFFF</color>
     <color name="eink_muted">#FF666666</color>
+
+    <color name="sloth_bg">#FFF6F1E8</color>
+    <color name="sloth_ink">#FF382D24</color>
+    <color name="sloth_edge">#FFCDB694</color>
+    <color name="sloth_key">#FFFFFDF9</color>
+    <color name="sloth_fn_key">#FFEFE6D8</color>
+    <color name="sloth_pressed_bg">#FF8B5A2B</color>
+    <color name="sloth_pressed_ink">#FFFFF8F0</color>
+    <color name="sloth_focus_bg">#FF4F7942</color>
+    <color name="sloth_focus_ink">#FFFFFFFF</color>
+    <color name="sloth_muted">#FF97846F</color>
 </resources>

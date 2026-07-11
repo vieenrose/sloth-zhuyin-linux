@@ -6,20 +6,45 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>懶音輸入法 Slothing — Web Zhuyin IME</title>
+<script>
+  const th = new URLSearchParams(location.search).get('theme');
+  if (th === 'dark' || th === 'light') document.documentElement.dataset.theme = th;
+</script>
 <style>
   :root{
+    color-scheme:light dark;
     --bg:#f6f1e8; --bg2:#efe6d8; --panel:#fffdf9; --ink:#382d24; --ink2:#6b5b4c;
     --brown:#8b5a2b; --brown2:#a86f38; --border:#e2d3bc; --border2:#cdb694;
+    --leaf:#4f7942; --leaf2:#6f9a5f;
     --muted:#97846f; --hi:#fff8f0; --shadow:0 1px 2px rgba(75,52,28,.06),0 8px 24px -12px rgba(75,52,28,.25);
     --key-top:#fffdf8; --key-bot:#f4ecdf; --key-edge:#d8c5a6;
   }
   @media (prefers-color-scheme:dark){:root{
-    --bg:#211a15; --bg2:#191410; --panel:#2b231c; --ink:#efe7dc; --ink2:#c4b4a2;
-    --brown:#c08347; --brown2:#d29656; --border:#453728; --border2:#5d4a35;
-    --muted:#a08e7e; --hi:#fff8f0; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px -12px rgba(0,0,0,.55);
-    --key-top:#332a22; --key-bot:#2a221b; --key-edge:#1c1611;
+    --bg:#18211b; --bg2:#131a15; --panel:#212c24; --ink:#e8e6d9; --ink2:#c2c3ae;
+    --brown:#c08347; --brown2:#d29656; --border:#3a4a3c; --border2:#4a5d43;
+    --leaf:#7fae6f; --leaf2:#9cc48c;
+    --muted:#9aa78f; --hi:#fff8f0; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px -12px rgba(0,0,0,.55);
+    --key-top:#28342b; --key-bot:#1f2a22; --key-edge:#131a15;
   }}
+  /* ?theme=dark|light overrides the OS preference (testing/screens) */
+  :root[data-theme="dark"]{
+    --bg:#18211b; --bg2:#131a15; --panel:#212c24; --ink:#e8e6d9; --ink2:#c2c3ae;
+    --brown:#c08347; --brown2:#d29656; --border:#3a4a3c; --border2:#4a5d43;
+    --leaf:#7fae6f; --leaf2:#9cc48c;
+    --muted:#9aa78f; --hi:#fff8f0; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px -12px rgba(0,0,0,.55);
+    --key-top:#28342b; --key-bot:#1f2a22; --key-edge:#131a15;
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f1e8; --bg2:#efe6d8; --panel:#fffdf9; --ink:#382d24; --ink2:#6b5b4c;
+    --brown:#8b5a2b; --brown2:#a86f38; --border:#e2d3bc; --border2:#cdb694;
+    --leaf:#4f7942; --leaf2:#6f9a5f;
+    --muted:#97846f; --hi:#fff8f0; --shadow:0 1px 2px rgba(75,52,28,.06),0 8px 24px -12px rgba(75,52,28,.25);
+    --key-top:#fffdf8; --key-bot:#f4ecdf; --key-edge:#d8c5a6;
+  }
   *{box-sizing:border-box}
+  input[type=checkbox]{accent-color:var(--leaf)}
+  button:focus-visible,.key:focus-visible,.cand:focus-visible{outline:2px solid var(--leaf);outline-offset:1px}
+  .pg-assoc{color:var(--leaf)!important}
   html{-webkit-text-size-adjust:100%}
   button,.key,.pchar,.cand,.seg{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;touch-action:manipulation}
   body{margin:0;color:var(--ink);font-family:"Noto Sans TC",system-ui,sans-serif;
@@ -158,6 +183,6 @@
     <a href="https://huggingface.co/Luigi/slothlm-e-4m-zhuyin" target="_blank">SlothLM-E 4M</a>
   </footer>
 </main>
-<script type="module" src="./ime.js?v=20260711g"></script>
+<script type="module" src="./ime.js?v=20260711h"></script>
 </body>
 </html>

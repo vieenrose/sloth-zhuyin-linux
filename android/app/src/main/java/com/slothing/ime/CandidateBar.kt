@@ -233,5 +233,5 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     private fun supIndex(n: Int): String = "⇧$n"
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-    private fun color(id: Int): Int = resources.getColor(id, context.theme)
+    private fun color(id: Int): Int = Skin.color(context, id)
 }
