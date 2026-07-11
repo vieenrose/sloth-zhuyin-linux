@@ -63,3 +63,20 @@ if(BUILD_TESTING)
         # a private-bus round trip through the model; generous ceiling
         TIMEOUT 120)
 endif()
+
+# --- .deb packaging ----------------------------------------------------------
+# `cpack -G DEB` from the build dir produces an installable ibus-slothing .deb
+# (engine + component XML + phonetic/assoc tables + icons). The model + daemon
+# stay out (the IBus engine needs slothingd like the fcitx addon does — install
+# via packaging/install-slothingd-service.sh + fetch-model.sh).
+set(CPACK_PACKAGE_NAME "ibus-slothing")
+set(CPACK_PACKAGE_CONTACT "luigi.plurital@gmail.com")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "LLM-powered Zhuyin (Bopomofo) input method engine for IBus")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_GENERATOR "DEB")
+set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "ibus")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+include(CPack)
