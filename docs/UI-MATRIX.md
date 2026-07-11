@@ -36,7 +36,7 @@
 |---|---|---|
 | G1 | ~~桌面無聯想~~ **已修**(assoc.h 共用;fcitx/IBus 上字後 aux `聯:⇧1…`,⇧1-9 選;fcitx 有 Association 設定;IBus 冒煙測試 7/7 驗證) | — |
 | G2 | ~~網頁無聯想~~ **已修**(assoc.js 鎖步雙生;#phrases 列顯示 聯 晶片,點選/⇧1-9 接龍;已部署 Space) | — |
-| G3 | **網頁觸控模式無字/句常駐列**。網頁同時是行動 demo,ioskb 模式應循行動慣例 | 只在觸控/ioskb 模式加 Android 式條 |
+| G3 | ~~網頁觸控模式無字/句常駐列~~ **已修**(decodeZh 回傳 margins;觸控模式 #cands 常駐列:字=句尾字候選、句=最小差距翻字替代句;BOOX 瀏覽器實測含點選改字) | — |
 | G4 | ~~Android 句晶片點選不學習~~ **已修**(commitSentence 學 alt vs best 的差異字) | — |
 | G5 | fcitx 詞 chips 不可點(aux 純文字) | 低優先;鍵選已足,litmus:酷音也不可點 |
 | G6 | Android 無實體鍵盤路徑(onKeyDown)——Boox 常接藍牙鍵盤 | 中期:physical-key → 同核心按鍵路由 |

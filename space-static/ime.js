@@ -53,7 +53,7 @@ const $ = id => document.getElementById(id);
 // continuous re-segmenter (segment.js) into zh/en tokens.
 let committed = [], overrides = [], cursor = 0;
 let rawKeys = '', enMode = false;
-let pvChars = [], pvCands = [], pvKey = null;
+let pvChars = [], pvCands = [], pvMargins = [], pvKey = null;
 let fix = -1, fixPage = 0;              // char being corrected
 const validBase = new Set();           // legal syllable bases, filled from the table
 const segment = makeSegmenter(DACHEN, TONEK, validBase);
@@ -303,6 +303,44 @@ function render(){
 
   // paged candidate strip
   const stripEl=$('cands'); stripEl.innerHTML='';
+  // touch-mode composing strip (mobile convention, mirrors Android): 字
+  // candidates for the LAST word + 句 sentence alternates, auto-shown
+  if(touchDev && fix<0 && committed.length && pvKey===bufKey()){
+    let li=-1; for(let i=committed.length-1;i>=0;i--) if(committed[i].t==='zh'){ li=i; break; }
+    if(li>=0 && (pvCands[li]||[]).length>1){
+      const lbl=document.createElement('span'); lbl.className='pg'; lbl.textContent='字';
+      stripEl.appendChild(lbl);
+      const cur=displayFor(li);
+      pvCands[li].slice(0,6).forEach(c=>{
+        const b=document.createElement('button'); b.className='cand'+(c===cur?' sel':'');
+        b.textContent=c;
+        b.onclick=()=>{ overrides[li]=c;
+          const syl=$('toneless').checked?strip(committed[li].v):committed[li].v;
+          learn[syl]=c; saveLearn();
+          pvKey=null; schedulePreview(); render(); };
+        stripEl.appendChild(b);
+      });
+    }
+    // 句 alternates: flip the lowest-margin unfixed zh positions (the same
+    // margin-flip n-best the daemon/Android use)
+    const flips=committed.map((t,i)=>({i,m:pvMargins[i]??Infinity}))
+      .filter(x=>committed[x.i].t==='zh' && !overrides[x.i] && (pvCands[x.i]||[]).length>1 && x.i!==li)
+      .sort((a,b)=>a.m-b.m).slice(0,2);
+    if(flips.length){
+      const lbl2=document.createElement('span'); lbl2.className='pg'; lbl2.textContent='句';
+      stripEl.appendChild(lbl2);
+      flips.forEach(f=>{
+        const alt=[...pvChars]; alt[f.i]=pvCands[f.i][1];
+        const b=document.createElement('button'); b.className='cand ph';
+        b.textContent=alt.join('');
+        b.onclick=async()=>{ overrides[f.i]=pvCands[f.i][1];
+          const syl=$('toneless').checked?strip(committed[f.i].v):committed[f.i].v;
+          learn[syl]=pvCands[f.i][1]; saveLearn();   // a pick IS a correction (G4)
+          pvKey=null; await commitSentence(); };
+        stripEl.appendChild(b);
+      });
+    }
+  }
   if(fix>=0 && pvKey===bufKey() && pvCands[fix]){
     const cands=pvCands[fix], pages=Math.ceil(cands.length/PAGE);
     if(pages>1){ const bp=document.createElement('button'); bp.className='cand nav'; bp.textContent='‹';
@@ -347,7 +385,7 @@ async function runPreview(){
     // (，。、！？…) marks a semantic boundary, so the model needn't see across
     // it. Shorter context => faster (decode time ~ segment length, not whole
     // buffer) and no long-sequence truncation.
-    const zhChars=[], zhCands=[]; let seg=[], segIdx=[]; let ci=0;
+    const zhChars=[], zhCands=[], zhMargins=[]; let seg=[], segIdx=[]; let ci=0;
     let ctxAcc=$('out').value.slice(-CTX_MAX);   // document context (committed)
     const flushSeg=async()=>{
       const zh=seg.filter(t=>t.t==='zh').map(t=>toneless?strip(t.v):t.v);
@@ -355,27 +393,27 @@ async function runPreview(){
       const hints={}; let rel=0;
       for(let q=0;q<seg.length;q++) if(seg[q].t==='zh'){
         const oi=segIdx[q]; if(overrides[oi]) hints[rel]=overrides[oi]; rel++; }
-      const r=zh.length?await decodeZh(zh,{},hints,ctxAcc):{chars:[],cands:[]};
+      const r=zh.length?await decodeZh(zh,{},hints,ctxAcc):{chars:[],cands:[],margins:[]};
       if(r.chars.length) ctxAcc=(ctxAcc+r.chars.join('')).slice(-CTX_MAX);
       let zc=0;
-      for(const tok of seg) if(tok.t==='zh'){ zhCands.push(r.cands[zc]); zhChars.push(r.chars[zc]); zc++; }
+      for(const tok of seg) if(tok.t==='zh'){ zhCands.push(r.cands[zc]); zhChars.push(r.chars[zc]); zhMargins.push((r.margins||[])[zc] ?? Infinity); zc++; }
       seg=[];
     };
     for(const tok of committed){ seg.push(tok); segIdx.push(ci++); if(tok.t==='punct'){ await flushSeg(); segIdx=[]; } }
     await flushSeg();
     if(gen===previewGen){
-      const chars=[], cands=[]; let zc=0;
+      const chars=[], cands=[], margins=[]; let zc=0;
       for(const tok of toksSnap){
         if(tok.t==='zh'){
           const cs=zhCands[zc];
           let ch=zhChars[zc]; if(ch==null||!cs.includes(ch)) ch=cs[0];  // never fall back to bopomofo
-          chars.push(ch); cands.push(cs); zc++;
-        } else { chars.push(tok.v); cands.push([tok.v]); }
+          chars.push(ch); cands.push(cs); margins.push(zhMargins[zc] ?? Infinity); zc++;
+        } else { chars.push(tok.v); cands.push([tok.v]); margins.push(Infinity); }
       }
       // even a STALE decode (user typed meanwhile) seeds the snapshot so the
       // unchanged prefix/suffix paints converted mid-burst (chewing-like)
       staleToks=toksSnap; staleChars=chars;
-      if(key===bufKey()){ pvChars=chars; pvCands=cands; pvKey=key; }
+      if(key===bufKey()){ pvChars=chars; pvCands=cands; pvMargins=margins; pvKey=key; }
       render();
     }
   }catch(e){ console.error(e); }
@@ -511,17 +549,18 @@ async function decodeZh(sylsIn, forced={}, hints={}, ctx=''){
     for(const k in hints){ const id=char2id[hints[k]]; if(id!=null) hintIds[+k]=id+1; }
   }
   const {data,V,L}=await encForward(syls, hintIds, ctx);
-  const chars=[], ranked=[];
+  const chars=[], ranked=[], margins=[];
   for(let i0=0;i0<syls.length;i0++){
     const {chars:cc,ids}=sets[i0];
     // model-score candidate order (chewing/新注音 rank by score, not table)
     const scored=cc.map((c,k)=>({c,v:data[(L+i0)*V+ids[k]] + (learn[syls[i0]]===c?LEARN_BONUS:0)}))
                    .sort((a,b)=>b.v-a.v);
     ranked.push(scored.map(x=>x.c));
+    margins.push(scored.length>1?scored[0].v-scored[1].v:Infinity);
     if(forced[i0]!=null){ chars.push(forced[i0]); continue; }
     chars.push(scored.length?scored[0].c:syls[i0]);
   }
-  return{chars,cands:ranked};
+  return{chars,cands:ranked,margins};
 }
 
 // ---- keyboard UI ----
@@ -530,9 +569,12 @@ async function decodeZh(sylsIn, forced={}, hints={}, ctx=''){
 // function column — instantly familiar to iPhone 注音 users.
 const kb=$('kb');
 const keyBtns=[];
+const touchDev = matchMedia('(pointer:coarse)').matches || navigator.maxTouchPoints > 0 ||
+  ('ontouchstart' in window) || new URLSearchParams(location.search).has('kb');
 const iosKb = matchMedia('(pointer:coarse) and (max-width:600px)').matches
               || new URLSearchParams(location.search).get('kb')==='ios';
 if(iosKb) document.body.classList.add('ioskb');
+if(touchDev) document.body.classList.add('touchdev');
 ROWS.forEach((row,ri)=>{const r=document.createElement('div');r.className='krow';
   row.forEach(key=>{const b=document.createElement('button');b.className='key';
     const sym=DACHEN[key]?DACHEN[key][0]:(key in TONEK?TONEK[key]:'');
