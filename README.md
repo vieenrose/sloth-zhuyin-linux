@@ -73,7 +73,7 @@ libchewing。量法與對照見 `docs/COMPARISON.md`。
 - [ ] ~10M 模型(免選字 74→86 的容量缺口;NAS 容量定律已定位)
 - [ ] BIO 詞界＋模型式聯想頭(需微調);詞表交集過濾非詞
 - [ ] Android 實體鍵盤完善;桌面套件常態發佈
-- [ ] **銀髮族鍵盤佈局**(Android):大鍵、少鍵、群組鍵+模型消歧(深入研究中)
+- [ ] **銀髮族鍵盤佈局**(Android):3×4 大九宮格+模型消歧;設計研究見 [docs/SENIOR-KEYBOARD.md](docs/SENIOR-KEYBOARD.md)
 
 <details><summary>已完成(展開)</summary>
 

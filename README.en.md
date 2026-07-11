@@ -81,7 +81,7 @@ floor = libchewing. Methodology in `docs/COMPARISON.md`.
 - [ ] ~10M model (the 免選字 74→86 capacity gap located by the NAS capacity law)
 - [ ] BIO word-boundary + model-based 聯想 head (needs a fine-tune); word-list filtering
 - [ ] Android hardware-keyboard polish; regular desktop package releases
-- [ ] **Senior-friendly keyboard layout** (Android): big keys, fewer keys, grouped keys + LLM disambiguation (research in progress)
+- [ ] **Senior-friendly keyboard layout** (Android): big 3×4 grouped grid + LLM disambiguation; design research in [docs/SENIOR-KEYBOARD.md](docs/SENIOR-KEYBOARD.md)
 
 <details><summary>Done (expand)</summary>
 
