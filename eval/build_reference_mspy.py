@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
-"""Expand the 免選字 eval set by sampling everyday sentences from the corpus and
-generating gold bopomofo with g2pW (the same context-aware labeler used for
-training, so the readings are consistent). Keeps the hand-written header/seed
-lines already in reference_mspy.tsv and appends the sampled ones.
+"""Build the 免選字 eval set by sampling everyday sentences and generating gold
+bopomofo with g2pW (the same context-aware labeler used for training, so the
+readings are consistent).
 
-  G2PW_CUDA=1 python3 eval/build_reference_mspy.py --corpus model/corpus_e3.txt \
-      --n 200 --out eval/reference_mspy.tsv
+⚠️  LEAKAGE WARNING (2026-07-12): --corpus MUST be a HELD-OUT corpus that is NOT
+in training. An earlier version sampled from the TRAINING corpus (corpus_e3.txt);
+174/174 of those sampled sentences were verbatim in training, so the metric
+rewarded memorization and inflated every 免選字 number by ~15-18 pts (shipped
+model measured 84% on the leaked set vs ~66% honest held-out). ALWAYS pass
+--exclude <training_corpus> so any sampled sentence that appears in training is
+dropped; and prefer a --corpus drawn from data the model never saw.
+
+  # honest held-out build (fresh c4 rows, excluding training):
+  G2PW_CUDA=1 python3 eval/build_reference_mspy.py --corpus heldout_corpus.txt \
+      --exclude model/corpus_e3.txt --n 500 --out eval/reference_mspy.tsv
 """
 import argparse, os, sys
 if os.environ.get("G2PW_CUDA"):
@@ -33,7 +41,17 @@ def main():
     ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--min", type=int, default=6)
     ap.add_argument("--max", type=int, default=16)
+    ap.add_argument("--exclude", default="",
+                    help="training corpus; drop any sampled sentence found in it "
+                         "(anti-leakage — see the module docstring)")
     args = ap.parse_args()
+
+    # anti-leakage: never sample a sentence the model was trained on
+    train = set()
+    if args.exclude:
+        train = set(l.strip() for l in open(args.exclude, encoding="utf-8"))
+        print(f"excluding {len(train)} training sentences from the eval",
+              file=sys.stderr)
 
     # keep existing seed lines (header + hand-written); collect their sentences to dedup
     seed, have = [], set()
@@ -49,7 +67,7 @@ def main():
     for i in range(0, len(lines), step):
         s = lines[i]
         if args.min <= len(s) <= args.max and all("一" <= c <= "鿿" for c in s) \
-                and s not in have:
+                and s not in have and s not in train:
             cand.append(s); have.add(s)
         if len(cand) >= args.n * 3:
             break

@@ -18,7 +18,7 @@ and the browser — share one core and one model.
 
 | | |
 |---|---|
-| **免選字 sentence conversion** | 微軟新注音-style live conversion; **84%** on the 230-case no-selection benchmark (83% on-device) |
+| **免選字 sentence conversion** | 微軟新注音-style live conversion; **72%** on a held-out no-selection benchmark (the old 84% leaked from training — see [docs/EVAL.md](docs/EVAL.md)) |
 | **Auto zh/en** | No mode key: type `我用python寫程式` straight through — a DP segmenter decides |
 | **Tone-optional** | Skip tone keys (~35% fewer keystrokes); context disambiguates |
 | **Picks re-score the sentence** | Correct one char and the rest re-decodes around it (char-hint channel), with **persistent learning** |
@@ -71,7 +71,7 @@ offline contract tests (core_test), a headless IBus end-to-end test, and the
 
 | Benchmark | Score |
 |---|---|
-| 230-case 免選字 set (whole sentence exact) | **84%** (193/230; 83% Android on-device) |
+| 免選字 held-out (whole sentence exact) | **72%** (360/500; old 84% was leaked — [docs/EVAL.md](docs/EVAL.md)) |
 | Tonal per-char accuracy | **83%** (libchewing 71%) |
 | Tone-free | 70% |
 

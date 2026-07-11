@@ -1,3 +1,6 @@
+# ⚠️ LEAKED BENCHMARK — DO NOT TRUST. Sampled from the TRAINING corpus
+# (174/174 sampled lines verbatim in training). Inflates 免選字 by ~12-18pts.
+# Use eval/reference_heldout.tsv for honest numbers. See docs/EVAL.md.
 # 免選字 reference: sentences 微軟新注音/自然輸入法 convert correctly without manual selection.
 # This is the ACCURACY CEILING (chewing is the floor). bopomofo<TAB>expected.
 ㄨㄛˇ ㄗㄞˋ ㄔㄨㄥˊ ㄒㄧㄣ ㄎㄠˇ ㄌㄩˋ ㄓㄜˋ ㄐㄧㄢˋ ㄕˋ	我在重新考慮這件事
