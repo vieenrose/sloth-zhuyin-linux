@@ -16,7 +16,7 @@
       <author>sloth-zhuyin-linux</author>
       <icon>ibus-slothing</icon>
       <layout>us</layout>
-      <longname>懶音輸入法</longname>
+      <longname>懶音</longname>
       <description>懶音輸入法(樹懶注音輸入法/Slothing): LLM-powered zhuyin IME (libchewing-free)</description>
       <rank>0</rank>
     </engine>
