@@ -11,7 +11,7 @@ and the browser — share one core and one model.
 **中文說明(預設): [README.md](README.md)** ·
 **Try it now (no install): [huggingface.co/spaces/Luigi/slothing-web](https://huggingface.co/spaces/Luigi/slothing-web)**
 
-<p align="center"><img src="docs/demo-web-v10.gif" width="470" alt="Web demo (recorded on a BOOX tablet): typing 我用claude寫注音輸入法 — live conversion, auto zh/en, tap-to-fix with whole-sentence re-scoring, 聯想 predictions"></p>
+<p align="center"><img src="docs/demo-web-v11.gif" width="470" alt="Web demo (recorded on a BOOX tablet): typing 我用claude寫注音輸入法 — live conversion, auto zh/en, tap-to-fix with whole-sentence re-scoring, 聯想 predictions"></p>
 <p align="center"><img src="docs/android-boox-demo-v8.gif" width="460" alt="Native Android IME (BOOX e-ink): Dàqiān keyboard, sentence conversion, tap-to-fix with whole-sentence re-scoring, prediction chaining; hardware keystrokes echoed on the soft keyboard"></p>
 
 ## Highlights
