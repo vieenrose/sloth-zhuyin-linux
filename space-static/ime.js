@@ -17,6 +17,7 @@ import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/o
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
 import { makeSegmenter } from './segment.js?v=20260710zw';
+import { makeAssoc } from './assoc.js?v=20260711a';
 
 const ENC = './enc/';   // model_quantized.onnx + syl_vocab.json + char2id.json
 const TONES = 'ˊˇˋ˙';
@@ -64,6 +65,11 @@ const bufKey = () => committed.map(t=>t.t+':'+t.v).join('|')+($('toneless').chec
 let learn = {};
 try{ learn = JSON.parse(localStorage.getItem('slothing-learn')||'{}'); }catch(e){}
 const saveLearn = ()=>{ try{localStorage.setItem('slothing-learn',JSON.stringify(learn));}catch(e){} };
+
+// 聯想 (dictionary + personal bigrams; lock-step with engine/common/assoc.h)
+const assoc = makeAssoc();
+fetch('assoc_tc.tsv').then(r=>r.ok?r.text():'').then(t=>assoc.load(t)).catch(()=>{});
+let predictChain = 0;
 
 function resetRun(){ rawKeys=''; }
 function insertTok(tok){ committed.splice(cursor,0,tok); overrides.splice(cursor,0,null); cursor++; }
@@ -279,6 +285,20 @@ function render(){
       b.onclick=()=>pickPhrase(p); phEl.appendChild(b); });
   } else if(fix>=0 && phraseBusy){
     const s=document.createElement('span'); s.className='pg'; s.textContent='組詞中…'; phEl.appendChild(s);
+  } else if(fix<0 && !committed.length && !hasRun() && assoc.hasTail()){
+    // 聯想 (mobile/微軟 convention): after a commit the row shows next-word
+    // predictions; tap or ⇧1-9 inserts + chains; typing dismisses (buffer
+    // non-empty stops this branch rendering).
+    const preds=assoc.predictions();
+    if(preds.length){
+      const lbl=document.createElement('span'); lbl.className='pg'; lbl.textContent='聯';
+      phEl.appendChild(lbl);
+      preds.forEach((w,i)=>{
+        const b=document.createElement('button'); b.className='cand ph';
+        b.innerHTML='<span class="n">⇧'+(i+1)+'</span>'+w;
+        b.onclick=()=>pickPredict(w); phEl.appendChild(b);
+      });
+    }
   }
 
   // paged candidate strip
@@ -384,7 +404,20 @@ async function commitSentence(){
   const b=(ta.selectionEnd!=null)?ta.selectionEnd:a;
   ta.value=ta.value.slice(0,a)+t+ta.value.slice(b);
   const c=a+t.length; ta.selectionStart=ta.selectionEnd=c;
+  assoc.record(t); predictChain=0;   // 聯想: strip flips to predictions
   clearAll(); render();
+}
+
+// tap/⇧n on a 聯想 chip: insert at the output caret, learn, chain (cap 5)
+function pickPredict(w){
+  const ta=$('out');
+  const a=(ta.selectionStart!=null)?ta.selectionStart:ta.value.length;
+  const b=(ta.selectionEnd!=null)?ta.selectionEnd:a;
+  ta.value=ta.value.slice(0,a)+w+ta.value.slice(b);
+  ta.selectionStart=ta.selectionEnd=a+w.length;
+  assoc.record(w);
+  if(++predictChain>=5) assoc.clearTail();
+  render();
 }
 
 // ---- model + decode (SlothLM-E encoder, onnxruntime-web) ----
@@ -612,6 +645,10 @@ document.addEventListener('keydown',e=>{
       if(preFixCursor>=0){ cursor=preFixCursor; preFixCursor=-1; }
       fix=-1; render(); e.preventDefault(); return; }
     e.preventDefault(); return;   // Enter, zhuyin keys, etc: ignored (modal)
+  }
+  if(fix<0 && !committed.length && !hasRun() && e.shiftKey && e.code && e.code.startsWith('Digit')){
+    const preds=assoc.predictions(); const idx=+e.code.slice(5)-1;
+    if(idx>=0 && preds[idx]){ pickPredict(preds[idx]); e.preventDefault(); return; }
   }
   if(k==='Enter'){ if(committed.length||hasRun()){commitSentence();e.preventDefault();} }
   else if(k===' '){ if(enMode){feedKey(' ');e.preventDefault();} else if(hasRun()){feedKey(' ');e.preventDefault();} else if(committed.length) e.preventDefault(); }

@@ -34,6 +34,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "assoc.h"
 #include "core.h"
 #include "segment.h"
 #include "zhuyin.h"
@@ -77,7 +78,10 @@ FCITX_CONFIGURATION(
         KeyListConstrain({KeyConstrainFlag::AllowModifierLess})};
     Option<int, IntConstrain> LlmCandidateCount{
         this, "LlmCandidateCount", _("Number of LLM candidates"), 5,
-        IntConstrain(1, 8)};);
+        IntConstrain(1, 8)};
+    Option<bool> Association{this, "Association",
+                             _("Suggest next words after commit (聯想)"),
+                             true};);
 
 class ChewingEngine final : public InputMethodEngine {
 public:
@@ -144,6 +148,15 @@ private:
     // Shared frontend-free state machine (engine/common/core.h).
     slothing::ComposingCore comp_;
     slothing::ChoosingCore choosing_;
+
+    // 聯想 next-word predictions (shared AssocEngine; 微軟新注音-style:
+    // shown in aux after a commit, ⇧1-9 selects, any key dismisses).
+    slothing::AssocEngine assoc_;
+    bool predicting_ = false;
+    int predictChain_ = 0;
+    void loadAssoc();
+    void commitAndRecord(InputContext *ic, const std::string &s);
+    void renderPredictions(InputContext *ic);
 
     // Manual modes (微軟 conventions): lone-Shift toggles forced-English
     // (literal input, no segmentation); Shift+Space toggles 全形/半形.

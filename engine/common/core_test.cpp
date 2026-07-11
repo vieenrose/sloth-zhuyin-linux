@@ -3,6 +3,7 @@
 // no daemon (daemon calls fail-fast; phrase lists come back empty, rescore
 // keeps selections), no fcitx, no ibus.
 //   g++ -std=c++17 -I . -I ../fcitx5-chewing/src core_test.cpp -o /tmp/ct && /tmp/ct
+#include "assoc.h"
 #include "core.h"
 #include <cstdio>
 
@@ -168,6 +169,29 @@ int main() {
         CHECK(p["phrases"].size() == 1 &&
                   p["phrases"][0][1] == "再血",
               "learnPayload records adjacent pair as phrase");
+    }
+
+    // ---- AssocEngine (聯想) ----
+    {
+        AssocEngine a;
+        a.load("電\t腦 話 影\n注\t意 音\n", "");
+        CHECK(a.predictions().empty(), "assoc: no tail -> no predictions");
+        a.record("我要買電");
+        auto p = a.predictions();
+        CHECK(p.size() >= 3 && p[0] == "腦" && p[1] == "話",
+              "assoc: dict completions after tail 電");
+        a.record("腦");            // user picked 腦 -> tail chains + bigram 電->腦
+        a.record("我要買電");      // tail 電 again
+        p = a.predictions();
+        CHECK(!p.empty() && p[0] == "腦",
+              "assoc: personal bigram outranks dictionary order");
+        a.record("好。");          // ends non-CJK
+        CHECK(a.predictions().empty(), "assoc: punctuation clears the tail");
+        a.record("注");
+        p = a.predictions();
+        CHECK(!p.empty() && p[0] == "意", "assoc: tail 注 -> dict 意 first");
+        a.clearTail();
+        CHECK(a.predictions().empty(), "assoc: clearTail drops predictions");
     }
 
     printf("\n%s\n", failures ? "FAILURES" : "all passed");

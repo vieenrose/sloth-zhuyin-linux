@@ -26,6 +26,7 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/slothing.xml"
 
 # Phonetic table (shared with the fcitx addon; installing twice is harmless).
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../model/phonetic_table.tsv"
+              "${CMAKE_CURRENT_SOURCE_DIR}/../../model/assoc_tc.tsv"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/slothing")
 
 # The sloth icon, named ibus-slothing.* to match <icon> in the component XML

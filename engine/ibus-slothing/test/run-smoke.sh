@@ -7,6 +7,9 @@ set -e
 ENGINE="${ENGINE:-./ibus-engine-slothing}"
 SMOKE="${SMOKE:-./smoke}"
 export SLOTHING_PHONETIC_TABLE="${SLOTHING_PHONETIC_TABLE:-$(dirname "$0")/../../../model/phonetic_table.tsv}"
+export SLOTHING_ASSOC_TABLE="${SLOTHING_ASSOC_TABLE:-$(dirname "$0")/../../../model/assoc_tc.tsv}"
+# hermetic personal stores (assoc_user.tsv) so 聯想 assertions are deterministic
+export XDG_DATA_HOME="$(mktemp -d)"
 
 exec dbus-run-session -- bash -c '
   ibus-daemon --panel disable --daemonize --verbose 2>/dev/null

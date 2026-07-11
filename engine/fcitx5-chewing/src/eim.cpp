@@ -101,6 +101,7 @@ ChewingEngine::ChewingEngine(Instance *instance) : instance_(instance) {
     dispatcher_.attach(&instance_->eventLoop());
     reloadConfig();
     loadPhoneticTable();
+    loadAssoc();
 }
 
 ChewingEngine::~ChewingEngine() { stopWorker(); }
@@ -163,6 +164,60 @@ void ChewingEngine::loadPhoneticTable() {
     segmenter_ = std::make_unique<slothing::Segmenter>(std::move(validBase));
 }
 
+void ChewingEngine::loadAssoc() {
+    std::string dictTsv;
+    std::string path;
+    if (const char *env = std::getenv("SLOTHING_ASSOC_TABLE")) {
+        path = env;
+    } else {
+        path = StandardPath::global().locate(StandardPath::Type::Data,
+                                             "slothing/assoc_tc.tsv");
+    }
+    if (!path.empty()) {
+        std::ifstream f(path);
+        dictTsv.assign(std::istreambuf_iterator<char>(f),
+                       std::istreambuf_iterator<char>());
+    }
+    const char *xdg = std::getenv("XDG_DATA_HOME");
+    const char *home = std::getenv("HOME");
+    std::string dir = (xdg ? std::string(xdg)
+                           : std::string(home ? home : ".") + "/.local/share") +
+                      "/slothing";
+    // same per-user store the daemon's learn.tsv lives beside
+    assoc_.load(dictTsv, dir + "/assoc_user.tsv");
+}
+
+// Every commit feeds 聯想 (personal bigrams + the prediction tail).
+void ChewingEngine::commitAndRecord(InputContext *ic, const std::string &s) {
+    if (s.empty()) {
+        return;
+    }
+    ic->commitString(s);
+    assoc_.record(s);
+}
+
+// 聯想 aux row after a commit: 聯: ⇧1 腦 ⇧2 子 … — ⇧1-9 selects (digits stay
+// typeable, 微軟 convention); any other key dismisses (handled in keyEvent).
+void ChewingEngine::renderPredictions(InputContext *ic) {
+    predicting_ = false;
+    if (!*config_.Association) {
+        return;
+    }
+    auto preds = assoc_.predictions();
+    if (preds.empty()) {
+        return;
+    }
+    ic->inputPanel().reset();
+    std::string aux = "聯:";
+    for (size_t i = 0; i < preds.size() && i < 9; i++) {
+        aux += " ⇧" + std::to_string(i + 1) + " " + preds[i];
+    }
+    ic->inputPanel().setAuxUp(Text(aux));
+    ic->updatePreedit();
+    ic->updateUserInterface(UserInterfaceComponent::InputPanel);
+    predicting_ = true;
+}
+
 std::string ChewingEngine::surroundingContext(InputContext *ic) const {
     std::string ctx;
     if (ic->capabilityFlags().test(CapabilityFlag::SurroundingText) &&
@@ -191,9 +246,11 @@ void ChewingEngine::reset(const InputMethodEntry &, InputContextEvent &event) {
                           : tidySpaces(toksDisplay(comp_.toks));
         }
         if (!pending.empty()) {
-            ic->commitString(pending);
+            commitAndRecord(ic, pending);
         }
     }
+    assoc_.clearTail(); // focus change: stale predictions must not carry over
+    predicting_ = false;
     stopWorker();
     convertTimer_.reset();
     convertTicks_ = 0;
@@ -692,7 +749,7 @@ void ChewingEngine::pickSegment(InputContext *ic, int candIdx) {
 
 void ChewingEngine::acceptConversion(InputContext *ic,
                                      const std::string &sentence) {
-    ic->commitString(sentence);
+    commitAndRecord(ic, sentence);
     convertState_ = ConvertState::Composing;
     convertGeneration_++;
     liveGeneration_++;
@@ -708,6 +765,8 @@ void ChewingEngine::acceptConversion(InputContext *ic,
     convertSyllables_.clear();
     convertToks_.clear();
     updateUI(ic);
+    predictChain_ = 0;
+    renderPredictions(ic); // 聯想 flips on after the commit (微軟-style)
 }
 
 void ChewingEngine::renderSymbols(InputContext *ic) {
@@ -747,7 +806,7 @@ void ChewingEngine::renderSymbols(InputContext *ic) {
 void ChewingEngine::pickSymbol(InputContext *ic, const std::string &sym) {
     symbolMode_ = false;
     if (comp_.empty() && convertState_ == ConvertState::Composing) {
-        ic->commitString(sym);
+        commitAndRecord(ic, sym);
         ic->inputPanel().reset();
         ic->updatePreedit();
         ic->updateUserInterface(UserInterfaceComponent::InputPanel);
@@ -968,6 +1027,39 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
     }
 
     // -- Composing ----------------------------------------------------------
+    // 聯想 predictions showing (post-commit, empty buffer): ⇧1-9 selects; any
+    // other key dismisses the row and is then processed normally.
+    if (predicting_ && convertState_ == ConvertState::Composing) {
+        if (keyEvent.key().states().test(KeyState::Shift) &&
+            keyEvent.key().isSimple()) {
+            const char sym = static_cast<char>(keyEvent.key().sym() & 0xff);
+            static const char *shifted = "!@#$%^&*(";
+            auto preds = assoc_.predictions();
+            for (int i = 0; i < 9; i++) {
+                if (shifted[i] == sym &&
+                    i < static_cast<int>(preds.size())) {
+                    keyEvent.filterAndAccept();
+                    commitAndRecord(ic, preds[i]);
+                    if (++predictChain_ < 5) {
+                        renderPredictions(ic);
+                    } else {
+                        predicting_ = false;
+                        predictChain_ = 0;
+                        ic->inputPanel().reset();
+                        ic->updatePreedit();
+                        ic->updateUserInterface(
+                            UserInterfaceComponent::InputPanel);
+                    }
+                    return;
+                }
+            }
+        }
+        predicting_ = false;
+        ic->inputPanel().reset();
+        ic->updatePreedit();
+        ic->updateUserInterface(UserInterfaceComponent::InputPanel);
+        // fall through: the key is processed normally
+    }
     convertNotice_.clear();
 
     // The convert key force-decodes into the segment UI (kept for muscle
@@ -1094,8 +1186,8 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
                     liveToks_.clear();
                     renderComposing(ic);
                 }
-                ic->commitString(fullWidth_ ? toFullWidth(c)
-                                            : std::string(1, c));
+                commitAndRecord(ic, fullWidth_ ? toFullWidth(c)
+                                               : std::string(1, c));
             }
             return;
         }
@@ -1143,7 +1235,8 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         if (auto pit = punctMap().find(rawSym); pit != punctMap().end()) {
             keyEvent.filterAndAccept();
             if (comp_.empty()) {
-                ic->commitString(pit->second);
+                commitAndRecord(ic, pit->second);
+                renderPredictions(ic); // tail cleared by punct -> hides
                 return;
             }
             comp_.commitRun(segmenter_.get(), enMode_);

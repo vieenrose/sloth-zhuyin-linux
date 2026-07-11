@@ -173,6 +173,8 @@ adb shell ime set    com.slothing.ime/.SlothingImeService
 - [x] IBus 引擎(GNOME):前端無關核心抽出共用,行為與 fcitx5 版一致
 - [x] Android 原生 IME(第 4 個前端):共用核心 + 裝置端 ONNX 解碼,
   BOOX e-ink 實測(74% 免選字,與桌面模型 99% 逐句一致)
+- [x] 聯想次詞預測(四前端,`engine/common/assoc.h` 共用:詞典 5178 字頭
+  ＋個人 bigram;行動點選接龍、桌面 ⇧1-9,微軟新注音式)
 - [ ] 逐詞下鍵重排;打包(.deb)
 - [ ] (未來,整篇文件語境)Transformer + SSM 混合解碼器
 

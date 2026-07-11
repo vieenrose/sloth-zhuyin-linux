@@ -34,10 +34,10 @@
 
 | # | 缺口 | 建議 |
 |---|---|---|
-| G1 | **桌面無聯想**。微軟新注音有(選用,⇧1-9 選,避開數字鍵)——我們的對標。邏輯已在 Android session.h 落地 | 抽出 `engine/common/assoc.h` 共用;fcitx/IBus 上字後 aux 顯示 `聯:⇧1…`,仿微軟 ⇧ 選取;設定可關 |
-| G2 | **網頁無聯想**。行動瀏覽器+iOS 鍵盤模式尤缺 | JS 對映(assoc_tc.tsv 抓取+localStorage bigram),與 assoc.h 鎖步 |
+| G1 | ~~桌面無聯想~~ **已修**(assoc.h 共用;fcitx/IBus 上字後 aux `聯:⇧1…`,⇧1-9 選;fcitx 有 Association 設定;IBus 冒煙測試 7/7 驗證) | — |
+| G2 | ~~網頁無聯想~~ **已修**(assoc.js 鎖步雙生;#phrases 列顯示 聯 晶片,點選/⇧1-9 接龍;已部署 Space) | — |
 | G3 | **網頁觸控模式無字/句常駐列**。網頁同時是行動 demo,ioskb 模式應循行動慣例 | 只在觸控/ioskb 模式加 Android 式條 |
-| G4 | **Android 句晶片點選不學習**。點第 2 句 = 使用者更正,diff 字應進 learn | commitSentence 學 alt 與 best 的差異字 |
+| G4 | ~~Android 句晶片點選不學習~~ **已修**(commitSentence 學 alt vs best 的差異字) | — |
 | G5 | fcitx 詞 chips 不可點(aux 純文字) | 低優先;鍵選已足,litmus:酷音也不可點 |
 | G6 | Android 無實體鍵盤路徑(onKeyDown)——Boox 常接藍牙鍵盤 | 中期:physical-key → 同核心按鍵路由 |
 
@@ -48,8 +48,8 @@
    測試),桌面經 packaging 安裝 assoc_tc.tsv;網頁做 JS 鎖步雙生(如
    segment.js ↔ segment.h 前例)。
 2. **學習語意統一**:「使用者明確選擇」= 學。句晶片選擇亦然(G4)。
-3. **桌面聯想遵微軟**:上字後 aux 顯示、⇧1-9 選(數字鍵保持可打字)、
-   設定項預設關(微軟預設亦關,桌面打字流不喜彈出)。
+3. **桌面聯想遵微軟**:上字後 aux 顯示、⇧1-9 選(數字鍵保持可打字);
+   任意其他鍵立即消失,故預設**開**(fcitx 有 Association 設定可關)。
 
 ## fcitx5 vs IBus:同一狀態的實際版面(2026-07-11)
 

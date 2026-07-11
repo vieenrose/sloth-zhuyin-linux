@@ -136,6 +136,28 @@ int main() {
     check(committed == "web app",
           "manual space between English words survives commit");
 
+    // ---- 聯想: after committing 電, ⇧1 commits the top prediction (腦) ----
+    committed.clear();
+    for (char c : std::string("2u04")) { // ㄉㄧㄢˋ
+        key(ctx, (guint)c);
+    }
+    spin_ms(600);
+    key(ctx, IBUS_KEY_Return);
+    for (int i = 0; i < 20 && committed.empty(); i++) {
+        spin_ms(250);
+    }
+    check(committed == "電", "2u04 + Enter commits 電");
+    committed.clear();
+    // ⇧1 = '!' with the shift modifier
+    ibus_input_context_process_key_event(ctx, (guint)'!', 0, IBUS_SHIFT_MASK);
+    ibus_input_context_process_key_event(ctx, (guint)'!', 0,
+                                         IBUS_SHIFT_MASK | IBUS_RELEASE_MASK);
+    for (int i = 0; i < 8 && committed.empty(); i++) {
+        spin_ms(250);
+    }
+    check(committed == "腦",
+          "聯想: ⇧1 after committing 電 commits the top prediction 腦");
+
     printf("\n%s\n", failures ? "FAILURES" : "all passed");
     return failures ? 1 : 0;
 }

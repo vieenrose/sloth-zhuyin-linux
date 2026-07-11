@@ -196,6 +196,9 @@ Linux → the Unix-socket daemon; injected on Android → in-process ONNX).
 - [x] Native Android IME (4th frontend): shared core + on-device ONNX decode,
   validated on a BOOX e-ink tablet (74% 免選字, 99% per-sentence match with the
   desktop model)
+- [x] 聯想 next-word prediction on all four frontends (shared
+  engine/common/assoc.h: 5178-head dictionary + personal bigrams; tap-to-chain
+  on mobile, ⇧1-9 on desktop, 微軟新注音-style)
 - [ ] Per-phrase Down-rank; packaging (.deb)
 - [ ] (Future, long-document context) hybrid Transformer + SSM decoder
 

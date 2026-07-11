@@ -9,6 +9,7 @@
 // This file only: decodes IBus key events into core calls, runs the async
 // decode worker (std::thread + g_idle_add back to the GLib loop), and paints
 // (preedit text, IBusLookupTable, auxiliary text).
+#include "assoc.h"
 #include "core.h"
 #include "display.h"
 #include "segment.h"
@@ -85,6 +86,11 @@ struct SlothingImpl {
     uint64_t convertGeneration = 0;
 
     std::string notice;
+
+    // 聯想 next-word predictions (shared AssocEngine; 微軟新注音-style).
+    AssocEngine assoc;
+    bool predicting = false;
+    int predictChain = 0;
 
     std::thread worker;
     std::atomic<bool> workerStop{false};
@@ -177,6 +183,42 @@ struct SlothingImpl {
         segmenter = std::make_unique<Segmenter>(std::move(validBase));
     }
 
+    void loadAssoc() {
+        std::string dictTsv;
+        std::string path;
+        if (const char *env = std::getenv("SLOTHING_ASSOC_TABLE")) {
+            path = env;
+        } else {
+            const char *xdg = std::getenv("XDG_DATA_HOME");
+            std::string home = xdg ? std::string(xdg)
+                                   : std::string(g_get_home_dir()) +
+                                         "/.local/share";
+            std::vector<std::string> dirs = {
+                home + "/slothing/assoc_tc.tsv",
+                "/usr/local/share/slothing/assoc_tc.tsv",
+                "/usr/share/slothing/assoc_tc.tsv",
+            };
+            for (const auto &d : dirs) {
+                if (std::ifstream(d).good()) {
+                    path = d;
+                    break;
+                }
+            }
+        }
+        if (!path.empty()) {
+            std::ifstream f(path);
+            dictTsv.assign(std::istreambuf_iterator<char>(f),
+                           std::istreambuf_iterator<char>());
+        }
+        const char *xdg = std::getenv("XDG_DATA_HOME");
+        std::string dir = (xdg ? std::string(xdg)
+                               : std::string(g_get_home_dir()) +
+                                     "/.local/share") +
+                          "/slothing";
+        g_mkdir_with_parents(dir.c_str(), 0700);
+        assoc.load(dictTsv, dir + "/assoc_user.tsv");
+    }
+
     // ---- painting ---------------------------------------------------------
 
     IBusEngine *engine() { return reinterpret_cast<IBusEngine *>(obj); }
@@ -240,7 +282,26 @@ struct SlothingImpl {
         if (!s.empty()) {
             ibus_engine_commit_text(engine(),
                                     ibus_text_new_from_string(s.c_str()));
+            assoc.record(s); // feed 聯想 (bigrams + prediction tail)
         }
+    }
+
+    // 聯想 strip: after a commit, aux shows 聯: ⇧1 腦 ⇧2 子… — ⇧1-9 picks
+    // (digits stay typeable, 微軟 convention), any other key dismisses.
+    void renderPredictions() {
+        auto preds = assoc.predictions();
+        if (preds.empty() || state != ConvertState::Composing ||
+            !comp.empty()) {
+            predicting = false;
+            return;
+        }
+        std::string aux = "聯:";
+        for (size_t i = 0; i < preds.size() && i < 9; i++) {
+            aux += " ⇧" + std::to_string(i + 1) + " " + preds[i];
+        }
+        ibus_engine_hide_lookup_table(engine());
+        setAux(aux);
+        predicting = true;
     }
 
     void renderComposing() {
@@ -463,6 +524,8 @@ struct SlothingImpl {
         convertToks.clear();
         ibus_engine_hide_preedit_text(engine());
         clearPanels();
+        predictChain = 0;
+        renderPredictions(); // 聯想 strip flips on after the commit
     }
 
     void cancelConversion(std::string newNotice = {}) {
@@ -692,6 +755,32 @@ struct SlothingImpl {
         const bool shift = modifiers & IBUS_SHIFT_MASK;
         const bool printable = keyval >= 0x20 && keyval < 0x7f;
         const char c = printable ? static_cast<char>(keyval) : 0;
+
+        // 聯想 predictions showing (post-commit, empty buffer): ⇧1-9 picks
+        // (digits stay typeable — 微軟 convention); any other key dismisses
+        // the strip and is then processed normally.
+        if (predicting && state == ConvertState::Composing) {
+            if (shift && printable) {
+                static const char *shifted = "!@#$%^&*(";
+                auto preds = assoc.predictions();
+                for (int i = 0; i < 9; i++) {
+                    if (shifted[i] == c && i < static_cast<int>(preds.size())) {
+                        commit(preds[i]); // records + advances the tail
+                        if (++predictChain < 5) {
+                            renderPredictions();
+                        } else {
+                            predicting = false;
+                            predictChain = 0;
+                            clearPanels();
+                        }
+                        return true;
+                    }
+                }
+            }
+            predicting = false;
+            clearPanels();
+            // fall through: the key is processed normally
+        }
 
         // -- Choosing --------------------------------------------------------
         if (state == ConvertState::Choosing) {
@@ -1014,6 +1103,8 @@ struct SlothingImpl {
         notice.clear();
         pendingFocus = -1;
         symbolMode = false;
+        assoc.clearTail(); // stale predictions must not cross focus changes
+        predicting = false;
         ibus_engine_hide_preedit_text(engine());
         clearPanels();
     }
@@ -1082,6 +1173,7 @@ static void ibus_slothing_engine_init(IBusSlothingEngine *self) {
     self->impl = new SlothingImpl();
     self->impl->obj = self;
     self->impl->loadPhoneticTable();
+    self->impl->loadAssoc();
 }
 
 static void ibus_slothing_engine_destroy(IBusObject *obj) {
