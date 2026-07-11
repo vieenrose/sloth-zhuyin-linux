@@ -9,7 +9,7 @@
 **線上試用(免安裝):[huggingface.co/spaces/Luigi/slothing-web](https://huggingface.co/spaces/Luigi/slothing-web)**
 
 <p align="center"><img src="docs/demo-web-v11.gif" width="470" alt="網頁 demo(BOOX 平板實錄):打「我用claude寫注音輸入法」——即打即轉、中英自動切換、點字改字+整句重評分、上字後聯想"></p>
-<p align="center"><img src="docs/android-boox-demo-v8.gif" width="460" alt="Android 原生輸入法(BOOX e-ink 實錄):大千鍵盤、免選字、點字改字+整句重評分、聯想接龍;實體鍵盤按鍵即時回顯"></p>
+<p align="center"><img src="docs/android-boox-demo-v9.gif" width="460" alt="Android 原生輸入法(BOOX e-ink 實錄,11.6M 模型):打「我用claude寫注音輸入法」整句正確免選字、字/句候選、上字後聯想接龍"></p>
 
 ## 特色
 

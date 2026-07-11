@@ -12,7 +12,7 @@ and the browser — share one core and one model.
 **Try it now (no install): [huggingface.co/spaces/Luigi/slothing-web](https://huggingface.co/spaces/Luigi/slothing-web)**
 
 <p align="center"><img src="docs/demo-web-v11.gif" width="470" alt="Web demo (recorded on a BOOX tablet): typing 我用claude寫注音輸入法 — live conversion, auto zh/en, tap-to-fix with whole-sentence re-scoring, 聯想 predictions"></p>
-<p align="center"><img src="docs/android-boox-demo-v8.gif" width="460" alt="Native Android IME (BOOX e-ink): Dàqiān keyboard, sentence conversion, tap-to-fix with whole-sentence re-scoring, prediction chaining; hardware keystrokes echoed on the soft keyboard"></p>
+<p align="center"><img src="docs/android-boox-demo-v9.gif" width="460" alt="Native Android IME (BOOX e-ink, 11.6M model): typing 我用claude寫注音輸入法 — correct whole-sentence 免選字, 字/句 candidates, 聯想 prediction chaining"></p>
 
 ## Highlights
 
