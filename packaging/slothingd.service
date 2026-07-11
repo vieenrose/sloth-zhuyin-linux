@@ -9,7 +9,7 @@ Description=Slothing zhuyin decode daemon (SlothLM-E)
 Type=simple
 # REPO_DIR is substituted by the install script.
 ExecStart=/usr/bin/python3 @REPO_DIR@/engine/slothingd/slothingd_e.py \
-    --model @REPO_DIR@/model/slothe_4m_onnx \
+    --model @REPO_DIR@/model/slothe_10m_onnx \
     --table @REPO_DIR@/model/phonetic_table.tsv
 Restart=on-failure
 RestartSec=2

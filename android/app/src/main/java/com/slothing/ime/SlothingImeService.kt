@@ -143,6 +143,23 @@ class SlothingImeService : InputMethodService(),
         }
         try { filesDir.resolve("bench_android.tsv").writeText(sb.toString()) } catch (_: Exception) {}
         Log.i(TAG, "BENCH android on-device: $ok/$tot = ${if (tot>0) 100*ok/tot else 0}% top-1 免選字")
+
+        // On-device (ARM) inference-latency micro-benchmark: time repeated
+        // whole-sentence decodes of one fixed 6-syllable input. Reports median
+        // ms so the 4M vs 10M model swap can be compared on real hardware
+        // (x86 said int8>int4; ARM must confirm). Logged as BENCH_LAT.
+        val probe = "su3cl3ji3y94"    // 你好我在 — 6 syllables, representative
+        repeat(10) { core.decodeBest(probe) }             // warm the session
+        val samples = LongArray(40)
+        for (i in samples.indices) {
+            val t0 = System.nanoTime()
+            core.decodeBest(probe)
+            samples[i] = System.nanoTime() - t0
+        }
+        samples.sort()
+        val medMs = samples[samples.size / 2] / 1e6
+        val p90Ms = samples[(samples.size * 9) / 10] / 1e6
+        Log.i(TAG, "BENCH_LAT decode(6-syl) median=%.2fms p90=%.2fms".format(medMs, p90Ms))
     }
 
     // Created once and reused (guide: cache the input view).

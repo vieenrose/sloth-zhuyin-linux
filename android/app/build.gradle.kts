@@ -134,7 +134,7 @@ dependencies {
  * Source of truth: /home/luigi/sloth-zhuyin-linux/model/
  */
 val modelDir = rootProject.file("../model")
-val encDir   = rootProject.file("../model/slothe_4m_onnx")
+val encDir   = rootProject.file("../model/slothe_10m_onnx")
 
 val copyModelAssets by tasks.registering(Copy::class) {
     description = "Stage the .onnx + vocab + phonetic table into src/main/assets/slothing"

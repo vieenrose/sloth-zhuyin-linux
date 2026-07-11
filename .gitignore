@@ -19,3 +19,5 @@ llm/venv/
 *.deb
 space-static/enc/model_quantized.onnx
 model/slothe_4m_onnx/
+model/slothe_10m_onnx/
+model/slothe_10m_v2.pt
