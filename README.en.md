@@ -1,205 +1,96 @@
-# sloth-zhuyin-linux · 懶 Slothing
+# 懶 Slothing — an LLM-powered Zhuyin IME
 
-**A libchewing-free, LLM-powered Zhuyin (Bopomofo) input method** — for Linux
-(**fcitx5** and **IBus**), **Android** (a native IME with on-device decoding),
-plus a fully in-browser web demo. Type bopomofo; a tiny from-scratch model
-decodes it to Traditional Chinese under a phonetic-legality constraint, so every
-character is a real reading of what you typed — never a hallucination.
+**Type bopomofo; a model converts the whole sentence.** A 3.8M-parameter
+language model trained from scratch decodes zhuyin to Traditional Chinese
+locally — libchewing-free, with every character guaranteed to be a legal
+reading of what you typed. Four frontends — desktop (fcitx5, IBus), Android,
+and the browser — share one core and one model.
 
-**中文說明（預設）: [README.md](README.md)**
+**中文說明(預設): [README.md](README.md)** ·
+**Try it now (no install): [huggingface.co/spaces/Luigi/slothing-web](https://huggingface.co/spaces/Luigi/slothing-web)**
 
-> **Live demo (free, runs entirely in your browser):**
-> **https://huggingface.co/spaces/Luigi/slothing-web**
-> Type on the on-screen Dàqiān keyboard or your physical keyboard — Chinese,
-> English, and mixed input auto-detected with no mode key.
+<p align="center"><img src="docs/demo-web-v9.gif" width="470" alt="Web demo (recorded on a BOOX tablet): typing 我用claude寫注音輸入法 — live conversion, auto zh/en, tap-to-fix with whole-sentence re-scoring, 聯想 predictions"></p>
+<p align="center"><img src="docs/android-boox-demo-v7.gif" width="460" alt="Native Android IME (BOOX e-ink): Dàqiān keyboard, sentence conversion, word/phrase correction, prediction chaining"></p>
 
-<p align="center"><img src="docs/demo-web-v9.gif" width="470" alt="Slothing web demo (recorded on a BOOX tablet browser) — typing 我用claude寫注音輸入法: live conversion, auto zh/en, touch candidate strip, tap-to-fix with whole-sentence re-scoring, and 聯想 predictions after commit"></p>
+## Highlights
 
-## Four frontends, one core
+| | |
+|---|---|
+| **免選字 sentence conversion** | 微軟新注音-style live conversion; **74%** on the 230-case no-selection benchmark (on-device = desktop score) |
+| **Auto zh/en** | No mode key: type `我用python寫程式` straight through — a DP segmenter decides |
+| **Tone-optional** | Skip tone keys (~35% fewer keystrokes); context disambiguates |
+| **Picks re-score the sentence** | Correct one char and the rest re-decodes around it (char-hint channel), with **persistent learning** |
+| **Typo repair** | Impossible syllables fixed by the model (edit distance 1) |
+| **聯想 prediction** | Next-word suggestions after commit (dictionary + personal habits): tap-to-chain on mobile, ⇧1-9 on desktop |
+| **Fully offline** | 4.9 MB int8 ONNX runs locally — no cloud, no telemetry |
 
-All four are built on the **frontend-free core** in `engine/common` (one state
-machine, one zh/en DP segmenter, one decode implementation), so the interaction
-is identical — the GIF above is the web demo, but fcitx5 / IBus behave exactly
-the same.
+Sourced comparison vs Gboard 注音 and the Boox built-in IME:
+**[docs/COMPARISON.md](docs/COMPARISON.md)** (zh-TW); 4-frontend UI logic matrix:
+**[docs/UI-MATRIX.md](docs/UI-MATRIX.md)**.
 
-| Frontend | Platform | Notes |
-|---|---|---|
-| **fcitx5** | Linux (KDE/general) | Native addon, libchewing-free. `engine/fcitx5-chewing/` |
-| **IBus** | Linux (GNOME, …) | Same core; ships a headless end-to-end test (private ibus-daemon, key-by-key). `engine/ibus-slothing/` |
-| **Android** | phone/tablet (incl. e-ink) | Native Kotlin IME; ports slothingd's decode to on-device C++ (ONNX Runtime, offline). `android/` |
-| **Web demo** | browser | onnxruntime-web; no install, free, never sleeps. `space-static/` |
+## Install
 
-**Android** (tested on an ONYX BOOX Tab Mini C e-ink tablet) — native Dàqiān
-bopomofo keyboard, whole-sentence 免選字 conversion, fully offline. On-device
-decode is the same model as the desktop: **172/230 = 74%** on the 230-case
-免選字 benchmark, identical to the desktop model (99% per-sentence agreement).
-
-Honest, sourced comparison vs Gboard 注音 and the Boox built-in IME: **[docs/COMPARISON.md](docs/COMPARISON.md)** (zh-TW)
-
-<p align="center"><img src="docs/android-boox-demo-v7.gif" width="460" alt="Slothing on a BOOX Tab Mini C (Android): tapping Dàqiān bopomofo keys, typing 我用 claude 寫注音輸入法，很好玩。 (auto zh/en code-switch, tone-free syllables, 免選字), adjusting a word (他很漂亮 → ↓選字 → 她很 phrase chip), and 聯想 next-word predictions chaining after commit (電 → 腦 → …)"></p>
-
-## What it is
-
-Slothing replaces the statistical decoder of a traditional zhuyin IME (like
-chewing) with a small language model, while keeping the guarantee that output
-is always phonetically legal. Two things make it different from every other
-open-source zhuyin IME (McBopomofo, vChewing, libchewing are all purely
-statistical):
-
-- **The model decodes, not just reranks.** A bopomofo→Chinese model resolves
-  the homophones a dictionary IME gets wrong (它→他, 在/再, 覺/決) using
-  sentence context.
-- **No libchewing.** A dependency-free keyboard FSM parses keystrokes; the
-  model decodes; a per-position legal-character grammar guarantees valid
-  readings. Local, private, no cloud.
-
-## The models
-
-| | SlothLM (v1) | **SlothLM-E** (v2) |
-|---|---|---|
-| type | causal decoder-LM (Llama) | **bidirectional encoder** |
-| params | ~34M | **3.8M (NAS + weight tying)** |
-| decode | autoregressive | **non-autoregressive, 1 pass** |
-| tonal accuracy | ~beats chewing | **83% (chewing 71%)** |
-| tone-free accuracy | weak | **70%** — usable tone-free typing |
-| on HF | (removed) | [Luigi/slothlm-e-4m-zhuyin](https://huggingface.co/Luigi/slothlm-e-4m-zhuyin) |
-
-Zhuyin decode is *aligned sequence labeling* (N syllables → N characters, 1:1,
-each constrained), so a **bidirectional encoder** fits the task far better than
-a causal decoder: it sees the whole sentence (right-context disambiguation:
-行走/銀行) and decodes in one pass. The current model is **3.8M parameters**,
-found by an 18-config Hyperband **neural architecture search** over the sub-5M
-space and trained on **g2pW context-aware readings** (neural Taiwan polyphone
-disambiguation). It carries a **char-hint channel** (weight-tied to the output
-head, ~0 params): user picks feed back as hints and the whole sentence
-**re-scores** around them, 新注音-style; the same channel carries **document
-context** (committed text before the cursor — after 我妹妹說, 他很漂亮 flips
-to **她**很漂亮) and is trained with **typo noise** so the model repairs
-mistyped syllables from context. Full reproduction pipeline (dataset → labels
-→ NAS → training → ONNX) ships with the model on HF. See `model/DESIGN.md` and `model/DESIGN-E.md`.
-
-## Features
-
-- **Grammar-constrained decode** — output is masked to each syllable's
-  phonetically-legal characters, so it can never hallucinate an invalid reading.
-- **Tone-free typing** — drop the tone keys (~35% fewer keystrokes); the model
-  disambiguates from context.
-- **Auto Chinese/English** — no mode toggle: valid zhuyin adds one bopomofo
-  symbol per keystroke, so an impossible-zhuyin keystroke run is detected as
-  English (ASUS-IME style). English passes through verbatim; code-switch
-  (`我用 Python 寫 code`) just works.
-- **Chewing-shaped editing** — inline conversion, one-Enter commit, preedit
-  cursor + mid-sentence editing, **model-score-ranked** paged candidates
-  (↓ opens, word/char span views, number-key selection), punctuation + \`
-  symbol menu, Shift 中/英 toggle, Shift+Space fullwidth.
-- **Picks re-score the sentence** — correct one character and the rest
-  re-decodes around your choice (the hint channel); picks are also
-  **persistently learned** (calibrated logit bonuses that flip near-ties
-  without polluting strong-context words).
-- **Typo tolerant** — impossible syllables are repaired by the model from
-  context (edit distance 1).
-- **UI behavior verified against real libchewing** — the `eval/ui-parity/`
-  differential suite compares per-keystroke UI state (12/12 interaction
-  contracts pass); model quality is gated by `eval/chewing_parity.py` and a
-  230-sentence 免選字 set.
-
-## Repository layout
-
-- `engine/common/` — the **frontend-free shared core** (single implementation,
-  offline unit tests): the zh/en DP segmenter `segment.h` (lock-step with the
-  web demo), the zhuyin keyboard FSM, the slothingd protocol client, and the
-  whole interaction state machine `core.h` (candidate window, highlight loop,
-  pick-triggered re-scoring, learn diff). Both engines are built on it.
-- `engine/fcitx5-chewing/` — **Slothing**, the fcitx5 addon (the fcitx5
-  adapter over the shared core). libchewing-free.
-- `android/` — **Slothing for Android**: a native Kotlin `InputMethodService` +
-  Dàqiān bopomofo keyboard on the same `engine/common` core, with slothingd's
-  decode ported to on-device C++ (ONNX Runtime, over JNI) — fully offline on the
-  phone, no daemon.
-- `engine/ibus-slothing/` — **Slothing**, the IBus engine (for GNOME users):
-  same core, same behavior; ships a headless end-to-end test (private
-  ibus-daemon, key-by-key assertions).
-- `engine/slothingd/` — the decode daemons: **`slothingd_e.py`** (current; a
-  Unix-socket onnxruntime daemon serving SlothLM-E at ~1 ms/decode, tonal or
-  toneless, English passthrough) and the legacy llama.cpp/GBNF `slothingd.cpp`
-  for GGUF decoder models.
-- `model/` — the models: tokenizer, data prep, training + eval for SlothLM
-  (decoder) and **SlothLM-E** (encoder), `phonetic_table.tsv` (syllable → legal
-  chars), and `chewing_parity.py` (the validation gate).
-- `space-static/` — the web demo (`sdk: static`): the full IME UI running the
-  model in-browser via onnxruntime-web (~5 MB int8 ONNX, works on iOS Safari)
-  — free, never sleeps, no server.
-- `eval/` — scored zhuyin→sentence test set and harnesses (rerank, decode,
-  chewing-parity).
-- `ARCHITECTURE.md`, `RESEARCH-LLM-IME.md`, `MODEL_BENCHMARKS.md`, `MIGRATION.md`.
-
-IBus users (GNOME): see `engine/ibus-slothing/README.md` (same core, same
-key behavior). Android: see below and `android/`.
-
-## Build & install the fcitx5 addon
+Desktop platforms need the decode daemon (one-time setup, shared by fcitx5 + IBus):
 
 ```sh
-cmake -B engine/fcitx5-chewing/build -S engine/fcitx5-chewing \
-    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
-cmake --build engine/fcitx5-chewing/build -j"$(nproc)"
-sudo make -C engine/fcitx5-chewing/build install
-fcitx5 -r -d
+pip install onnxruntime numpy
+packaging/fetch-model.sh                  # 4.9 MB model
+packaging/install-slothingd-service.sh    # auto-start at login
 ```
 
-Add **Slothing** (🦥) via `fcitx5-configtool`. Then set up the local model +
-daemon:
+| Platform | Install |
+|---|---|
+| **fcitx5** (KDE, …) | `.deb` from Releases, or `cmake -B engine/fcitx5-chewing/build -S engine/fcitx5-chewing -DCMAKE_INSTALL_PREFIX=/usr && cmake --build engine/fcitx5-chewing/build -j$(nproc) && sudo make -C engine/fcitx5-chewing/build install` |
+| **IBus** (GNOME, …) | `.deb` from Releases, or the one-shot `engine/ibus-slothing/install.sh`; see `engine/ibus-slothing/README.md` |
+| **Android** | `.apk` from Releases (**no daemon** on the phone — decoding runs on-device), or `cd android && ./gradlew :app:assembleDebug` (needs SDK/NDK; fetch the model first) |
+| **Browser** | nothing to install: [HF Space](https://huggingface.co/spaces/Luigi/slothing-web) |
 
-```sh
-pip install onnxruntime numpy    # daemon deps
-hf download Luigi/slothlm-e-4m-zhuyin --local-dir model/slothe_4m_onnx \
-    --include 'onnx/*' 'syl_vocab.json'   # then move onnx/* up a level
-packaging/install-slothingd-service.sh   # auto-start at login (systemd user)
-# or: packaging/run-slothingd.sh          # one-off manual run
-```
+## How it works
 
-## Build & install for Android
+Zhuyin→Chinese is *aligned sequence labeling* (N syllables → N characters, each
+constrained to its homophone set), so Slothing uses a **bidirectional encoder**
+(non-autoregressive, one forward pass) instead of a causal LM: 3.8M parameters
+found by Hyperband NAS over the sub-5M space, trained on g2pW context-aware
+readings, with a **char-hint channel** (weight-tied to the output head, ~0
+params) carrying pick feedback, document context, and typo repair. A
+dependency-free DP segmenter parses the keystream (auto zh/en), and decoding is
+masked per position to legal readings.
 
-Needs the Android SDK/NDK (cmake, build-tools, a platform) and JDK 21. The model
-and ONNX Runtime are not in git — fetch the model, then vendor ORT (see
-`android/.gitignore` for the exact commands):
+All four frontends are thin adapters over the shared core in `engine/common` —
+one state machine, one segmenter, one prediction engine — held together by
+offline contract tests (core_test), a headless IBus end-to-end test, and the
+`eval/ui-parity` differential suite.
 
-```sh
-packaging/fetch-model.sh                 # stages model/slothe_4m_onnx (bundled into the APK)
-cd android
-JAVA_HOME=/usr/lib/jvm/java-21-openjdk ANDROID_HOME=~/Android/Sdk \
-  ./gradlew :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell ime enable com.slothing.ime/.SlothingImeService
-adb shell ime set    com.slothing.ime/.SlothingImeService
-```
+- Model + full reproduction pipeline (data → labels → NAS → training → ONNX):
+  [Luigi/slothlm-e-4m-zhuyin](https://huggingface.co/Luigi/slothlm-e-4m-zhuyin)
+- Architecture & design: `ARCHITECTURE.md`, `model/DESIGN-E.md`, `MODEL_BENCHMARKS.md`
 
-Then enable "Slothing 注音" in the device's input-method settings (the app has a
-one-tap entry too). Fully offline on the phone — decoding runs on-device via
-ONNX Runtime, no daemon. The decode seam is `engine/common/decoder.h` (null on
-Linux → the Unix-socket daemon; injected on Android → in-process ONNX).
+## Numbers
 
-## Roadmap (highlights)
+| Benchmark | Score |
+|---|---|
+| 230-case 免選字 set (whole sentence exact) | **74%** (172/230; Android on-device matches desktop, 99% per-sentence) |
+| Tonal per-char accuracy | **83%** (libchewing 71%) |
+| Tone-free | 70% |
 
-- [x] libchewing-free engine (keyboard FSM + LLM decode)
-- [x] SlothLM (34M decoder) v1 — superseded by SlothLM-E, removed from HF
-- [x] Web demo — in-browser, free, chewing-shaped UX
-- [x] Tone-free mode, auto zh/en, code-switch, session learning
-- [x] SlothLM-E bidirectional encoder; NAS-found 3.8M + g2pW labels
-- [x] Char-hint channel: pick re-scoring, document context, typo repair (tied weights, ~0 params)
-- [x] 新注音-style live conversion in fcitx (no convert key) + chewing-grade candidate window
-- [x] Differential UI-parity suite vs real libchewing (parity measured, not case-by-case)
-- [x] Demo + desktop daemon on the SlothLM-E ONNX model (5 MB int8, lossless)
-- [x] Full reproducibility bundle on the HF model repo
-- [x] Typo tolerance — model-scored edit-distance-1 repair (demo + daemon)
-- [x] IBus engine (GNOME): frontend-free core extracted and shared; behavior
-  identical to the fcitx5 addon
-- [x] Native Android IME (4th frontend): shared core + on-device ONNX decode,
-  validated on a BOOX e-ink tablet (74% 免選字, 99% per-sentence match with the
-  desktop model)
-- [x] 聯想 next-word prediction on all four frontends (shared
-  engine/common/assoc.h: 5178-head dictionary + personal bigrams; tap-to-chain
-  on mobile, ⇧1-9 on desktop, 微軟新注音-style)
-- [ ] Per-phrase Down-rank; packaging (.deb)
-- [ ] (Future, long-document context) hybrid Transformer + SSM decoder
+Ceiling = 微軟新注音/自然輸入法 (the test set is their no-selection answer set);
+floor = libchewing. Methodology in `docs/COMPARISON.md`.
 
-**Non-goals:** cloud inference, telemetry. Everything runs locally.
+## Roadmap
+
+- [ ] ~10M model (the 免選字 74→86 capacity gap located by the NAS capacity law)
+- [ ] BIO word-boundary + model-based 聯想 head (needs a fine-tune); word-list filtering
+- [ ] Android hardware-keyboard polish; regular desktop package releases
+
+<details><summary>Done (expand)</summary>
+
+libchewing-free engine (keyboard FSM + LLM decode) · web demo · tone-free /
+auto zh/en code-switch · SlothLM-E 3.8M (NAS + g2pW) · char-hint channel
+(pick re-scoring / document context / typo repair) · 新注音-style live
+conversion + chewing-grade candidate window · differential UI-parity suite vs
+real libchewing · full reproducibility bundle on HF · IBus engine · native
+Android IME (validated on BOOX e-ink) · 聯想 on all four frontends · touch
+candidate strip · learn-bonus calibration (2/3) · `.deb` / `.apk` packaging
+</details>
+
+**Non-goals:** any cloud inference or telemetry — everything runs locally.
