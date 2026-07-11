@@ -279,7 +279,8 @@ class SlothingImeService : InputMethodService(),
     override fun onToggleEnglish() {
         english = !english
         core.setEnglishMode(english)
-        keyboard.setEnglish(english)
+        // hardware-only sessions may toggle before the input view exists
+        if (::keyboard.isInitialized) keyboard.setEnglish(english)
     }
 
     // 符: toggle a symbol strip in the candidate bar (the 常用 row of the
@@ -338,6 +339,186 @@ class SlothingImeService : InputMethodService(),
         }
         core.commitSentence(sentence)         // tap-to-commit (Gboard convention)
         commitDrain()
+    }
+
+    // ===== hardware (Bluetooth/USB) keyboard ===============================
+    //
+    // BOOX users pair BT keyboards; physical keys must drive the SAME state
+    // machine as the soft keys, mirroring the desktop engines (fcitx5
+    // eim.cpp keyEvent / ibus main.cpp processKey): ↓ opens Choosing, ←→
+    // move the preedit cursor / choosing highlight, Esc is two-level, Enter
+    // commits/confirms, lone Shift toggles English, ⇧1-9 picks 詞/聯想.
+    // Only keys with IME meaning are consumed — everything else falls to
+    // super so app shortcuts and navigation keep working.
+
+    /** Desktop shiftAlone_: armed on Shift-down, disarmed by any other key;
+     *  a clean press+release toggles 中/英. */
+    private var shiftAlone = false
+
+    /** Keep the keyboard + candidate bar visible while a hardware keyboard
+     *  is connected — the default policy hides the input view when
+     *  config.keyboard != NOKEYS, which would remove the candidate window
+     *  (choosing UI, 聯想 strip) entirely. */
+    override fun onEvaluateInputViewShown(): Boolean {
+        super.onEvaluateInputViewShown()
+        return true
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_SHIFT_LEFT ||
+            keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT) {
+            shiftAlone = true
+            return super.onKeyDown(keyCode, event)   // app keeps the modifier
+        }
+        shiftAlone = false
+        // real modifier chords belong to the app (desktop parity)
+        if (event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) {
+            return super.onKeyDown(keyCode, event)
+        }
+        if (handleHardwareKey(keyCode, event)) return true
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if ((keyCode == KeyEvent.KEYCODE_SHIFT_LEFT ||
+             keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT) && shiftAlone) {
+            shiftAlone = false
+            onToggleEnglish()   // lone Shift = 中/英 (desktop convention)
+            // the release still passes through: the app saw the press
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
+    /** Route one hardware key through the soft-keyboard code paths.
+     *  Returns true iff the key was consumed by the IME. */
+    private fun handleHardwareKey(keyCode: Int, event: KeyEvent): Boolean {
+        val choosing = core.state() == Core.State.CHOOSING
+        when (keyCode) {
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                if (!choosing && core.getPreedit().text.isEmpty()) {
+                    return false          // empty buffer: Enter belongs to the app
+                }
+                commitOrConfirm()
+                return true
+            }
+            KeyEvent.KEYCODE_DEL -> {     // system auto-repeat re-enters here
+                if (choosing) { onBackspace(); return true }
+                val outcome = core.backspace()
+                if (outcome == Core.KeyOutcome.IGNORED) return false
+                applyOutcome(outcome)
+                return true
+            }
+            KeyEvent.KEYCODE_ESCAPE -> {
+                if (choosing) {           // two-level: close window, then cancel
+                    core.escapeChoosing()
+                    if (core.state() == Core.State.CHOOSING) paintChoosing()
+                    else paintComposingRaw()
+                    return true
+                }
+                // Composing: the session exposes no clear-pending-raw surface
+                // (desktop Esc clears rawKeys only) — swallow to protect the
+                // sentence, pass through when nothing is composed.
+                return core.getPreedit().text.isNotEmpty()
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (choosing) {
+                    if (core.getCandidates().open) core.moveHighlight(1)
+                    else core.reopen()    // desktop: ↓ reopens the char window
+                    paintChoosing()
+                    return true
+                }
+                if (core.getPreedit().text.isEmpty()) return false
+                openChoosing()            // desktop: ↓ starts conversion at cursor
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                if (choosing) {
+                    if (core.getCandidates().open) {
+                        core.moveHighlight(-1)
+                        paintChoosing()
+                    }
+                    return true           // swallow while the window shows
+                }
+                return false
+            }
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                val d = if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1
+                if (choosing) {
+                    if (core.getCandidates().open) {
+                        core.moveHighlight(d)   // desktop: ←→ move the highlight
+                        paintChoosing()
+                    } else {
+                        onMoveFocus(d)          // desktop: ←→ move segment focus
+                    }
+                    return true
+                }
+                val outcome = core.moveCursor(d)  // preedit caret (NEED_LIVE)
+                if (outcome == Core.KeyOutcome.IGNORED) return false
+                applyOutcome(outcome)
+                return true
+            }
+            KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END -> {
+                if (choosing) return true
+                val outcome = core.moveCursor(
+                    if (keyCode == KeyEvent.KEYCODE_MOVE_HOME) -2 else 2,
+                )
+                if (outcome == Core.KeyOutcome.IGNORED) return false
+                applyOutcome(outcome)
+                return true
+            }
+        }
+
+        // ⇧1-9: pick a 詞 in Choosing / a 聯想 chip while predicting (desktop)
+        if (event.isShiftPressed &&
+            keyCode in KeyEvent.KEYCODE_1..KeyEvent.KEYCODE_9) {
+            val i = keyCode - KeyEvent.KEYCODE_1
+            if (choosing) {
+                val phrases = core.getPhrases()
+                if (i < phrases.size) onPickPhrase(phrases[i])
+                return true               // desktop swallows out-of-range ⇧digits
+            }
+            if (predicting) {
+                val preds = core.getPredictions()
+                if (i < preds.size) { onPickPrediction(preds[i]); return true }
+                // out of range: fall through — the strip dismisses below
+            }
+        }
+
+        // printable ASCII (letters/digits/punct, incl. shifted like <>?!)
+        val uni = event.unicodeChar
+        if (uni in 0x20..0x7e) return handleHardAscii(uni.toChar())
+
+        // anything else while the choosing window is open: swallow keyboard
+        // noise (desktop parity) — but never system keys (Back/Home/volume)
+        return choosing && !event.isSystem
+    }
+
+    /** The onKey(ascii) route for a hardware key: identical guards, except an
+     *  IGNORED outcome returns false so the ORIGINAL event reaches the app
+     *  (instead of the soft keyboard's synthesized commitText). */
+    private fun handleHardAscii(ascii: Char): Boolean {
+        if (core.state() == Core.State.CHOOSING) {
+            if (ascii in '1'..'9') onPickCandidate(ascii - '1')
+            return true    // nothing leaks behind the window (onKey parity)
+        }
+        if (symbolsShowing) hideSymbols()
+        if (predicting) { hideBar(); predicting = false }
+        if (english) {
+            // english mode: feedKey's passthrough branch stages the char
+            // (flushes composed text first, preserving order — desktop parity)
+            val outcome = core.feedKey(ascii.code)
+            if (outcome == Core.KeyOutcome.IGNORED) return false
+            applyOutcome(outcome)
+            return true
+        }
+        val outcome = if (ascii == ' ' || ascii in TONE_KEYS) {
+            core.toneOrSpace(ascii.code)
+        } else {
+            core.feedKey(ascii.code)
+        }
+        if (outcome == Core.KeyOutcome.IGNORED) return false
+        applyOutcome(outcome)
+        return true
     }
 
     // ===== loop ============================================================
@@ -427,6 +608,7 @@ class SlothingImeService : InputMethodService(),
         val ic = ic() ?: return
         val pe = core.getPreedit()
         ic.setComposingText(highlight(pe.text, pe.hlStart, pe.hlEnd), 1)
+        if (!::candidateBar.isInitialized) return   // hardware-only session
         val shown = candidateBar.render(core.getCandidates(), core.getPhrases())
         candidateBar.visibility = if (shown) View.VISIBLE else View.INVISIBLE
     }
