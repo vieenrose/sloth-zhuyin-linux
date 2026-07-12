@@ -1,13 +1,16 @@
 # 銀髮族鍵盤 — Design-Research Report
 
-> Deep research for the queued feature: an alternative Android keyboard layout
-> for seniors / aged users, exploiting Slothing's sentence-level LLM to absorb
-> the ambiguity of a T9-style grouped bopomofo keypad. Target devices: Android
-> phones and e-ink tablets (BOOX). Compiled 2026-07-11; every design choice is
-> traced to a cited finding; secondary/unverified claims are flagged.
+> Deep research for the queued feature: an alternative keyboard layout for
+> seniors / aged users, exploiting Slothing's sentence-level LLM to absorb the
+> ambiguity of a T9-style grouped bopomofo keypad. **Target device: an
+> iPhone-17-class smartphone (iOS custom keyboard extension)** — NOT a tablet or
+> e-ink device (updated 2026-07-12; the e-ink/BOOX profile, §1.5 & §5.5, is now
+> out of scope). Every design choice is traced to a cited finding.
 >
-> **Unit note:** Android dp↔mm uses 1 mm ≈ 6.3 dp (160 dp = 1 in = 25.4 mm).
-> Material's own figure states 48 dp ≈ 9 mm.
+> **Unit note (iOS):** iPhone 17 / 17 Pro are **402 × 874 pt** (6.3", 460 ppi,
+> 3×), Pro Max 440 × 956, Air 420 × 912. At 460 ppi/3× a point is **0.166 mm**
+> (≈6.03 pt/mm), so the 66.6 mm-wide screen = 402 pt. iOS HIG's 44 pt min is a
+> general-population floor, not a senior target (same caveat as Android's 48 dp).
 
 ## 0. Executive summary — the six load-bearing findings
 
@@ -17,10 +20,11 @@
    Material's 48 dp (~9 mm) and WCAG's 24 px are *floors for the general
    population*, not targets for seniors. (§1)
 2. **A full 37/41-key zhuyin keyboard is geometrically impossible to make
-   senior-sized on a phone.** On a 360 dp-wide phone, 10 columns → ~36 dp
-   (~5.7 mm) keys, far below the 11.4 mm floor. A **3×4 grouped grid** yields
-   ~120 dp (~19 mm) columns — exactly the elder-optimal size. Grouping is
-   *forced by the touch-target math*, before we even invoke the LLM. (§1, §5)
+   senior-sized on a phone.** On the 402 pt-wide iPhone 17, 10 columns → ~40 pt
+   (~6.7 mm) keys, far below the 11.4 mm floor. A **3×4 grouped grid** yields
+   402/3 ≈ **134 pt (~22 mm)** columns — *above* the elder-optimal 19 mm (Pro Max
+   → ~24 mm). Grouping is *forced by the touch-target math*, before we even
+   invoke the LLM. Height is the constrained axis on a phone, not width. (§1, §5)
 3. **The thing seniors hate most about zhuyin is exactly what Slothing
    removes.** Taiwanese sources repeatedly name 同音字/選字 (homophone
    candidate-picking) as zhuyin's fatal flaw on phones; sentence-level 免選字
@@ -33,11 +37,16 @@
    double-taps, and multi-touch are the documented failure points for elders.
    The LLM lets us delete tone-selection, candidate menus, and symbol modes.
    (§1, §2, §5)
-6. **LLM disambiguation of a 3-way-grouped keypad is a solved-enough problem.**
-   A 2026 study shows a 3-key ambiguous keyboard reaches ~9.5% character error
-   with an LLM decoder (down from 23% at 2 keys); bopomofo's rigid
-   initial→medial→final phonotactics gives *more* constraint than English, so
-   per-syllable ambiguity is lower still. (§4)
+6. **LLM disambiguation of a grouped keypad is a real bet, not a slam-dunk
+   (revised 2026-07-12 after measurement).** The English "9.5% CER at 3 keys"
+   study does NOT transfer: Chinese stacks a homophone layer on top of the
+   keystroke ambiguity. Measured on the 500-case held-out set, grouping +
+   tone-drop inflates per-position candidate characters from 44 (today) to
+   **722 for Candidate A** and **1,411 for B** (×16 / ×32) — see §6. That is
+   still only ~9% of the 8,342-char vocab and analogous to *toneless pinyin*
+   (a solved problem at full sentence context), so it is plausibly workable —
+   but it requires a decoder **retrained on group-key input**, and the real CER
+   is not yet measured. A is decisively the floor; B is last-resort. (§4, §6)
 
 ## 1. Aging HCI fundamentals for touch keyboards
 
@@ -111,16 +120,13 @@ Sources: [Jin et al. (CORE PDF)](https://fileserver-az.core.ac.uk/download/pdf/2
 - **Contrast:** WCAG AA 4.5:1, AAA 7:1; for low-vision elders aim **≥7:1**,
   sans-serif, line-height ~1.5.
 
-### 1.5 E-ink (BOOX) constraints
+### 1.5 E-ink (BOOX) constraints — ⚠️ OUT OF SCOPE (target is iPhone)
 
-- Reflective contrast ~15:1 — above AAA for pure black-on-white; never rely on
-  color or subtle grays for state.
-  [BOOX E-Ink explainer](https://help.boox.com/hc/en-us/articles/360027486972-Understanding-E-Ink-Technology-in-Boox-Devices)
-- **Latency & ghosting are the real enemies of typing.** Fewer, larger keys =
-  fewer redraw regions = less ghosting. Candidate strips that constantly
-  repaint are costly.
-  [eWritable keyboard latency](https://ewritable.com/keyboard-latency-on-boox-supernote-e-ink-tablets/)
-- No animation, no fade, static high-contrast, minimal repaint.
+*Retained for reference only; the target device is now an iPhone-17-class OLED
+smartphone, so e-ink latency/ghosting/contrast constraints no longer drive the
+design. iPhone realities (OLED, Taptic Engine, ProMotion) replace these — see
+§5.5.* Original e-ink notes: fewer/larger keys reduce redraw regions; no
+animation; static high-contrast black-on-white.
 
 ### 1.6 Cognitive load
 
@@ -230,10 +236,13 @@ spent against the sentence decoder — freeing us to make keys huge and few.
   familiar 3×4, chunked in traditional table order (muscle memory, §3.2).
 - **No tone keys, no required candidate menu, no symbol mode, no long-press.**
   Top result auto-commits on space.
-- **Key size:** column ≈**120 dp (~19 mm)**, height ≈64–72 dp (Jin et al.
-  fewest-errors size). **Spacing:** 8–12 dp visible gutters (tremor slips land
-  in a gap).
-- **Glyphs:** 3–4 bopomofo per key at **≥28–32 sp**, black-on-white ≥7:1.
+- **Key size (iPhone 17, 402 pt wide):** column ≈**134 pt (~22 mm)** — above the
+  19 mm elder-optimum; row height ≈**80–88 pt (~13–15 mm)** (height is the
+  constrained axis on a phone; a 4-row grid + prediction strip at ~88 pt rows ≈
+  a 420 pt keyboard, ~48% of the 874 pt screen — acceptable for an accessibility
+  keyboard). **Spacing:** 8–12 pt visible gutters (tremor slips land in a gap).
+- **Glyphs:** 3–4 bopomofo per key at **≥28–32 pt**, honoring Dynamic Type;
+  black-on-white ≥7:1.
 - **Prediction strip:** single tall (≥56–64 dp) row — top whole-sentence
   result as large text + **at most 2–3 alternatives** as big chips; selection
   optional.
@@ -245,11 +254,13 @@ spent against the sentence decoder — freeing us to make keys huge and few.
 ### 5.2 Candidate B — 四鍵大格 (Four-Zone) — accessibility profile
 
 2×3 of enormous zones grouped by articulatory region, ~6 phonetic zones +
-space + delete; each zone ≈**160–180 dp (~25–28 mm)**. More per-syllable
-ambiguity → leans harder on the LLM (justified by 3-Key-Input: 3 groups ≈
-9.5% CER in *English*; bopomofo is more constrained). Ship as an
-accessibility profile; A is the default. Ideal on e-ink (fewest redraw
-regions).
+space + delete; on the 402 pt-wide iPhone a 2-column layout gives ≈**200 pt
+(~33 mm)** zones. More per-syllable ambiguity → leans much harder on the LLM.
+**⚠️ The measured ambiguity now argues against B:** grouped-keypad candidate
+fan-out is ~722 chars/position for A but **~1,411 for B** (§6) — 2× worse — so B
+should be a *last-resort* accessibility profile, not a primary. A is the
+default. (The 9.5% CER cited for 3-Key-Input is *English* and does not transfer;
+see §6.)
 
 ### 5.3 What to REMOVE (each removal cited)
 
@@ -273,11 +284,30 @@ regions).
   [Learnability (PMC)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5945986/)
 - **Voice as first-class fallback:** large mic button beside space.
 
-### 5.5 E-ink profile deltas
+### 5.5 iOS platform realities (custom keyboard extension)
 
-Pure black-on-white; static press-highlight (invert); confine repaints to the
-pressed key + the single prediction line; prefer B or 3×4; recommend partial-
-refresh mode.
+The target is an **iOS custom keyboard extension** (App Extension) — a frontend
+Slothing does not yet have (current: fcitx5, IBus, Android, web). The extension
+sandbox drives several hard constraints:
+
+- **Memory limit (~60–70 MB, jetsam-enforced).** A keyboard extension is killed
+  if it exceeds it. **This is where Slothing's tiny-model bet pays off:** the
+  12 M int8 (~12 MB) and the ternary (~8 MB) load in-process with room to spare,
+  where a multi-hundred-MB LLM would be killed outright. On-device decode via
+  Core ML or ONNX-Runtime-iOS, in-process (no daemon) — mirrors the Android
+  Route-B design.
+- **Haptics & network require "Allow Full Access."** Without it a keyboard
+  extension gets no Taptic feedback and no network. So the §5.1 "haptic ON"
+  default must either be gated behind a Full-Access request in onboarding, or
+  ship default-off with a prompt. Never make core typing depend on Full Access.
+- **Feedback:** Taptic Engine (`UIImpactFeedbackGenerator`, light/medium) with
+  Full Access; static press-highlight (invert) as the always-available fallback.
+- **Text sizing:** honor **Dynamic Type** for glyphs and the prediction line so
+  the board scales with the user's system text-size / accessibility settings.
+- **Height:** the extension owns its height — budget ~420 pt for the 4-row grid
+  + prediction strip (§5.1); avoid the tiny default 216 pt keyboard.
+- **No e-ink**, ProMotion 120 Hz, OLED ≥1M:1 contrast — the §1.5/§5.5-original
+  ghosting/repaint constraints do not apply.
 
 ## 6. Open questions (validate before implementation)
 
@@ -285,10 +315,17 @@ refresh mode.
    small in-house survey of the target cohort. **[SECONDARY]**
 2. **Exact historical per-key grouping is vendor-variable** — validate the
    §5.1 grid against 2–3 real ex-feature-phone elders. **[UNVERIFIED]**
-3. **3-Key-Input CERs are English.** Run an **in-house grouped-zhuyin CER
-   eval with the Slothing decoder** (per-syllable ambiguity, tone-dropped,
-   +1 missed keystroke) on the 230-case 免選字 set — this number decides
-   whether Candidate B is viable or A is the floor.
+3. **3-Key-Input CERs are English — grouped-zhuyin ambiguity MEASURED
+   (2026-07-12).** On the 500-case held-out set, per-position candidate
+   characters (tone dropped): exact-today 44 → **Candidate A grouped 722 (×16)**
+   → **Candidate B grouped 1,411 (×32)**; 99% of syllable bases lose their unique
+   key-sequence (worst A key maps to 23 syllables). Decisions this fixes: **A is
+   the floor, B is last-resort** (2× worse). What remains: the real **CER**,
+   which needs a decoder **retrained on group-key input** (tone-dropped,
+   group-encoded) — the current decoder takes *exact syllable embeddings*, so it
+   cannot be tested as-is. That retrain + CER is the true go/no-go for the whole
+   design; queued for a free GPU (the mainline full-feature run is training now).
+   Adopt the [8-adjacency slip model](RELATED-WORK.md) for the tremor-error half.
 4. The 48 dp shaky-hand error percentages are **[SECONDARY]** — don't quote in
    product spec.
 
