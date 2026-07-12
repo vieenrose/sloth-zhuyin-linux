@@ -1044,7 +1044,11 @@ struct SlothingImpl {
                 return true;
             }
             comp.commitRun(segmenter.get(), enMode);
-            comp.insertToken({false, pit->second});
+            const int ins = comp.tokCursor < 0
+                                ? static_cast<int>(comp.toks.size())
+                                : comp.tokCursor;
+            comp.insertToken({false, slothing::punctMark(c, pit->second,
+                                                         comp.toks, ins)});
             scheduleLiveDecode();
             renderComposing();
             return true;

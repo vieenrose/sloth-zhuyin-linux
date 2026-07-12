@@ -92,6 +92,15 @@ int main(int argc, char **argv) {
         {"upgj", "zh:ㄧㄣ | zh:ㄕㄨ", "confident multi-syllable run -> zhuyin"},
         {"hello", "en:hello",
          "English that coincidentally tiles (via 1-symbol syllables) stays en"},
+        // en punctuation inside en text: a dachen-punct key ('-'=ㄦ, etc.)
+        // flanked by English/number context is a literal char, not zhuyin.
+        {"7-11", "en:7-11", "digit-hyphen-digit is literal (not 7兒11)"},
+        {"a-b", "en:a-b", "letter-hyphen-letter is literal English"},
+        {"0912-345", "en:0912-345", "phone-number hyphen stays literal"},
+        // but a genuine zhuyin final ㄦ after a tone digit is preserved: a tone
+        // key (3/4/6/7) is NOT English context, so 這兒/女兒 still parse.
+        {"5k4-", "zh:ㄓㄜˋ | zh:ㄦ", "trailing ㄦ preserved (這兒)"},
+        {"sm3-6", "zh:ㄋㄩˇ | zh:ㄦˊ", "ㄦˊ preserved between tone digits (女兒)"},
     };
     for (const auto &[keys, want, desc] : T) {
         std::string got = show(seg, keys);

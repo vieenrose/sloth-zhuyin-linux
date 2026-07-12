@@ -125,6 +125,27 @@ public:
                 relax(i + 1, dp[i].cost + 1.5, {false, std::string(1, keys[i])},
                       i);
             }
+            // A punctuation/symbol key flanked by English/number context is a
+            // LITERAL character (7-11, a.b, 0912-345, C++), never zhuyin or a
+            // fullwidth mark — "en punctuation inside en text". This is the
+            // only path that lets a dachen-punct key ('-'=ㄦ, ','=ㄝ, '.'=ㄡ,
+            // ';'=ㄤ, '/'=ㄥ) escape its zhuyin reading. A tone digit (3/4/6/7)
+            // does NOT count as English context, so a genuine zhuyin final like
+            // ㄦ (女兒 = "smu3-6", 這兒 = "5k4-") is preserved; and it is only
+            // OFFERED (cheaply, so it merges into the English run) — the DP
+            // still prefers a real zhuyin syllable when one parses (b.4=ㄖㄡˋ).
+            const unsigned char pc = static_cast<unsigned char>(keys[i]);
+            if (!isAlnum(keys[i]) && pc > 32 && pc < 127) {
+                auto enCtx = [](char c) {
+                    return isAlnum(c) && !segToneMark(c);
+                };
+                const bool prev = i > 0 && enCtx(keys[i - 1]);
+                const bool next = i + 1 < n && enCtx(keys[i + 1]);
+                if (prev || next) {
+                    relax(i + 1, dp[i].cost + 0.4,
+                          {false, std::string(1, keys[i])}, i);
+                }
+            }
         }
         // merge adjacent English tokens
         std::vector<SegTok> out;

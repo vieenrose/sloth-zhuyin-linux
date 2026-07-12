@@ -264,22 +264,16 @@ public:
     bool empty() const { return positions.empty(); }
 
     std::string composedSentence() const {
+        // Faithful transcription: no injected CJK↔Latin spaces (zh-TW
+        // convention — see docs/ZH-EN-MIXING.md and joinDisplay).
         std::string out;
         for (size_t i = 0; i < positions.size(); i++) {
             int sel = (i < segSel.size()) ? segSel[i] : 0;
             if (sel >= 0 && sel < static_cast<int>(positions[i].size())) {
-                const bool en =
-                    i < toks.size() && !toks[i].zh && isAsciiRun(toks[i].v);
-                if (en) out += " ";
-                if (!en && i < toks.size() && !toks[i].zh && !out.empty() &&
-                    out.back() == ' ') {
-                    out.pop_back(); // fullwidth punct hugs the previous word
-                }
                 out += positions[i][sel];
-                if (en) out += " ";
             }
         }
-        return tidySpaces(out);
+        return out;
     }
 
     // Words COVERING the focused char (chewing/新注音 semantics): both the

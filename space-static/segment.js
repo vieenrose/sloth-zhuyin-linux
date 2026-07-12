@@ -99,6 +99,18 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
         }
       if(!isAlnum(keys[i]) && !DACHEN[keys[i]] && !TONEK[keys[i]]) // stray symbol
         relax(i+1, dp[i].cost + 1.5, {t:'en',v:keys[i]}, i);
+      // en punctuation inside en text: a punct key flanked by English/number
+      // context (an alnum that is NOT a tone key) is a literal char, not
+      // zhuyin — 7-11, a-b, 0912-345. This is the only escape for a dachen-punct
+      // key ('-'=ㄦ etc). A tone digit (3/4/6/7) is NOT english context, so a
+      // real zhuyin final ㄦ (這兒 "5k4-", 女兒 "sm3-6") is preserved; offered
+      // cheaply so it merges into the English run, but the DP still prefers a
+      // valid zhuyin syllable when one parses (b.4=ㄖㄡˋ).
+      if(!isAlnum(keys[i]) && keys[i]>' ' && keys[i]<'\x7f'){
+        const enCtx=c=>isAlnum(c) && !TONEK[c];
+        if((i>0 && enCtx(keys[i-1])) || (i+1<n && enCtx(keys[i+1])))
+          relax(i+1, dp[i].cost + 0.4, {t:'en',v:keys[i]}, i);
+      }
     }
     // merge adjacent English tokens
     const out=[];

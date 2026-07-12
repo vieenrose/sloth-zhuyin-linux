@@ -98,15 +98,15 @@ int main() {
         CHECK(c2.segFocus == 3, "begin honors pendingFocus (↓ at cursor)");
     }
 
-    // ---- composedSentence spacing ----
+    // ---- composedSentence: faithful, no injected CJK-Latin spaces ----
     {
         ChoosingCore c;
         c.positions = {{"我"}, {"python"}, {"好"}, {"，"}};
         c.segSel = {0, 0, 0, 0};
         c.toks = {{true, "ㄨㄛˇ"}, {false, "python"}, {true, "ㄏㄠˇ"},
                   {false, "，"}};
-        CHECK(c.composedSentence() == "我 python 好，",
-              "composedSentence: en spaced, fullwidth punct hugs");
+        CHECK(c.composedSentence() == "我python好，",
+              "composedSentence: faithful, no injected CJK-Latin spaces");
     }
 
     // ---- pick semantics (chewing: pick closes the window) ----
@@ -192,6 +192,42 @@ int main() {
         CHECK(!p.empty() && p[0] == "意", "assoc: tail 注 -> dict 意 first");
         a.clearTail();
         CHECK(a.predictions().empty(), "assoc: clearTail drops predictions");
+    }
+
+    // ---- punctuation width after English vs Chinese ----
+    {
+        // "punctuation that follows en has to be en punc"
+        std::vector<SegTok> afterEn = {{false, "Expected"}};
+        CHECK(punctMark(':', "：", afterEn, 1) == ":",
+              "punct: colon after English stays halfwidth (Expected:)");
+        CHECK(punctMark('!', "！", afterEn, 1) == "!",
+              "punct: bang after English stays halfwidth");
+        std::vector<SegTok> afterZh = {{true, "ㄏㄠˇ"}};
+        CHECK(punctMark(':', "：", afterZh, 1) == "：",
+              "punct: colon after zhuyin/Chinese is fullwidth");
+        CHECK(punctMark('>', "。", afterZh, 1) == "。",
+              "punct: period after Chinese is fullwidth 。");
+        // empty context (start of run) -> fullwidth default
+        std::vector<SegTok> none;
+        CHECK(punctMark('<', "，", none, 0) == "，",
+              "punct: leading punctuation defaults to fullwidth");
+        // a number run counts as English context (halfwidth)
+        std::vector<SegTok> afterNum = {{false, "7-11"}};
+        CHECK(punctMark('(', "（", afterNum, 1) == "(",
+              "punct: paren after a number run stays halfwidth");
+        // CLAUSE rule: a comma after English but with Chinese earlier in the
+        // clause is fullwidth (我推薦 Python，因為…) — binds to the Chinese clause.
+        std::vector<SegTok> zhThenEn = {{true, "ㄊㄨㄟ"}, {false, "Python"}};
+        CHECK(punctMark('<', "，", zhThenEn, 2) == "，",
+              "punct: comma after English but Chinese-led clause is fullwidth");
+        // sentence-final period after English in a Chinese clause -> fullwidth
+        CHECK(punctMark('>', "。", zhThenEn, 2) == "。",
+              "punct: period closing a Chinese clause is fullwidth 。");
+        // pure-English clause after a prior terminator -> halfwidth again
+        std::vector<SegTok> clause2 = {{true, "ㄏㄠˇ"}, {false, "."},
+                                       {false, "Expected"}};
+        CHECK(punctMark(':', "：", clause2, 3) == ":",
+              "punct: new English clause after a terminator is halfwidth");
     }
 
     printf("\n%s\n", failures ? "FAILURES" : "all passed");

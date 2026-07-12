@@ -75,18 +75,15 @@ inline JoinResult joinDisplay(const std::vector<SegTok> &toks,
                               const std::vector<std::string> &disp,
                               int cursorTok, const std::string &tail) {
     JoinResult r;
-    auto append = [&](const std::string &piece, bool zh) {
-        if (piece.empty()) return;
-        if (zh) {
-            r.text += piece;
-        } else if (isAsciiRun(piece)) {
-            if (!r.text.empty() && r.text.back() != ' ') r.text += ' ';
-            r.text += piece;
-            r.text += ' ';
-        } else { // fullwidth punctuation
-            if (!r.text.empty() && r.text.back() == ' ') r.text.pop_back();
-            r.text += piece;
-        }
+    // Faithful transcription: never inject a space at a CJK↔Latin/number
+    // boundary. In zh-TW the inter-script gap is a ~¼-em TYPOGRAPHIC space the
+    // renderer supplies (CSS text-autospace), not a literal character; native
+    // 注音 IMEs transcribe verbatim and auto-spacing would corrupt 7-11, URLs,
+    // COVID-19. Emit each piece as-is; a space appears only if the user typed
+    // one. (Pangu-style spacing, if ever wanted, is an opt-in whole-buffer
+    // post-processor — see docs/ZH-EN-MIXING.md.)
+    auto append = [&](const std::string &piece, bool /*zh*/) {
+        r.text += piece;
     };
     const int n = static_cast<int>(toks.size());
     const int cur = (cursorTok < 0 || cursorTok > n) ? n : cursorTok;
@@ -109,17 +106,8 @@ inline JoinResult joinDisplay(const std::vector<SegTok> &toks,
 }
 
 inline std::string toksDisplay(const std::vector<SegTok> &toks) {
-    std::string out;
-    for (const auto &t : toks) {
-        if (t.zh) {
-            out += t.v;
-        } else if (isAsciiRun(t.v)) {
-            out += " " + t.v + " ";
-        } else { // fullwidth punctuation: no spaces, eat one before it
-            if (!out.empty() && out.back() == ' ') out.pop_back();
-            out += t.v;
-        }
-    }
+    std::string out; // faithful: no injected CJK↔Latin spaces (see joinDisplay)
+    for (const auto &t : toks) out += t.v;
     return out;
 }
 
@@ -179,6 +167,56 @@ inline const std::unordered_map<char, const char *> &punctMap() {
         {'\\', "、"},
     };
     return m;
+}
+
+// Halfwidth ASCII equivalent of each punctMap mark, for "en punctuation inside
+// en text": when a punctuation key follows an English/ASCII token, the mark
+// stays halfwidth (Expected: 你好, not Expected：你好). 、 has no ASCII form; a
+// comma is the closest in an English run.
+inline const std::unordered_map<char, char> &punctHalf() {
+    static const std::unordered_map<char, char> m = {
+        {'<', ','}, {'>', '.'}, {'?', '?'}, {'!', '!'},
+        {':', ':'}, {'"', ';'}, {'(', '('}, {')', ')'},
+        {'\\', '\\'}, // \ stays literal in en context (paths/regex/LaTeX)
+    };
+    return m;
+}
+
+// Does a punctuation mark inserted at index `ins` belong to a pure-English
+// CLAUSE, so it should render halfwidth? True iff the token it attaches to is
+// an English/ASCII run AND no Chinese precedes it in the current clause (scan
+// back to the last sentence terminator). This keeps 'Expected: 你好' halfwidth
+// while leaving a comma in Chinese prose that merely abuts English fullwidth
+// (我推薦 Python，因為…) and a sentence-final 。 after English fullwidth
+// (我用的是 Python。) — see docs/ZH-EN-MIXING.md. Binding to the clause, not
+// just the previous token, also avoids the risky sentence-terminal lookahead.
+inline bool punctInEnglishClause(const std::vector<SegTok> &toks, int ins) {
+    const int n = static_cast<int>(toks.size());
+    if (ins < 0 || ins > n) ins = n;
+    if (ins == 0 || toks[ins - 1].zh || !isAsciiRun(toks[ins - 1].v)) {
+        return false;
+    }
+    for (int i = ins - 1; i >= 0; i--) {
+        if (toks[i].zh) return false; // Chinese earlier in this clause
+        const std::string &v = toks[i].v; // stop at a clause boundary
+        if (v == "." || v == "!" || v == "?" || v == "。" || v == "！" ||
+            v == "？" || v == "\n") {
+            break;
+        }
+    }
+    return true;
+}
+
+// The mark to insert for a punctuation key `shiftedKey` (a punctMap key) given
+// the token list and insertion index: halfwidth if it belongs to a pure-English
+// clause, else the fullwidth 微軟/chewing mark.
+inline std::string punctMark(char shiftedKey, const char *fullwidth,
+                             const std::vector<SegTok> &toks, int ins) {
+    auto h = punctHalf().find(shiftedKey);
+    if (h != punctHalf().end() && punctInEnglishClause(toks, ins)) {
+        return std::string(1, h->second);
+    }
+    return std::string(fullwidth);
 }
 
 } // namespace slothing

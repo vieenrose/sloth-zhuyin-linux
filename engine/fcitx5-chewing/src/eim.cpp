@@ -1240,7 +1240,11 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
                 return;
             }
             comp_.commitRun(segmenter_.get(), enMode_);
-            comp_.insertToken({false, pit->second});
+            const int ins = comp_.tokCursor < 0
+                                ? static_cast<int>(comp_.toks.size())
+                                : comp_.tokCursor;
+            comp_.insertToken({false, slothing::punctMark(rawSym, pit->second,
+                                                          comp_.toks, ins)});
             scheduleLiveDecode(ic);
             renderComposing(ic);
             return;

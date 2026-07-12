@@ -1,0 +1,154 @@
+# zh-TW / English mixed-writing convention dataset (151 cases)
+# Source: multi-agent research study 2026-07-12 (docs/ZH-EN-MIXING.md).
+# Columns: category<TAB>rule_id<TAB>input(intent)<TAB>expected_output<TAB>note
+punctuation	PUNCT-halfwidth-after-english	English label 'Expected' + colon + 你好	Expected: 你好	Motivating bug. Colon bound to the English label stays halfwidth ASCII with a space AFTER, never fullwidth ：. The space here is Western spacing carried by the ':' token, not CJK autospacing.
+punctuation	NUM-literal-token-atomic	7 + [ㄦ/- key] + 1 + 1	7-11	Motivating bug. The hyphen sits inside a digit-hyphen-digit literal run; it is never read as zhuyin ㄦ and never widened to fullwidth. wrong=7兒11
+punctuation	PUNCT-width-by-owning-run	Chinese lead-in 例如 + colon + 貓、狗	例如：貓、狗	Colon bound to a Chinese label is fullwidth ： with zero surrounding space; the enumeration comma is fullwidth 、.
+punctuation	PUNCT-halfwidth-after-english	Chinese label 項目 + colon + 你好	項目：你好	Contrast to Expected: — a Han-owned colon is fullwidth. wrong=項目:你好
+punctuation	PUNCT-width-by-owning-run	我喜歡貓 + comma + 也喜歡狗	我喜歡貓，也喜歡狗	Comma inside a Chinese clause is fullwidth. wrong=我喜歡貓,也喜歡狗
+punctuation	PUNCT-width-by-owning-run	他說「stay hungry, stay foolish」 (comma inside English phrase within Chinese quote)	他說「stay hungry, stay foolish」	The comma belongs to the English phrase → halfwidth; the quotation marks belong to the Chinese sentence → fullwidth Taiwan corner brackets.
+punctuation	PUNCT-sentence-terminal-override	我用的是 Python + 。 (sentence terminator)	我用的是 Python。	Preceding token is English but the sentence is Chinese, so the terminal period is fullwidth 。. wrong=我用的是 Python.
+punctuation	PUNCT-sentence-terminal-override	他在看PTT + 。	他在看PTT。	Terminal period closes a Chinese sentence ending in an English acronym → fullwidth 。. No autospace before PTT.
+punctuation	PUNCT-sentence-terminal-override	這句話對嗎 + ？ after English word 'OK'	這樣OK嗎？	Question mark terminates a Chinese sentence → fullwidth ？ despite adjacent English. wrong=這樣OK嗎?
+punctuation	PUNCT-sentence-terminal-override	「Stay hungry, stay foolish.」 (whole quoted unit is English)	「Stay hungry, stay foolish.」	The terminated unit is entirely English, so its terminal period stays halfwidth; only the outer quotes (Chinese context) are fullwidth 「」.
+punctuation	PUNCT-taiwan-corner-quotes	這是 + 「 + 細節 + 」	這是「細節」	zh-TW outer quotes are corner brackets 「」, not zh-CN "". wrong=這是"細節"
+punctuation	PUNCT-taiwan-corner-quotes	他說 + 「 + Stay hungry + 」 (quoting English inside Chinese)	他說「Stay hungry」	Even when quoting an English phrase in a Chinese sentence, use 「」; nested would be 『』. wrong=他說『Stay hungry』
+punctuation	PUNCT-taiwan-corner-quotes	外層引用內含 nested: 他說 「我讀了『論語』」	他說「我讀了『論語』」	Taiwan nesting: outer 「」, inner 『』 (opposite of zh-CN).
+punctuation	PUNCT-no-retroactive-rewrite	commit 'Item 1,' (halfwidth comma) then later type zhuyin 這是清單	Item 1,這是清單	Already-committed halfwidth comma is NOT re-widened when Chinese appears after. wrong=Item 1，這是清單
+punctuation	PUNCT-no-retroactive-rewrite	passthrough 'hello' with no trailing zhuyin	hello	No auto-capitalization. wrong=Hello
+punctuation	NUM-literal-token-atomic	ratio 16 + : + 9	16:9	Colon binds to a number run → halfwidth literal, never fullwidth ：. wrong=16：9
+punctuation	NUM-literal-token-atomic	time 3 + : + 30	3:30	Time colon stays halfwidth. wrong=3：30
+punctuation	NUM-literal-token-atomic	GPT + - + 4	GPT-4	Hyphen inside a model-name literal, never zhuyin ㄦ. wrong=GPT兒4
+punctuation	NUM-literal-token-atomic	COVID + - + 19	COVID-19	Acronym-number literal; hyphen halfwidth, never ㄦ. wrong=COVID兒19
+punctuation	PUNCT-width-by-owning-run	買了 iPhone + ，很貴 + 。 (English word abuts Chinese comma)	我買了 iPhone，很貴。	Comma and terminal period belong to the Chinese clause → fullwidth, hugging with zero space even though iPhone precedes the comma. wrong=我買了 iPhone,很貴.
+punctuation	SPACE-none-around-fullwidth-punct	他說：「hello」 (colon then quote, mixed)	他說：「hello」	No spaces around fullwidth ：「」. wrong=他說： 「hello 」
+punctuation	SPACE-none-around-fullwidth-punct	剛買了一部iPhone + ，好開心 + ！	剛買了一部iPhone，好開心！	Fullwidth comma and exclamation hug neighbors; no space injected around them or at the Han↔Latin boundary. wrong=剛買了一部iPhone ，好開心 ！
+punctuation	PUNCT-halfwidth-after-english	TODO + : + 買菜 (English label colon before Chinese)	TODO: 買菜	Colon bound to an English label/identifier stays halfwidth with a trailing space. wrong=TODO：買菜
+punctuation	NUM-literal-token-atomic	價格是 $19.99 + 。	價格是 $19.99。	$19.99 is one literal token (internal '.' not fullwidth); trailing Chinese-sentence period is fullwidth 。. wrong=價格是 $19。99。
+punctuation	NUM-halfwidth-digits	折扣 50 + % 的商品	折扣50%的商品	Percent sign glued to the digit run, halfwidth; no autospace to Han. wrong=折扣 50 % 的商品
+punctuation	NUM-literal-token-atomic	版本 v1.2.3 + ，請更新	版本 v1.2.3，請更新	Version dots stay inside the halfwidth literal; the clause comma is fullwidth. wrong=版本 v1.2.3，請更新 → wrong variant v1。2。3
+punctuation	NUM-literal-token-atomic	打 02 + - + 1234 + - + 5678	02-1234-5678	Phone-number hyphens are literal halfwidth, never ㄦ. wrong=02兒1234兒5678
+punctuation	NUM-literal-token-atomic	連到 https://example.com/7-11 這頁	連到 https://example.com/7-11 這頁	Whole URL is one passthrough literal: colon, slashes, dots and hyphen all stay halfwidth. wrong=連到 https：//example。com/7兒11 這頁
+punctuation	NUM-literal-token-atomic	寄到 user@mail.com + 好嗎 + ？	寄到 user@mail.com 好嗎？	Email is atomic literal (@ and . halfwidth); terminal question mark of the Chinese sentence is fullwidth ？.
+punctuation	PUNCT-width-by-owning-run	括號說明：（見附註）	（見附註）	Parentheses wrapping Chinese content are fullwidth （）with no surrounding space. wrong=(見附註)
+punctuation	PUNCT-width-by-owning-run	英文縮寫括註 使用 (API) 一詞	使用 (API) 一詞	Parentheses hugging a purely English token stay halfwidth. Divergence: formal Chinese prose may prefer fullwidth （API）; halfwidth is the software/web default for an English-only parenthetical.
+punctuation	PUNCT-width-by-owning-run	清單：蘋果、香蕉、橘子 + 。	清單：蘋果、香蕉、橘子。	Enumeration comma 、 (dun-hao) for listing Chinese items, distinct from clause comma ，. wrong=清單:蘋果,香蕉,橘子.
+punctuation	PUNCT-width-by-owning-run	破折號插入：這件事——我早就知道——很嚴重	這件事——我早就知道——很嚴重	Chinese dash is the fullwidth em-dash pair ——, not a hyphen. Distinct from the digit-hyphen literal case.
+punctuation	PUNCT-width-by-owning-run	刪節：他猶豫了很久……	他猶豫了很久……	Chinese ellipsis is the six-dot fullwidth …… form. wrong=他猶豫了很久...
+punctuation	PUNCT-width-by-owning-run	分號並列：他要買書；她要買筆	他要買書；她要買筆	Semicolon between Chinese clauses is fullwidth ；. wrong=他要買書;她要買筆
+punctuation	IME-dual-key-run-decides	genuine zhuyin ㄦ 5k4- (這兒)	這兒	Same '-' key, but here it completes a valid zhuyin syllable (final ㄦ) with no alnum neighbor, so zhuyin wins. Contrast with 7-11. wrong=5k4-
+punctuation	NUM-range-separator	範圍 5 + ~ + 10 + 人 (user typed tilde)	5~10 人	Preserve the user-typed halfwidth range tilde; do not auto-convert to fullwidth ～ and never to ㄦ. Divergence: 教育部手冊 prescribes fullwidth 甲式—/乙式～ for formal print.
+punctuation	NUM-range-separator	營業 10:00 + ~ + 11:30	10:00~11:30	Two time literals joined by a halfwidth range separator; colons and tilde all stay halfwidth.
+ime-behavior	IME-dual-key-run-decides	keys: 7 [ㄦ/'-' key] 1 1	7-11	Motivating bug. The '-' key doubles as zhuyin ㄦ; flanked by digits on both sides the run is a number run, so ASCII '-' wins. Must NEVER be 7兒11.
+ime-behavior	IME-dual-key-run-decides	keys: G P T [ㄦ/'-' key] 4	GPT-4	Letters flank the dash → English run, halfwidth literal hyphen, never ㄦ.
+ime-behavior	IME-dual-key-run-decides	keys: W i [ㄦ/'-' key] F i	Wi-Fi	Brand/acronym hyphen stays literal halfwidth.
+ime-behavior	IME-dual-key-run-decides	keys: C O V I D [ㄦ/'-' key] 1 9	COVID-19	Letter-run then digit-run around the dash; whole thing is one passthrough token.
+ime-behavior	IME-dual-key-run-decides	keys: e [ㄦ/'-' key] m a i l	e-mail	Single leading letter still counts as English context for the flanked dash.
+ime-behavior	IME-dual-key-run-decides	genuine zhuyin 這兒 (keys 5k4-)	這兒	Here '-' IS zhuyin ㄦ: a valid zhuyin syllable parses and no alnum flanks it, so zhuyin wins. Contrast set with 7-11.
+ime-behavior	IME-dual-key-run-decides	genuine zhuyin 女兒 (keys smu3-6)	女兒	Tone digits 3/4/6/7 do NOT count as English context, so the final ㄦ survives.
+ime-behavior	IME-dual-key-run-decides	keys: 3 [':' key] 3 0 (a time)	3:30	Colon flanked by digits → number run, halfwidth ':' literal, never fullwidth ：.
+ime-behavior	IME-dual-key-run-decides	keys: 0 2 [ㄦ/'-'] 1 2 3 4 [ㄦ/'-'] 5 6 7 8 (phone)	02-1234-5678	Multiple internal dashes all stay literal in one number token.
+ime-behavior	IME-dual-key-run-decides	URL: h t t p s [':'] / / e x a m p l e [.] c o m / 7 [ㄦ/'-'] 1 1	https://example.com/7-11	Whole URL is one passthrough run: ':' stays ':', '.' stays '.', '-' stays '-', never ：。ㄦ.
+ime-behavior	IME-dual-key-run-decides	version: v [.] 2 [.] 0	v2.0	'.' inside an identifier is a literal dot, not zhuyin ㄡ, not fullwidth 。
+ime-behavior	IME-segmenter-driven-width	zhuyin/Han run active, then press comma key	，	Default width in a Han run is fullwidth — no manual 全形 mode switch needed.
+ime-behavior	IME-segmenter-driven-width	English/number run active, then press comma key	,	Same physical key emits halfwidth when the active run is English/number.
+ime-behavior	IME-segmenter-driven-width	我喜歡貓 [comma] 也喜歡狗	我喜歡貓，也喜歡狗	Comma bound to a Chinese clause is fullwidth with zero surrounding space.
+ime-behavior	IME-segmenter-driven-width	E x p e c t e d [':' key] (space) 你 好	Expected: 你好	Motivating bug. Colon bound to the English label 'Expected' stays halfwidth ASCII with a trailing space; must NOT be Expected：你好.
+ime-behavior	IME-segmenter-driven-width	項 目 [':' key] 你 好 (Chinese label)	項目：你好	Colon after a Han label is fullwidth ：with no surrounding space — the mirror image of the Expected: case.
+ime-behavior	IME-segmenter-driven-width	時 間 [':' key] 三 點	時間：三點	Fullwidth colon after Han; contrast with time 3:30 which is halfwidth.
+ime-behavior	IME-segmenter-driven-width	T O D O [':' key] (space) 買 菜	TODO: 買菜	Colon after an English/UI label token stays halfwidth even though 買菜 follows.
+ime-behavior	IME-segmenter-driven-width	r a t i o (space) 1 6 [':' key] 9	ratio 16:9	Ratio colon between digits is halfwidth.
+ime-behavior	IME-segmenter-driven-width	我用的是 Python [period key]	我用的是 Python。	Sentence-terminal override: the period closes an overall-Chinese sentence, so fullwidth 。even though the last token is English. Space before Python was user-typed.
+ime-behavior	IME-segmenter-driven-width	他在看PTT [period key]	他在看PTT。	Terminal period on a Chinese sentence ending in an acronym → fullwidth 。 (no user space, so PTT stays glued).
+ime-behavior	IME-segmenter-driven-width	你好嗎 [question-mark key]	你好嗎？	Terminal ? on a Chinese sentence → fullwidth ？
+ime-behavior	IME-segmenter-driven-width	self-contained English run: R e a l l y [? key]	Really?	A terminal mark closing an all-English unit stays halfwidth.
+ime-behavior	IME-segmenter-driven-width	他說 [「] S t a y (space) h u n g r y [comma] (space) s t a y (space) f o o l i s h [.] [」]	他說「Stay hungry, stay foolish.」	Inside a quoted all-English clause both the comma and the terminal period stay halfwidth; the Taiwan corner brackets around it are fullwidth.
+ime-behavior	IME-segmenter-driven-width	他說 [「] s t a y (space) h u n g r y [」]	他說「stay hungry」	Quotation in Chinese context uses fullwidth corner brackets 「」 even around English, no surrounding spaces.
+ime-behavior	IME-segmenter-driven-width	我買了 iPhone [comma] 很貴 [period]	我買了 iPhone，很貴。	Comma bound to the Chinese clause is fullwidth despite abutting 'iPhone'; terminal period fullwidth. Space before iPhone was user-typed.
+ime-behavior	IME-segmenter-driven-width	commit 'Item 1' + halfwidth comma, then LATER type zhuyin 這是清單	Item 1,這是清單	No retroactive re-widening: the already-committed halfwidth comma is not re-widened just because Chinese appears afterward.
+ime-behavior	IME-english-passthrough-affordances	Shift-forced English run 'OK', then zhuyin 了	OK了	Passthrough English defaults to halfwidth and glues to the following Han with no auto-space.
+ime-behavior	IME-english-passthrough-affordances	Caps Lock 英數 mode, type 'HELLO'	HELLO	Sustained English mode = halfwidth, case preserved.
+ime-behavior	IME-english-passthrough-affordances	passthrough 'hello' with no trailing zhuyin	hello	No auto-capitalization; output verbatim halfwidth.
+ime-behavior	IME-english-passthrough-affordances	全形 mode on (Shift+Space), type 'A1'	Ａ１	Only when the user explicitly picks 全形 do letters/digits widen; this is the opt-in exception to the halfwidth default.
+ime-behavior	IME-segmenter-driven-width	keys: 我 用 i P h o n e (no space typed)	我用iPhone	Segmenter-driven default emits verbatim: no inline auto-space at the Han↔Latin boundary; the ¼-em gap is the renderer's job.
+ime-behavior	IME-segmenter-driven-width	keys: 我 用 (space) i P h o n e (space typed by user)	我用 iPhone	A user-typed space is preserved verbatim — faithful transcription, not auto-spacing.
+ime-behavior	IME-segmenter-driven-width	keys: 買 了 3 個 (digit glued to Han, no space typed)	買了3個	Halfwidth digit glued to Han with no injected space; never 買了 3 個.
+numbers-ids	NUM-halfwidth-digits	types 2024 then zhuyin 年	2024年	Arabic numerals half-width, glued to Han with no injected space (no autospace).
+numbers-ids	NUM-halfwidth-digits	types 第 then 3 then 名	第3名	Never full-width ３; digit hugs Han on both sides.
+numbers-ids	NUM-halfwidth-digits	types 買了 then 3 then 個 (no space keyed)	買了3個	Faithful transcription: no auto-space at Han↔number boundary (SPACE-no-autospace).
+numbers-ids	NUM-halfwidth-digits	types 下午 then 3 then 點半	下午3點半	Digit sandwiched between Han runs stays glued and half-width.
+numbers-ids	NUM-halfwidth-digits	types 買了 2 箱可樂，共 300 元。 (no spaces keyed; comma+period keyed in Han run)	買了2箱可樂，共300元。	Half-width digits; fullwidth ，。 because the marks belong to the Chinese clause; no autospace around digits.
+numbers-ids	NUM-literal-token-atomic	types 7 then [ㄦ/'-' key] then 1 then 1	7-11	MOTIVATING BUG. Hyphen flanked by digits is the literal '-', never zhuyin ㄦ; whole run is one passthrough token. Wrong=7兒11.
+numbers-ids	NUM-literal-token-atomic	types GPT then [ㄦ/'-' key] then 4	GPT-4	Letter+hyphen+digit is one atomic literal token. Wrong=GPT兒4.
+numbers-ids	NUM-literal-token-atomic	types COVID then [ㄦ/'-' key] then 19	COVID-19	衛福部 usage: half-width hyphen inside acronym-number token. Wrong=COVID兒19.
+numbers-ids	NUM-literal-token-atomic	types PM2.5	PM2.5	Internal '.' stays literal, never fullwidth 。 and never zhuyin ㄡ.
+numbers-ids	NUM-literal-token-atomic	types 3 then [ㄡ/':' or ';' key for colon] then 30	3:30	Time colon inside a number run is half-width literal, never fullwidth ：. Wrong=3：30.
+numbers-ids	NUM-literal-token-atomic	types ratio then space then 16:9	ratio 16:9	English label + user-typed space + half-width ratio; colon literal.
+numbers-ids	NUM-literal-token-atomic	types 2026/07/12	2026/07/12	Date slashes stay literal '/', never fullwidth and never zhuyin ㄥ.
+numbers-ids	NUM-literal-token-atomic	types v1.2.3	v1.2.3	Version string is one atomic half-width token; dots literal.
+numbers-ids	NUM-literal-token-atomic	types $19.99	$19.99	Currency+decimal atomic; '$' and '.' pass through.
+numbers-ids	NUM-literal-token-atomic	types NT$100	NT$100	Currency prefix glued to digits, all half-width, no split, no autospace.
+numbers-ids	NUM-literal-token-atomic	types 50%	50%	Percent glued, half-width; no space before %.
+numbers-ids	NUM-literal-token-atomic	types 02 then [ㄦ/'-' key] then 1234 then [ㄦ/'-' key] then 5678	02-1234-5678	Phone number: every internal hyphen literal, whole run atomic. Wrong=02兒1234兒5678.
+numbers-ids	NUM-literal-token-atomic	types https://example.com/7-11	https://example.com/7-11	URL passthrough verbatim: no fullwidth ：, no fullwidth 。, hyphen not ㄦ. Wrong=https：//example。com/7兒11.
+numbers-ids	NUM-literal-token-atomic	types user@mail.com	user@mail.com	Email atomic; '@' and '.' literal half-width.
+numbers-ids	NUM-literal-token-atomic	types USB then [ㄦ/'-' key] then C	USB-C	Acronym with hyphen is one literal token. Wrong=USB兒C.
+numbers-ids	NUM-literal-token-atomic	types Wi then [ㄦ/'-' key] then Fi	Wi-Fi	Hyphenated brand word; hyphen literal, not zhuyin.
+numbers-ids	NUM-literal-token-atomic	types C then + then +	C++	Language name atomic; '+' literal half-width.
+numbers-ids	SPACE-no-autospace	types 我用 then iPhone (no space keyed after 我用)	我用iPhone	Default = faithful transcription: no injected space at Han↔Latin boundary. Wrong=我用 iPhone.
+numbers-ids	SPACE-no-autospace	types 我用 then space then iPhone (space keyed)	我用 iPhone	User-typed space preserved verbatim. Wrong=我用iPhone.
+numbers-ids	SPACE-no-autospace	types 我買了 space iPhone space 15 space Pro (spaces keyed inside product name)	我買了 iPhone 15 Pro	Spaces inside a product name are user-typed and preserved; digits half-width.
+numbers-ids	NUM-range-separator	types 5 then [~ key] then 10 (tilde keyed)	5~10	Preserve typed half-width '~'; do NOT auto-convert to fullwidth ～ and never to ㄦ. Wrong=5～10.
+numbers-ids	NUM-range-separator	types 5 then [ㄦ/'-' key] then 10 then space then 人	5-10 人	Range hyphen stays literal half-width; separator is never zhuyin. Wrong=5兒10 人.
+numbers-ids	NUM-range-separator	types 第 then 1 then [ㄦ/'-' key] then 3 then 課	第1-3課	Numeric range embedded between Han; hyphen literal, digits glued to Han. Wrong=第1兒3課.
+numbers-ids	NUM-range-separator	types 10:00 then [~ key] then 11:30	10:00~11:30	shopjkl style: two half-width time tokens joined by typed '~'; colons and tilde all literal.
+numbers-ids	IME-dual-key-run-decides	types 溫度是 then [ㄦ/'-' key] then 5 then 度	溫度是-5度	Hyphen flanked by a non-tone digit on the right merges into the number run as literal '-' (negative sign), not zhuyin ㄦ. Wrong=溫度是兒5度.
+numbers-ids	NUM-letter-han-lexemes-glued	types K then 書	K書	Lexicalized letter+Han glued, half-width letter, no pangu space. Wrong=K 書.
+numbers-ids	NUM-letter-han-lexemes-glued	types T then 恤	T恤	Native solid lexeme; never spaced or split (Bobby Tung's T 恤 pollution case).
+numbers-ids	NUM-letter-han-lexemes-glued	types Q then 彈	Q彈	Letter glued to Han, half-width.
+numbers-ids	NUM-letter-han-lexemes-glued	types 3C then 產品	3C產品	'3C' solid lexeme glued to 產品 in default (no-autospace) mode; a space before 產品 appears only under the opt-in pangu pass. Wrong=3 C 產品.
+numbers-ids	NUM-letter-han-lexemes-glued	types PO then 文	PO文	PTT-native verb lexeme, letters half-width and glued.
+numbers-ids	NUM-letter-han-lexemes-glued	types AA then 制	AA制	Glued letter+Han coinage, no space, no fullwidth.
+numbers-ids	IME-dual-key-run-decides	types 5 then k then 4 then [ㄦ/'-' key] (genuine zhuyin syllable ㄓㄜˋ + ㄦ)	這兒	A real zhuyin syllable wins: '-' is ㄦ here because it forms a valid final and no alnum run flanks it. Wrong=5k4-.
+numbers-ids	IME-dual-key-run-decides	types s then m then u then 3 then [ㄦ/'-' key] then 6 (女兒, tone digit not English context)	女兒	Tone digit (3/6) does NOT count as English context, so genuine ㄦ final survives. Wrong=smu3-6.
+numbers-ids	PUNCT-halfwidth-after-english	types Expected then [colon key] then space then zhuyin 你好	Expected: 你好	MOTIVATING BUG. Colon bound to the English label stays half-width ASCII with Western space after. Wrong=Expected：你好.
+numbers-ids	PUNCT-halfwidth-after-english	types TODO then [colon key] then space then zhuyin 買菜	TODO: 買菜	Colon after an English/identifier label is half-width; contrast with a Chinese label.
+numbers-ids	PUNCT-halfwidth-after-english	types 項目 then [colon key] then zhuyin 你好	項目：你好	CONTRAST: colon after a Chinese label is fullwidth ：with no surrounding spaces. Wrong=項目:你好.
+numbers-ids	PUNCT-sentence-terminal-override	types zhuyin 我用的是 then space then Python then [. key]	我用的是 Python。	Sentence-terminal period closing an overall-Chinese sentence goes fullwidth 。 even though the last token is English. Wrong=我用的是 Python.
+numbers-ids	PUNCT-sentence-terminal-override	types zhuyin 他在看 then PTT then [. key]	他在看PTT。	Terminal '.' after an English token but closing a Chinese sentence → fullwidth 。; PTT glued (no autospace). Wrong=他在看PTT.
+numbers-ids	NUM-literal-token-atomic	commit 'Item 1,' (half-width comma in English run) then later type zhuyin 這是清單	Item 1,這是清單	No retroactive re-widening: the committed half-width comma stays half-width even though Chinese follows. Wrong=Item 1，這是清單.
+spacing	SPACE-no-autospace	types zhuyin 我用 then passthrough 'iPhone', no space keyed	我用iPhone	Han↔Latin boundary: no injected space. Faithful transcription default.
+spacing	SPACE-no-autospace	types 我用, a literal space, then 'iPhone'	我用 iPhone	User-typed space is preserved verbatim.
+spacing	SPACE-no-autospace	types zhuyin 買了, digit '3', zhuyin 個 (no spaces)	買了3個	Number glued to Han on both sides; never 買了 3 個.
+spacing	SPACE-no-autospace	types 我有, '5', 隻貓	我有5隻貓	Digit hugs surrounding Han.
+spacing	SPACE-no-autospace	types 用, 'Python', 寫程式	用Python寫程式	English embedded mid-Chinese, glued both sides.
+spacing	SPACE-no-autospace	Shift-run 'OK', then zhuyin 了	OK了	English-then-Chinese boundary, no space.
+spacing	SPACE-no-autospace	types 我愛, 'Taiwan' (end of input)	我愛Taiwan	Chinese-then-English boundary at line end, no trailing/leading space.
+spacing	SPACE-no-autospace	types 第, '3', 名	第3名	Ordinal digit glued.
+spacing	SPACE-no-autospace	types '2024', 年	2024年	Number run then Han unit, no space.
+spacing	SPACE-no-autospace	types 我買了, space, 'iPhone', space, '15', space, 'Pro'	我買了 iPhone 15 Pro	All user-typed internal spaces in the product name preserved exactly.
+spacing	SPACE-no-autospace	types 我用, 'Google', 搜尋	我用Google搜尋	Chinese-English-Chinese sandwich, glued.
+spacing	SPACE-no-autospace	types 花了, '100', 元	花了100元	Number+Han-unit glued; pangu might space these but default does not.
+spacing	SPACE-no-autospace	types passthrough 'hello world' with a keyed space between the two words	hello world	Space inside an English run is user-typed and kept.
+spacing	SPACE-gap-is-typographic	CLReq-conformant renderer displays 我用iPhone	我用iPhone	Stored text stays glued; any ~1/4-em optical gap is the layout engine's job, never an ASCII 0x20 baked into the stream.
+spacing	SPACE-gap-is-typographic	stored text for 第3名 as emitted by the IME	第3名	No half-em breakable ASCII space inserted to represent the typographic gap.
+spacing	SPACE-none-around-fullwidth-punct	types 剛買了一部, 'iPhone', fullwidth comma key, 好開心, fullwidth ! key	剛買了一部iPhone，好開心！	Fullwidth ，！ hug neighbors with zero surrounding spaces even where English abuts the comma.
+spacing	SPACE-none-around-fullwidth-punct	types 他說, fullwidth colon key, corner-bracket open, 'hello', corner-bracket close	他說：「hello」	No space after ： or inside 「」 around the English word.
+spacing	SPACE-none-around-fullwidth-punct	types 用, 'Python', fullwidth comma, 很方便, fullwidth period	用Python，很方便。	Fullwidth comma glued after English token; no space before it.
+spacing	SPACE-none-around-fullwidth-punct	types 這是, 「, 'detail', 」, 的部分	這是「detail」的部分	English inside Taiwan corner brackets, no padding spaces.
+spacing	SPACE-none-around-fullwidth-punct	types 這是——重點 (em-dash connector)	這是——重點	Fullwidth dash carries own side-bearing; no surrounding space.
+spacing	SPACE-none-around-fullwidth-punct	types 等等, ellipsis key, 好吧	等等……好吧	Fullwidth ellipsis, no spaces.
+spacing	SPACE-none-around-fullwidth-punct	types 我用的是, space, 'Python', sentence-terminal period key (Chinese sentence)	我用的是 Python。	User typed a space before Python (kept); terminal 。 is fullwidth and hugs Python with no space before it.
+spacing	NUM-literal-token-atomic	types '7', the ㄦ/'-' key, '1', '1'	7-11	Motivating bug: atomic literal token, hyphen never becomes ㄦ and no space is injected around it — never 7 兒 11 nor 7 - 11.
+spacing	PUNCT-halfwidth-after-english	English label 'Expected', colon key, space, zhuyin 你好	Expected: 你好	Motivating bug: halfwidth colon hugs the English label with Western spacing (space after, none before); not fullwidth ：and not double-spaced.
+spacing	NUM-literal-token-atomic	types 這波, 'COVID', '-', '19', 疫情	這波COVID-19疫情	Acronym-number literal glued into surrounding Han, internal hyphen literal, no injected spaces.
+spacing	SPACE-no-autospace	types 成長, '50', '%', 很多	成長50%很多	Percent glued; no space before % and none at the Han boundaries.
+spacing	NUM-literal-token-atomic	types '3', ':', '30', 開會	3:30開會	Time literal with halfwidth colon; no space injected before the following Han.
+spacing	NUM-literal-token-atomic	types 網址是, 'https://example.com', 對吧	網址是https://example.com對吧	URL is one passthrough token; no spaces injected at Han boundaries and separators stay literal.
+spacing	NUM-letter-han-lexemes-glued	types 我們, 'AA', 制	我們AA制	Native letter+Han lexeme AA制 written solid; no pangu space.
+spacing	NUM-letter-han-lexemes-glued	types 買了一件, 'T', 恤	買了一件T恤	T恤 glued; pangu would wrongly split to T 恤.
+spacing	NUM-letter-han-lexemes-glued	types '3C', 產品	3C產品	3C solid; under default no-autospace 產品 is also glued (space before 產品 only under opt-in pangu).
+spacing	SPACE-pangu-optin-postproc	OPT-IN PANGU pass applied to finished text 在LeanCloud上	在 LeanCloud 上	Only the opt-in whole-buffer beautifier produces this; it is NOT the keystream default.
+spacing	SPACE-pangu-optin-postproc	OPT-IN PANGU pass applied to 90°	90°	Even under pangu, no space before ° (or %).
+spacing	SPACE-pangu-optin-postproc	OPT-IN PANGU pass applied to lexeme K書	K書	Pangu must not split lexicalized glued letter+Han coinages.
+spacing	SPACE-no-autospace	types passthrough 'hello', no trailing zhuyin, then later types zhuyin 世界 as a NEW commit	hello世界	No retroactive space inserted at the boundary when Chinese arrives after an already-committed English run.

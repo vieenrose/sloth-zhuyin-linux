@@ -47,6 +47,11 @@ const T=[
   ["let's",          "en:let's",                               'apostrophe rides the English run'],
   ['upgjbj4',        'zh:ㄧㄣ | zh:ㄕㄨ | zh:ㄖㄨˋ',            'toneless zh run stays zhuyin (音輸入)'],
   ['upgj',           'zh:ㄧㄣ | zh:ㄕㄨ',                       'confident multi-syllable run -> zhuyin'],
+  ['7-11',           'en:7-11',                                'digit-hyphen-digit literal (not 7兒11)'],
+  ['a-b',            'en:a-b',                                 'letter-hyphen-letter literal English'],
+  ['0912-345',       'en:0912-345',                            'phone-number hyphen stays literal'],
+  ['5k4-',           'zh:ㄓㄜˋ | zh:ㄦ',                       'trailing ㄦ preserved (這兒)'],
+  ['sm3-6',          'zh:ㄋㄩˇ | zh:ㄦˊ',                      'ㄦˊ preserved between tone digits (女兒)'],
 ];
 let pass=0,fail=0;
 for(const [keys,exp,desc] of T){
