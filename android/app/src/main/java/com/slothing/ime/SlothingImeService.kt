@@ -46,7 +46,7 @@ class SlothingImeService : InputMethodService(),
 
     private companion object {
         const val TAG = "SlothingIME"
-        const val MODEL = "slothing/model_quantized.onnx"
+        const val MODEL = "slothing/slothe-t-25m.gguf"   // ternary GGUF encoder (ggml/libslothe)
         const val SYL_VOCAB = "slothing/syl_vocab.json"
         const val CHAR2ID = "slothing/char2id.json"
         const val TABLE = "slothing/phonetic_table.tsv"
@@ -72,7 +72,9 @@ class SlothingImeService : InputMethodService(),
     override fun onCreate() {
         super.onCreate()
         val ok = core.init(
-            readAsset(MODEL), readAsset(SYL_VOCAB), readAsset(CHAR2ID),
+            // GGUF is loaded by path (slothe_load opens the file), so copy the
+            // asset to app cache once and hand the native side that path.
+            copyAssetToCache(MODEL), readAsset(SYL_VOCAB), readAsset(CHAR2ID),
             readAsset(TABLE), THREADS,
             // persistent personalization, same format as the desktop learn.tsv
             filesDir.resolve("learn.tsv").absolutePath,
@@ -729,4 +731,19 @@ class SlothingImeService : InputMethodService(),
     }
 
     private fun readAsset(name: String): ByteArray = assets.open(name).use { it.readBytes() }
+
+    /**
+     * Copy an (uncompressed) asset to app cache and return its absolute path.
+     * The GGUF encoder is loaded from a file by libslothe/ggml, so it needs a
+     * real filesystem path rather than a byte buffer. Re-copies only when the
+     * cached file is missing or a different size (cheap, once per model bump).
+     */
+    private fun copyAssetToCache(name: String): String {
+        val out = cacheDir.resolve(name.substringAfterLast('/'))
+        val want = assets.openFd(name).use { it.length }.takeIf { it > 0 }
+        if (!out.exists() || (want != null && out.length() != want)) {
+            assets.open(name).use { input -> out.outputStream().use { input.copyTo(it) } }
+        }
+        return out.absolutePath
+    }
 }

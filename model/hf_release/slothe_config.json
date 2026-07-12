@@ -1,0 +1,17 @@
+{
+  "n_syl": 1539,
+  "n_char": 8342,
+  "dim": 352,
+  "depth": 16,
+  "heads": 8,
+  "kv": 2,
+  "ffn": 960,
+  "embed_norm": true,
+  "weight_bits": "ternary",
+  "weight_quant": "median",
+  "fp_boundary": 1,
+  "pre_norm": true,
+  "act_bits": 8,
+  "char_hints": false,
+  "tie_hints": false
+}

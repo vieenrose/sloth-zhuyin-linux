@@ -41,19 +41,21 @@ class Core {
         companion object { fun of(i: Int) = values()[i] } }
 
     /**
-     * @param model     the .onnx graph bytes (read from assets).
+     * @param modelPath filesystem path to the ternary GGUF encoder
+     *                  (slothe-t-25m.gguf; the asset is copied to app cache and
+     *                  loaded via libslothe/ggml — no longer the .onnx bytes).
      * @param sylVocab  syl_vocab.json bytes (bopomofo syllable -> id).
      * @param char2id   char2id.json bytes (Han char -> logit column).
      * @param table     phonetic_table.tsv bytes (syllable \t chars per line).
-     * @param threads   intra-op ORT threads (1–2 on a phone; 0 = ORT decides).
+     * @param threads   CPU threads for the ggml backend (1–2 on a phone).
      * @param learnPath on-device learn store (persisted corrections; "" = in-memory only).
      * @param assocTsv  聯想 dictionary bytes (assoc_tc.tsv; empty = predictions off).
      * @param assocUserPath personal bigram store ("" = in-memory only).
      */
-    fun init(model: ByteArray, sylVocab: ByteArray, char2id: ByteArray,
+    fun init(modelPath: String, sylVocab: ByteArray, char2id: ByteArray,
              table: ByteArray, threads: Int, learnPath: String = "",
              assocTsv: ByteArray = ByteArray(0), assocUserPath: String = ""): Boolean {
-        handle = nativeInit(model, sylVocab, char2id, table, threads, learnPath,
+        handle = nativeInit(modelPath, sylVocab, char2id, table, threads, learnPath,
                             assocTsv, assocUserPath)
         return handle != 0L && nativeReady(handle)
     }
@@ -159,7 +161,7 @@ class Core {
     fun symbolMode(): Boolean = nativeSymbolMode(handle)
 
     // ---- native surface (bound by Java_com_slothing_ime_Core_*) -----------
-    private external fun nativeInit(model: ByteArray, sylVocab: ByteArray, char2id: ByteArray, table: ByteArray, threads: Int, learnPath: String, assocTsv: ByteArray, assocUserPath: String): Long
+    private external fun nativeInit(modelPath: String, sylVocab: ByteArray, char2id: ByteArray, table: ByteArray, threads: Int, learnPath: String, assocTsv: ByteArray, assocUserPath: String): Long
     private external fun nativeReady(handle: Long): Boolean
     private external fun nativeDecodeBest(handle: Long, syls: String): String
     private external fun nativeDestroy(handle: Long)
