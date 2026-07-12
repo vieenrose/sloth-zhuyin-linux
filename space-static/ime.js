@@ -484,6 +484,10 @@ function pickPredict(w){
 
 // ---- model + decode (SlothLM-E encoder, onnxruntime-web) ----
 let session, sylVocab, char2id, ready=false;
+// encoder backend: 'slothe' = libslothe (ternary ggml encoder compiled to WASM),
+// 'onnx' = onnxruntime-web fallback. Chosen at init; libslothe preferred if present.
+let encBackend='onnx';
+let slotheMod=null, slotheNChar=0;
 const tonal={};
 // Damerau-Levenshtein distance capped at 1 (typo tolerance: one wrong /
 // missing / extra / swapped bopomofo symbol).
@@ -512,7 +516,32 @@ function candSet(syl){const out=[],ids=[];for(const c of candChars(syl)){const i
 // one bidirectional forward pass over the syllable sequence -> per-position logits
 let modelHasHints=false;   // set at init from the session's input names
 const CTX_MAX=12;
+// ---- libslothe (WASM) forward path ----
+// The ternary ggml encoder is syl-only: no context/hint channel, so L=0 and
+// T = syllable count. Output logits columns are char2id indices (V = n_char),
+// identical alignment to the ONNX head — decodeZh/candSet are unchanged.
+function slotheLogits(ids){
+  const T=ids.length, V=slotheNChar;
+  const sp=slotheMod._malloc(T*4);
+  slotheMod.HEAP32.set(Int32Array.from(ids.map(x=>Number(x))), sp>>2);
+  const op=slotheMod._malloc(T*V*4);
+  slotheMod.ccall('slothe_wasm_logits', null, ['number','number','number'], [sp, T, op]);
+  const out=slotheMod.HEAPF32.slice(op>>2, (op>>2)+T*V);
+  slotheMod._free(sp); slotheMod._free(op);
+  return out;   // Float32Array [T*V]
+}
+function slotheForward(syls){
+  const ids=syls.map(s=>sylVocab[s]??1);
+  return {data:slotheLogits(ids), V:slotheNChar, T:ids.length, L:0};
+}
+function slotheForwardBatch(rows){
+  const B=rows.length, T=rows[0].length, V=slotheNChar;
+  const data=new Float32Array(B*T*V);
+  for(let b=0;b<B;b++) data.set(slotheLogits(rows[b]), b*T*V);
+  return {data, V, T};
+}
 async function encForward(syls, hintIds, ctxChars){
+  if(encBackend==='slothe') return slotheForward(syls);
   // context = committed text before the cursor, riding the hint channel on
   // <pad>-id prefix positions (matches training)
   const ctx=(modelHasHints&&ctxChars)?[...ctxChars].filter(c=>char2id[c]!=null).slice(-CTX_MAX):[];
@@ -531,6 +560,7 @@ async function encForward(syls, hintIds, ctxChars){
 }
 // batched forward for typo scoring: rows = variants of the same sentence
 async function encForwardBatch(rows){
+  if(encBackend==='slothe') return slotheForwardBatch(rows);
   const B=rows.length, T=rows[0].length, flat=[];
   for(const r of rows) for(const id of r) flat.push(BigInt(id));
   const feed={
@@ -749,6 +779,33 @@ window.__ui = () => ({
   fresh: pvKey === bufKey() || !committed.some(t => t.t === 'zh'),
 });
 
+// Encoder selection: try libslothe (ggml/WASM) first; on any failure (missing
+// gguf/module, load error) fall back to onnxruntime-web so the demo still runs.
+async function initEncoder(){
+  try{
+    const resp=await fetch(ENC+'slothe-t-25m.gguf');
+    if(!resp.ok) throw new Error('gguf http '+resp.status);
+    const {default:createSlotheModule}=await import(ENC+'slothe.js');
+    slotheMod=await createSlotheModule();
+    const bytes=new Uint8Array(await resp.arrayBuffer());
+    const p=slotheMod._malloc(bytes.length);
+    slotheMod.HEAPU8.set(bytes, p);
+    const ok=slotheMod.ccall('slothe_wasm_load','number',['number','number'],[p, bytes.length]);
+    slotheMod._free(p);
+    if(!ok) throw new Error('gguf load failed');
+    slotheNChar=slotheMod.ccall('slothe_wasm_n_char','number',[],[]);
+    modelHasHints=false;   // ternary encoder has no hint/context channel
+    console.log('encoder: libslothe (ggml/WASM), n_char='+slotheNChar);
+    return 'slothe';
+  }catch(e){
+    console.warn('libslothe unavailable, falling back to onnxruntime-web:', (e&&e.message)||e);
+    session=await ort.InferenceSession.create(ENC+'model_quantized.onnx');
+    modelHasHints=session.inputNames.includes('hints');
+    console.log('encoder: onnxruntime-web (fallback)');
+    return 'onnx';
+  }
+}
+
 (async function init(){
   const txt=await (await fetch('./phonetic_table.tsv')).text();
   for(const line of txt.split('\n')){const t=line.indexOf('\t');if(t<0)continue;tonal[line.slice(0,t)]=[...line.slice(t+1)];}
@@ -757,8 +814,7 @@ window.__ui = () => ({
     fetch(ENC+'syl_vocab.json').then(r=>r.json()),
     fetch(ENC+'char2id.json').then(r=>r.json()),
   ]);
-  session=await ort.InferenceSession.create(ENC+'model_quantized.onnx');
-  modelHasHints=session.inputNames.includes('hints');
+  encBackend=await initEncoder();
   ready=true; render();
 })().catch(e=>{console.error(e);$('hint').textContent='模型載入失敗：'+(e&&e.name?e.name+' / ':'')+(e&&e.message||e);});
 render();

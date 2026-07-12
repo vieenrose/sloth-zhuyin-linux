@@ -33,10 +33,9 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags += listOf("-std=c++17", "-fexceptions", "-frtti")
-                // ORT prebuilt is built against the shared STL.
+                // The vendored ggml static libs (app/ggml/) were cross-compiled
+                // with the shared STL; match it so libc++_shared.so is bundled.
                 arguments += "-DANDROID_STL=c++_shared"
-                // Point app/CMakeLists.txt at the vendored ONNX Runtime (headers + arm64 .so).
-                arguments += "-DORT_ROOT=${projectDir}/ort"
             }
         }
     }
@@ -48,8 +47,8 @@ android {
         cmake {
             // Canonical native build owned by the decode-port/native agent. Target "slothing"
             // -> libslothing.so, matching Core.kt's System.loadLibrary("slothing"). It compiles
-            // app/cpp/{jni_slothing,onnx_decoder}.cpp + engine/common headers, and links the
-            // vendored ONNX Runtime at -DORT_ROOT.
+            // app/cpp/{jni_slothing,onnx_decoder,slothe}.cpp + engine/common headers, and links
+            // the vendored ggml static libs (app/ggml/lib/arm64-v8a/) — the ternary GGUF encoder.
             path = file("CMakeLists.txt")
             version = "3.22.1"   // the ONLY cmake installed; without this AGP tries to fetch another
         }
@@ -59,9 +58,9 @@ android {
     // but keep the default assets dir too (holds the staged files + any static assets).
     sourceSets["main"].assets.srcDirs("src/main/assets")
 
-    // Ship the vendored libonnxruntime.so (app/ort/lib/arm64-v8a/) inside the APK.
-    // Layout <srcDir>/<abi>/lib*.so, so "ort/lib" resolves ort/lib/arm64-v8a/libonnxruntime.so.
-    sourceSets["main"].jniLibs.srcDirs("ort/lib")
+    // ggml is linked STATICALLY into libslothing.so (app/ggml/lib/arm64-v8a/*.a),
+    // so there is no external inference .so to bundle here anymore. libc++_shared.so
+    // is added automatically by the NDK from the c++_shared STL.
 
     signingConfigs {
         if (signingProps.isNotEmpty()) {
@@ -100,9 +99,10 @@ android {
         jvmTarget = "17"
     }
 
-    // Do NOT compress the model; ORT/mmap wants it uncompressed in the APK.
+    // Do NOT compress the model; slothe_load reads the GGUF from a real file
+    // (copied to cache) and the .tsv/.json assets stay uncompressed too.
     androidResources {
-        noCompress += listOf("onnx", "tsv", "json")
+        noCompress += listOf("gguf", "onnx", "tsv", "json")
     }
 
     packaging {
@@ -118,14 +118,9 @@ dependencies {
     // Core.kt hops heavy ONNX calls to Dispatchers.Default via withContext.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // ONNX Runtime is VENDORED (app/ort/, extracted from the official 1.27.0 AAR) because
-    // app/CMakeLists.txt links it directly via -DORT_ROOT and the C++ API. This is the
-    // offline/local path and needs no network at build time.
-    //
-    // ONLINE ALTERNATIVE (AAR + Prefab): if you switch app/CMakeLists.txt to
-    // `find_package(onnxruntime REQUIRED CONFIG)` + `onnxruntime::onnxruntime`, then delete
-    // app/ort + the jniLibs srcDir above, add `buildFeatures { prefab = true }`, and enable:
-    //   implementation("com.microsoft.onnxruntime:onnxruntime-android:1.27.0")
+    // No ONNX Runtime dependency: inference is now libslothe/ggml, cross-compiled
+    // for arm64-v8a and vendored as static libs under app/ggml/ (linked directly
+    // by app/CMakeLists.txt into libslothing.so). Fully offline, no AAR/Prefab.
 }
 
 /*
@@ -137,11 +132,13 @@ val modelDir = rootProject.file("../model")
 val encDir   = rootProject.file("../model/slothe_10m_onnx")
 
 val copyModelAssets by tasks.registering(Copy::class) {
-    description = "Stage the .onnx + vocab + phonetic table into src/main/assets/slothing"
+    description = "Stage vocab + phonetic table + 聯想 dict into src/main/assets/slothing"
     into(layout.projectDirectory.dir("src/main/assets/slothing"))
 
+    // NB: the model itself is now the ternary GGUF (slothe-t-25m.gguf), committed
+    // directly under src/main/assets/slothing/ (18 MB, built by the slothe port).
+    // The old model_quantized.onnx is no longer staged or loaded.
     from(encDir) {
-        include("model_quantized.onnx")   // 4.9 MB single-file quantized model (self-contained)
         include("syl_vocab.json")
         include("char2id.json")
     }

@@ -21,3 +21,18 @@ space-static/enc/model_quantized.onnx
 model/slothe_4m_onnx/
 model/slothe_10m_onnx/
 model/slothe_10m_v2.pt
+
+# --- 25M ternary deploy (libslothe) ---
+# served/staged GGUF is fetched, not tracked (packaging/fetch-model.sh)
+model/slothe_t_25m/
+space-static/enc/slothe-t-25m.gguf
+# HF publish staging: large weights live on HF; scripts/docs ARE tracked
+model/hf_release/*.pt
+model/hf_release/*.safetensors
+model/hf_release/*.gguf
+model/hf_release/slothe_tensors.npz
+model/hf_release/golden/
+# Android prebuilt ggml static libs — regenerate via android/build-ggml.sh
+android/app/ggml/lib/
+# daemon build dir
+engine/slothingd/build_slothe/

@@ -1,18 +1,21 @@
 #!/bin/sh
-# Fetch the SlothLM-E 11.6M ONNX model from Hugging Face into model/slothe_10m_onnx
-# (what slothingd_e.py serves). Vocab/char tables come from the repo itself.
+# Fetch the 25M ternary GGUF from Hugging Face into model/slothe_t_25m
+# (what slothingd_slothe serves). Vocab/char maps come from the repo itself.
+#
+# The previous 11.6M int8 ONNX (slothe_10m_onnx, served by slothingd_e.py) is
+# no longer the default; recover it from git history if you need the ONNX path.
 set -e
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DEST="$REPO_DIR/model/slothe_10m_onnx"
+DEST="$REPO_DIR/model/slothe_t_25m"
 mkdir -p "$DEST"
-URL="https://huggingface.co/Luigi/slothlm-e-12m-zhuyin/resolve/main"
-echo "downloading model_quantized.onnx (13 MB) ..."
+URL="https://huggingface.co/Luigi/slothe-t-25m-zhuyin/resolve/main"
+echo "downloading slothe-t-25m.gguf (18 MB) ..."
 if command -v curl >/dev/null; then
-    curl -sL "$URL/onnx/model_quantized.onnx" -o "$DEST/model_quantized.onnx"
+    curl -sL "$URL/slothe-t-25m.gguf" -o "$DEST/slothe-t-25m.gguf"
 else
-    wget -q "$URL/onnx/model_quantized.onnx" -O "$DEST/model_quantized.onnx"
+    wget -q "$URL/slothe-t-25m.gguf" -O "$DEST/slothe-t-25m.gguf"
 fi
 cp "$REPO_DIR/space-static/enc/syl_vocab.json" "$DEST/"
 cp "$REPO_DIR/space-static/enc/char2id.json" "$DEST/"
 ls -la "$DEST"
-echo "model ready at $DEST"
+echo "model ready at $DEST (phonetic table: model/phonetic_table.tsv)"

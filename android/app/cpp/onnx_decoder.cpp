@@ -1,6 +1,7 @@
 // OnnxDecoder — faithful in-process port of engine/slothingd/slothingd_e.py.
-// See onnx_decoder.h for the contract. Loads model bytes + vocab/table strings
-// (from Android assets) and reproduces the daemon's decode with ONNX Runtime.
+// See onnx_decoder.h for the contract. Loads the ternary GGUF encoder (by path)
+// + vocab/table strings (from Android assets) and reproduces the daemon's decode
+// with the libslothe/ggml forward pass (formerly ONNX Runtime).
 #include "onnx_decoder.h"
 
 #include "nlohmann/json.hpp"
@@ -95,43 +96,32 @@ std::unordered_map<std::string, int> parseJsonMap(const std::string &blob) {
 
 } // namespace
 
-OnnxDecoder::OnnxDecoder(const void *modelBytes, size_t modelLen,
+OnnxDecoder::OnnxDecoder(const std::string &ggufPath,
                          const std::string &sylVocabJson,
                          const std::string &char2idJson,
-                         const std::string &tableTsv, int numThreads,
-                         std::string learnPath)
-    : env_(ORT_LOGGING_LEVEL_WARNING, "slothing") {
-    try {
-        opts_.SetIntraOpNumThreads(numThreads > 0 ? numThreads : 1);
-        opts_.SetInterOpNumThreads(1);
-        opts_.SetExecutionMode(ORT_SEQUENTIAL);
-        opts_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-        // Stop MLAS workers busy-spinning between keystrokes (e-ink power).
-        opts_.AddConfigEntry("session.intra_op.allow_spinning", "0");
-        session_ = std::make_unique<Ort::Session>(env_, modelBytes, modelLen,
-                                                   opts_);
-        Ort::AllocatorWithDefaultOptions a;
-        for (size_t i = 0; i < session_->GetInputCount(); ++i) {
-            auto name = session_->GetInputNameAllocated(i, a);
-            if (std::string(name.get()) == "hints") hasHints_ = true;
-        }
-    } catch (const Ort::Exception &e) {
-        LOGE("failed to create ORT session: %s", e.what());
-        session_.reset();
-    }
+                         const std::string &tableTsv, int /*numThreads*/,
+                         std::string learnPath) {
+    // Load the ternary GGUF encoder. slothe_load exits(1) on a fatal file error
+    // (matching the validated port); on a clean load model_ is non-null and
+    // ok()/nativeReady report ready. The shipped checkpoint has no hints input,
+    // so the char-hint channel stays inert (hasHints_ = false).
+    model_ = slothe_load(ggufPath.c_str());
+    if (!model_) LOGE("failed to load GGUF: %s", ggufPath.c_str());
+    hasHints_ = false;
 
     sylVocab_ = parseJsonMap(sylVocabJson);
     char2id_ = parseJsonMap(char2idJson);
-    for (auto &kv : char2id_) nChar_ = std::max(nChar_, kv.second + 1);
+    // n_char is the model's output width (authoritative for the logits stride).
+    if (model_) nChar_ = slothe_n_char(model_);
     loadTable(tableTsv);
     loadLearn(learnPath);
 
     // warm-up so the first real keystroke is hot (你好).
-    if (session_)
+    if (model_)
         decodeImpl({"ㄋㄧˇ", "ㄏㄠˇ"}, 1, {}, "");
 }
 
-OnnxDecoder::~OnnxDecoder() = default;
+OnnxDecoder::~OnnxDecoder() { slothe_free(model_); }
 
 void OnnxDecoder::loadTable(const std::string &tsv) {
     size_t i = 0;
@@ -256,45 +246,33 @@ OnnxDecoder::bonus(const std::vector<std::string> &syl) const {
 
 std::vector<float>
 OnnxDecoder::runForward(const std::vector<int64_t> &syl, int B, int T,
-                        const std::vector<int64_t> *hints) {
-    std::array<int64_t, 2> shape{B, T};
-    std::vector<char> amask(static_cast<size_t>(B) * T, 1); // bool bytes
-    std::vector<Ort::Value> ins;
-    ins.push_back(Ort::Value::CreateTensor<int64_t>(
-        memInfo_, const_cast<int64_t *>(syl.data()), syl.size(), shape.data(),
-        2));
-    ins.push_back(Ort::Value::CreateTensor<bool>(
-        memInfo_, reinterpret_cast<bool *>(amask.data()), amask.size(),
-        shape.data(), 2));
-    std::vector<int64_t> hbuf;
-    if (hasHints_) {
-        if (hints) hbuf = *hints;
-        else hbuf.assign(static_cast<size_t>(B) * T, 0);
-        ins.push_back(Ort::Value::CreateTensor<int64_t>(
-            memInfo_, hbuf.data(), hbuf.size(), shape.data(), 2));
+                        const std::vector<int64_t> * /*hints*/) {
+    // ggml forward, one sequence at a time (the ternary encoder is bidirectional
+    // and unmasked — no amask needed; the shipped GGUF has no hints input, so
+    // the hint channel is ignored). slothe_logits writes [T*nChar] row-major, so
+    // laying B rows back-to-back reproduces the old ORT [B*T*nChar] layout.
+    std::vector<float> out(static_cast<size_t>(B) * T * nChar_);
+    if (!model_) return out;
+    std::vector<int32_t> row(T);
+    for (int b = 0; b < B; ++b) {
+        for (int t = 0; t < T; ++t)
+            row[t] = static_cast<int32_t>(syl[static_cast<size_t>(b) * T + t]);
+        slothe_logits(model_, row.data(), T,
+                      out.data() + static_cast<size_t>(b) * T * nChar_);
     }
-    static const char *inNamesH[] = {"syl", "amask", "hints"};
-    static const char *inNames[] = {"syl", "amask"};
-    static const char *outNames[] = {"logits"};
-    auto out = session_->Run(Ort::RunOptions{nullptr},
-                             hasHints_ ? inNamesH : inNames, ins.data(),
-                             ins.size(), outNames, 1);
-    const float *p = out[0].GetTensorData<float>();
-    auto os = out[0].GetTensorTypeAndShapeInfo().GetShape(); // {B,T,nChar}
-    size_t total = static_cast<size_t>(os[0]) * os[1] * os[2];
-    return std::vector<float>(p, p + total);
+    return out;
 }
 
 DecodeResult OnnxDecoder::decode(const std::vector<std::string> &syllables,
                                  int n, const std::string &context) {
-    if (!session_) return {};
+    if (!model_) return {};
     return decodeImpl(syllables, n, {}, context);
 }
 
 DecodeResult
 OnnxDecoder::decodeWithHints(const std::vector<std::string> &syllables,
                              const std::map<int, std::string> &hints) {
-    if (!session_) return {};
+    if (!model_) return {};
     return decodeImpl(syllables, 1, hints, "");
 }
 
@@ -429,7 +407,7 @@ DecodeResult OnnxDecoder::decodeImpl(const std::vector<std::string> &syl, int n,
 std::vector<std::pair<double, std::string>>
 OnnxDecoder::phrasesScored(const std::vector<std::string> &syllables, int at,
                            int n) {
-    if (!session_) return {};
+    if (!model_) return {};
     return phrases(syllables, at, n);
 }
 

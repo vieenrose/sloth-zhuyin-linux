@@ -150,16 +150,18 @@ extern "C" {
 
 // ---- lifecycle -------------------------------------------------------------
 
-JNI(jlong, nativeInit)(JNIEnv *env, jobject, jbyteArray model,
+// modelPath: filesystem path to slothe-t-25m.gguf (Kotlin copies the asset to
+// app cache and passes the path — GGUF is loaded via slothe_load, not bytes).
+JNI(jlong, nativeInit)(JNIEnv *env, jobject, jstring modelPath,
                        jbyteArray sylVocab, jbyteArray char2id,
                        jbyteArray table, jint threads, jstring learnPath,
                        jbyteArray assocTsv, jstring assocUserPath) {
-    std::string modelBytes = byteArrayToString(env, model);
+    std::string ggufPath = jstrToUtf8(env, modelPath);
     std::string sylBytes = byteArrayToString(env, sylVocab);
     std::string charBytes = byteArrayToString(env, char2id);
     std::string tableBytes = byteArrayToString(env, table);
     auto dec = std::make_unique<OnnxDecoder>(
-        modelBytes.data(), modelBytes.size(), sylBytes, charBytes, tableBytes,
+        ggufPath, sylBytes, charBytes, tableBytes,
         threads, jstrToUtf8(env, learnPath));
     auto *s = new SlothingSession(std::move(dec), tableBytes,
                                   byteArrayToString(env, assocTsv),

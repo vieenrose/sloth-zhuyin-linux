@@ -1,8 +1,12 @@
 #!/bin/sh
-# Manual launcher for the Slothing decode daemon (slothingd_e.py + SlothLM-E
-# 4M ONNX). Run this by hand whenever you want LLM decode active; Ctrl+C to
-# stop. The fcitx5 engine talks to it over the socket derived below.
-# (The old llama.cpp/GGUF slothingd remains at engine/slothingd/build/.)
+# Manual launcher for the Slothing decode daemon (slothingd_slothe + SlothLM-E-T
+# 25M ternary GGUF via ggml/libslothe). Run this by hand whenever you want
+# decode active; Ctrl+C to stop. The fcitx5/IBus engines talk to it over the
+# socket derived below.
+# Build once: cmake -S engine/slothingd -B engine/slothingd/build_slothe \
+#   -DCMAKE_BUILD_TYPE=Release && cmake --build engine/slothingd/build_slothe \
+#   --target slothingd_slothe ; fetch the model: packaging/fetch-model.sh
+# (The old Python/ONNX slothingd_e.py path remains in git history.)
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -18,9 +22,11 @@ else
     SOCKET="/tmp/slothingd.sock"
 fi
 
-MODEL="$REPO_DIR/model/slothe_4m_onnx"
+MODEL="$REPO_DIR/model/slothe_t_25m/slothe-t-25m.gguf"
 TABLE="$REPO_DIR/model/phonetic_table.tsv"
-DAEMON="$REPO_DIR/engine/slothingd/slothingd_e.py"
+VOCAB="$REPO_DIR/model/slothe_t_25m/syl_vocab.json"
+CHAR2ID="$REPO_DIR/model/slothe_t_25m/char2id.json"
+DAEMON="$REPO_DIR/engine/slothingd/build_slothe/slothingd_slothe"
 
 # Restart loop: the daemon vanished once under heavy system load (likely
 # OOM-killed; nothing in its own log), which silently disables reranking until
@@ -35,7 +41,7 @@ fails=0
 while :; do
     start=$(date +%s)
     echo "$(date '+%F %T') starting slothingd on $SOCKET" >&2
-    python3 "$DAEMON" --model "$MODEL" --table "$TABLE" -s "$SOCKET"
+    "$DAEMON" -m "$MODEL" -t "$TABLE" -v "$VOCAB" -j "$CHAR2ID" -s "$SOCKET"
     code=$?
     end=$(date +%s)
 
