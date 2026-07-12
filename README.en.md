@@ -14,7 +14,7 @@ and the browser — share one core, one model, and one **ggml inference core
 **Model: [Luigi/slothe-t-25m-zhuyin](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)**
 
 <p align="center"><img src="docs/demo-web-v12.gif" width="470" alt="Web demo (recorded on a BOOX tablet): typing 我用claude寫注音輸入法 — correct whole-sentence 免選字, auto zh/en, 字/句 candidates"></p>
-<p align="center"><img src="docs/android-boox-demo-v9.gif" width="460" alt="Native Android IME (BOOX e-ink): typing 我用claude寫注音輸入法 — correct whole-sentence 免選字, 字/句 candidates"></p>
+<p align="center"><img src="docs/android-boox-demo-v10.gif" width="380" alt="Native Android IME (BOOX e-ink, 25M ternary model): typing 我用claude寫程式 — whole-sentence 免選字, auto zh/en switch (claude kept as English), 字/句 candidates"></p>
 
 ## Highlights
 

@@ -11,7 +11,7 @@
 **模型:[Luigi/slothe-t-25m-zhuyin](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)**
 
 <p align="center"><img src="docs/demo-web-v12.gif" width="470" alt="網頁 demo(BOOX 平板實錄):打「我用claude寫注音輸入法」——整句正確免選字、中英自動切換、字/句候選"></p>
-<p align="center"><img src="docs/android-boox-demo-v9.gif" width="460" alt="Android 原生輸入法(BOOX e-ink 實錄):打「我用claude寫注音輸入法」整句正確免選字、字/句候選"></p>
+<p align="center"><img src="docs/android-boox-demo-v10.gif" width="380" alt="Android 原生輸入法(BOOX e-ink 實錄,25M 三值模型):打「我用claude寫程式」——整句正確免選字、中英自動切換(claude 保留英文)、字/句候選"></p>
 
 ## 特色
 
