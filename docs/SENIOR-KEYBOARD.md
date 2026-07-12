@@ -320,12 +320,22 @@ sandbox drives several hard constraints:
    characters (tone dropped): exact-today 44 → **Candidate A grouped 722 (×16)**
    → **Candidate B grouped 1,411 (×32)**; 99% of syllable bases lose their unique
    key-sequence (worst A key maps to 23 syllables). Decisions this fixes: **A is
-   the floor, B is last-resort** (2× worse). What remains: the real **CER**,
-   which needs a decoder **retrained on group-key input** (tone-dropped,
-   group-encoded) — the current decoder takes *exact syllable embeddings*, so it
-   cannot be tested as-is. That retrain + CER is the true go/no-go for the whole
-   design; queued for a free GPU (the mainline full-feature run is training now).
-   Adopt the [8-adjacency slip model](RELATED-WORK.md) for the tremor-error half.
+   the floor, B is last-resort** (2× worse).
+   **CER MEASURED (2026-07-12) — grouped-A as specified is NOT viable.** A
+   decoder retrained on Candidate-A group-keys (52 classes, tone dropped, fp
+   pure-CE, dim352, on the 500-case held-out set): char-accuracy peaked **50.9%**
+   (ep8) then overfit to 46.7%; whole-sentence **免選字 ~4%**. Training loss
+   collapsed 2.46→0.097 = memorization (a sentence's full group-class sequence is
+   nearly unique). vs exact input 免選字 72% / char ~95%. The ×16 ambiguity +
+   tone-drop exceeds what within-sentence context resolves. **Levers being
+   tested / recommended, in order:** (a) **cross-input distillation** (teacher
+   reads exact syllables, student reads groups — regularizes the memorization and
+   hands over a generalizing signal; *running now*); (b) **keep one partial
+   disambiguator key** (a coarse tone, or a medial split) — attacks the ambiguity
+   at source (tone-drop alone was ×2.7 of the blow-up), likely *necessary* if (a)
+   under-delivers. Adopt the [8-adjacency slip model](RELATED-WORK.md) for the
+   tremor-error half. Repro: `train_grouped.bin`, `gate_grouped.py`,
+   `grouped_syl_vocab.json` (workstation).
 4. The 48 dp shaky-hand error percentages are **[SECONDARY]** — don't quote in
    product spec.
 
