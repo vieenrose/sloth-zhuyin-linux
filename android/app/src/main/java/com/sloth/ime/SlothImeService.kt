@@ -173,15 +173,15 @@ class SlothImeService : InputMethodService(),
         keyboard = KeyboardView(this).apply {
             listener = this@SlothImeService
             setEnglish(english)
-            // debug builds: demo recording can stretch the hardware-key echo
-            // (`adb shell settings put global sloth_flash_ms 900`)
-            val debuggable = (applicationInfo.flags and
-                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-            if (debuggable) {
-                android.provider.Settings.Global.getString(
-                    contentResolver, "sloth_flash_ms",
-                )?.toLongOrNull()?.let { flashHoldMs = it }
-            }
+            // demo recording can stretch the hardware-key echo so a screencap
+            // catches the pressed key (`adb shell settings put global
+            // sloth_flash_ms 900`). Gated behind an adb/system-only global
+            // setting, so it stays inert (default 250ms) in normal use — safe
+            // to honour in release builds too (debug builds ANR-extract the
+            // model too slowly to record on the e-ink device).
+            android.provider.Settings.Global.getString(
+                contentResolver, "sloth_flash_ms",
+            )?.toLongOrNull()?.let { flashHoldMs = it }
         }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
