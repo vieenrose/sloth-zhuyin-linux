@@ -102,13 +102,12 @@ function feedKey(k){
   fix=-1;
   // Forced-English mode: literal chars, no zhuyin parsing (short words like
   // "is he", symbols, clean typo editing). Space ends the word.
-  if(enMode){ // passthrough (微軟/chewing English mode): straight to output
+  if(enMode){ // forced English: literal chars into the buffer, no zhuyin parse.
+    // Goes to the composing buffer (not straight to output) so it shows in the
+    // preview, edits with ←→/⌫, and commits on Enter with any pending run.
     const ch=(fullWidth&&FW[k])?FW[k]:k;
-    const ta=$('out');
-    const a=(ta.selectionStart!=null)?ta.selectionStart:ta.value.length;
-    const b=(ta.selectionEnd!=null)?ta.selectionEnd:a;
-    ta.value=ta.value.slice(0,a)+ch+ta.value.slice(b);
-    ta.selectionStart=ta.selectionEnd=a+ch.length;
+    if(hasRun())commitRun();          // finalize any pending zhuyin run first
+    insertTok({t:'en',v:ch});
     render(); return true;
   }
   if(k in PUNCT){ if(hasRun())commitRun();
