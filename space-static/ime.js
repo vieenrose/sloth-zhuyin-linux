@@ -117,7 +117,12 @@ function feedKey(k){
   }
   if(k in PUNCT){ if(hasRun())commitRun();
     insertTok({t:'punct',v:punctInEnglishClause()?PUNCT_HALF[k]:PUNCT[k]}); render(); return true; }
-  if(k===' '){ if(hasRun()){commitRun();render();} return true; }   // space finalizes the run (segmenter handled tone-1)
+  if(k===' '){ if(hasRun()){ commitRun();
+    // preserve a user-typed space separating two English words (faithful; no
+    // CJK-Latin autospace). A space after zhuyin was tone-1, not a literal.
+    const last=committed[cursor-1];
+    if(last&&last.t==='en'&&last.v!==' ') insertTok({t:'en',v:' '});
+    render(); } return true; }
   if(k in TONEK){ rawKeys+=k; commitRun(); render(); return true; } // a tone completes the last syllable -> finalize run
   // any other key just extends the run; the segmenter re-decides zh/en live
   rawKeys+=k; render(); return true;
@@ -273,7 +278,7 @@ function render(){
     if(i===cursor && !hasRun()) pre.appendChild(caret());
     const span=document.createElement('span');
     span.className='pchar'+(fix===i?' fixsel':'')+(tok.t!=='zh'?' en':'');
-    span.textContent=(tok.t==='en'?' '+displayFor(i)+' ':displayFor(i));
+    span.textContent=displayFor(i);   // faithful: no injected CJK-Latin spaces
     if(tok.t==='zh') span.onclick=()=>{ fix===i?(fix=-1,render()):openFix(i); };
     pre.appendChild(span);
     if(i===committed.length-1 && cursor===committed.length && !hasRun()) pre.appendChild(caret());
@@ -285,7 +290,7 @@ function render(){
     const frag=document.createDocumentFragment();
     for(const t of runToks()){
       const s=document.createElement('span'); s.className='ptail'+(t.t==='en'?' en':'');
-      s.textContent=(t.t==='en'?' '+t.v+' ':t.v); frag.appendChild(s);
+      s.textContent=t.v; frag.appendChild(s);   // faithful: no injected CJK-Latin spaces
     }
     let anchor=null, count=0;
     for(const n of nodes){ if(n.classList&&n.classList.contains('pchar')){count++; if(count===cursor){anchor=n;break;}} }

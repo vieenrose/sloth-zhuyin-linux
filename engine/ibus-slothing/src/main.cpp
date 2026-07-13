@@ -1010,10 +1010,11 @@ struct SlothingImpl {
             return true;
         }
 
-        // Space finalizes the current run (tone 1 handled by the segmenter).
+        // Space finalizes the current run (tone 1 handled by the segmenter);
+        // a space between two English words is kept as a literal (faithful).
         if (c == ' ') {
             if (!comp.rawKeys.empty()) {
-                comp.commitRun(segmenter.get(), enMode);
+                comp.commitRunKeepSpace(segmenter.get(), enMode);
                 scheduleLiveDecode();
                 renderComposing();
                 return true;

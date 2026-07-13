@@ -14,7 +14,7 @@ and the browser — share one core, one model, and one **ggml inference core
 **Model: [Luigi/slothe-t-25m-zhuyin](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)**
 
 <p align="center"><img src="docs/demo-web-v13.gif" width="470" alt="Web demo (in-browser decode): typing 晚上熬夜看 world cup，白天在 louisa key-by-key on the virtual keyboard — correct whole-sentence 免選字, auto zh/en, each keypress highlighted live"></p>
-<p align="center"><img src="docs/android-boox-demo-v10.gif" width="380" alt="Native Android IME (BOOX e-ink, 25M ternary model): typing 我用claude寫程式 — whole-sentence 免選字, auto zh/en switch (claude kept as English), 字/句 candidates"></p>
+<p align="center"><img src="docs/android-boox-demo-v11.gif" width="380" alt="Native Android IME (BOOX e-ink, 25M ternary model): typing 晚上熬夜看world cup,白天在louisa key-by-key — whole-sentence 免選字, auto zh/en switch (world cup / louisa kept English), each keypress highlighted live"></p>
 
 ## Highlights
 
@@ -75,6 +75,18 @@ by offline contract tests (core_test), a headless IBus end-to-end test, the
 - Model, GGUF + full reproduction pipeline (data → labels → training → conversion):
   [Luigi/slothe-t-25m-zhuyin](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
 - Architecture & design: `ARCHITECTURE.md`, `model/DESIGN-E.md`, `MODEL_BENCHMARKS.md`
+
+## The model — why ternary
+
+<p align="center"><img src="docs/score_vs_latency.png" width="620" alt="Quality vs on-device latency (BOOX SD662): the 25M ternary hits 76% 免選字 at ~9ms/6-syllable decode — same speed as a tiny 4M int8 but far higher quality, and both faster and better than the 12M int8 (13ms / 免選字 72)"></p>
+
+A from-scratch **SlothE-T 25M ternary (W1.58A8) bidirectional encoder**. At on-device
+latency (BOOX SD662) it is **Pareto-optimal**: **76% 免選字** at ~**9 ms / 6-syllable
+decode** — the same speed as a tiny 4M int8 but far more accurate — and it is **both
+faster and better** than the 12M int8 (13 ms, 免選字 72). **At this scale ternary beats
+int8** (the opposite of the 11.6M). Architecture, GGUF, and the full reproduction pipeline:
+[Luigi/slothe-t-25m-zhuyin](https://huggingface.co/Luigi/slothe-t-25m-zhuyin).
+(\* 25M ternary latency projected from measured-shape TQ2_0 / I²_S kernels.)
 
 ## Numbers
 

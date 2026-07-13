@@ -184,7 +184,7 @@ public:
         }
         if (c == ' ') {
             if (!comp_.rawKeys.empty()) {
-                comp_.commitRun(segmenter_.get(), enMode_);
+                comp_.commitRunKeepSpace(segmenter_.get(), enMode_);
                 bumpLive();
                 return KeyOutcome::NeedLive;
             }

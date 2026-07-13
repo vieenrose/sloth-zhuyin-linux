@@ -93,6 +93,19 @@ struct ComposingCore {
 
     void insertToken(SegTok t) { insertTokens({std::move(t)}); }
 
+    // commitRun, then preserve a user-typed space that separates two English
+    // words (faithful; no CJK-Latin autospace — see display.h). A space after a
+    // zhuyin run was tone-1 (commit only), so no literal space is kept there.
+    // Call this ONLY from the space handler, never for tone keys / punctuation.
+    void commitRunKeepSpace(const Segmenter *segmenter, bool forcedEnglish) {
+        commitRun(segmenter, forcedEnglish);
+        const int ins =
+            tokCursor < 0 ? static_cast<int>(toks.size()) : tokCursor;
+        if (ins > 0 && !toks[ins - 1].zh && toks[ins - 1].v != " ") {
+            insertToken({false, " "});
+        }
+    }
+
     // Backspace: pop one UTF-8 char of the raw run, else the token before the
     // cursor. Returns false if there was nothing to remove.
     bool backspace() {

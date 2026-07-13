@@ -1197,11 +1197,12 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         // around them) into an English token. Case is preserved.
 
         // Space finalizes the current run (also serves as tone 1 — the
-        // segmenter already treats a bare valid base as a tone-1 syllable).
+        // segmenter already treats a bare valid base as a tone-1 syllable); a
+        // space between two English words is kept as a literal (faithful).
         if (c == ' ') {
             if (!comp_.rawKeys.empty()) {
                 keyEvent.filterAndAccept();
-                comp_.commitRun(segmenter_.get(), enMode_);
+                comp_.commitRunKeepSpace(segmenter_.get(), enMode_);
                 scheduleLiveDecode(ic);
                 renderComposing(ic);
             } else if (!comp_.toks.empty()) {
