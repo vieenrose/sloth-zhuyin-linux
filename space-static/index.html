@@ -6,6 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>懶音輸入法 Slothing — Web Zhuyin IME</title>
+<!-- COOP/COEP via a service worker -> crossOriginIsolated -> SharedArrayBuffer -> multi-thread WASM (HF static Spaces send no such headers) -->
+<script src="coi-serviceworker.js?v=1"></script>
 <script>
   const th = new URLSearchParams(location.search).get('theme');
   if (th === 'dark' || th === 'light') document.documentElement.dataset.theme = th;
@@ -182,6 +184,6 @@
     <a href="https://huggingface.co/Luigi/slothe-t-25m-zhuyin" target="_blank">SlothE-T 25M 三值</a>
   </footer>
 </main>
-<script type="module" src="./ime.js?v=20260713-noort"></script>
+<script type="module" src="./ime.js?v=20260713-mt2"></script>
 </body>
 </html>

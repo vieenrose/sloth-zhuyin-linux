@@ -11,7 +11,7 @@ EMSDK="${EMSDK:-$HOME/emsdk}"
 source "$EMSDK/emsdk_env.sh" >/dev/null 2>&1 || true
 EMCC="$EMSDK/upstream/emscripten/emcc"
 
-SIMD="${SIMD:-1}"; THREADS="${THREADS:-0}"
+SIMD="${SIMD:-1}"; THREADS="${THREADS:-0}"; OUT="${OUT:-slothe}"
 CFLAGS="-O3 -DNDEBUG -DGGML_USE_CPU"
 LINK=""
 [ "$SIMD" = 1 ] && CFLAGS="$CFLAGS -msimd128"
@@ -37,4 +37,4 @@ set -x
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createSlotheModule -sALLOW_MEMORY_GROWTH=1 \
   -sEXPORTED_FUNCTIONS='["_slothe_wasm_load","_slothe_wasm_n_char","_slothe_wasm_logits","_slothe_wasm_free","_malloc","_free"]' \
   -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","HEAPU8","HEAP32","HEAPF32"]' \
-  -o "$REPO/space-static/enc/slothe.js"
+  -o "$REPO/space-static/enc/$OUT.js"

@@ -395,7 +395,7 @@ async function runPreview(){
     const zhChars=[], zhCands=[], zhMargins=[]; let seg=[], segIdx=[]; let ci=0;
     let ctxAcc=$('out').value.slice(-CTX_MAX);   // document context (committed)
     const flushSeg=async()=>{
-      const zh=seg.filter(t=>t.t==='zh').map(t=>toneless?strip(t.v):t.v);
+      const zh=seg.filter(t=>t.t==='zh').map(t=>t.v);
       // user picks (overrides) condition the whole segment's re-decode
       const hints={}; let rel=0;
       for(let q=0;q<seg.length;q++) if(seg[q].t==='zh'){
@@ -733,8 +733,12 @@ async function initEncoder(){
   try{
     const resp=await fetch(ENC+'slothe-t-25m.gguf');
     if(!resp.ok) throw new Error('gguf http '+resp.status);
-    const {default:createSlotheModule}=await import(ENC+'slothe.js');
+    // Multi-threaded build needs SharedArrayBuffer (crossOriginIsolated, set by
+    // the coi-serviceworker's COOP/COEP). Fall back to single-thread otherwise.
+    const mt = (typeof crossOriginIsolated!=='undefined') && crossOriginIsolated;
+    const {default:createSlotheModule}=await import(ENC+(mt?'slothe-mt.js':'slothe.js'));
     slotheMod=await createSlotheModule();
+    console.log('encoder: '+(mt?'multi-thread':'single-thread')+' WASM');
     const bytes=new Uint8Array(await resp.arrayBuffer());
     const p=slotheMod._malloc(bytes.length);
     slotheMod.HEAPU8.set(bytes, p);

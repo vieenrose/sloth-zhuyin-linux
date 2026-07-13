@@ -22,6 +22,7 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <thread>
 
 // ---------------- hyperparameters ----------------
 struct slothe_hparams {
@@ -61,6 +62,13 @@ struct slothe_model {
 slothe_model * slothe_load(const char * path) {
     slothe_model * m = new slothe_model();
     m->backend = ggml_backend_cpu_init();
+    // Use the available cores (capped) so the decode parallelizes — matters for
+    // the threaded WASM build and the desktop daemon; a no-op on single-thread
+    // WASM (ggml forces 1 thread when built without pthreads).
+    {
+        unsigned hc = std::thread::hardware_concurrency();
+        ggml_backend_cpu_set_n_threads(m->backend, hc ? (int) (hc < 8u ? hc : 8u) : 4);
+    }
 
     struct gguf_init_params gp = { /*no_alloc=*/true, /*ctx=*/&m->ctx_w };
     struct gguf_context * gguf = gguf_init_from_file(path, gp);
