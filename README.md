@@ -11,7 +11,7 @@
 [模型下載](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
 
 <p align="center"><img src="docs/demo-web-v15.gif" width="470" alt="網頁 demo:逐鍵打「晚上熬夜看world cup,白天去louisa上班」,整句正確、中英自動切換、每個按鍵即時反白"></p>
-<p align="center"><img src="docs/android-boox-demo-v13.gif" width="470" alt="Android 原生輸入法(BOOX e-ink):逐鍵打「晚上熬夜看world cup,白天在louisa」,整句正確、中英自動切換"></p>
+<p align="center"><img src="docs/android-boox-demo-v14.gif" width="470" alt="Android 原生輸入法(BOOX e-ink):逐鍵打「晚上熬夜看world cup,白天去louisa上班」,整句正確、中英自動切換"></p>
 <p align="center"><img src="docs/demo-lianxiang-v2.gif" width="360" alt="聯想接詞:上字後「聯」列出下一個詞(們／的／國／要…),⇧1-9 或點選接龍"><br><sub>聯想接詞:上字後預測下一個詞,⇧1-9 或點選接龍</sub></p>
 
 ## 特色
