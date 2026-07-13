@@ -184,22 +184,17 @@ int OnnxDecoder::sylId(const std::string &s) const {
 
 std::vector<std::pair<std::string, int>>
 OnnxDecoder::cands(const std::string &syl) const {
-    bool hasTone = false;
-    for (auto &c : cps(syl))
-        if (isTone(c)) hasTone = true;
+    // Tone-optional decoding removed: an UNMARKED syllable is tone-1 (its bare
+    // row), not a union across all tones — direct lookup (bare -> tone-1;
+    // marked -> that tone). toneless_ is kept only for typoFixes (edit-dist-1).
     const std::vector<std::string> *chars = nullptr;
-    if (hasTone) {
-        auto it = tonal_.find(syl);
-        if (it != tonal_.end()) chars = &it->second;
-    } else {
-        auto it = toneless_.find(syl);
-        if (it != toneless_.end()) chars = &it->second;
-    }
+    auto it = tonal_.find(syl);
+    if (it != tonal_.end()) chars = &it->second;
     std::vector<std::pair<std::string, int>> out;
     if (chars)
         for (auto &c : *chars) {
-            auto it = char2id_.find(c);
-            if (it != char2id_.end()) out.push_back({c, it->second});
+            auto ci = char2id_.find(c);
+            if (ci != char2id_.end()) out.push_back({c, ci->second});
         }
     return out;
 }

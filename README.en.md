@@ -21,7 +21,6 @@ desktop (fcitx5, IBus), Android, and the browser — share one model.
 |---|---|
 | **Whole-sentence conversion** | 微軟新注音-style live conversion; no picking word-by-word |
 | **Auto zh/en** | No mode key: type `我用python寫程式` straight through — a segmenter decides |
-| **Tone-optional** | Skip tone keys (~35% fewer keystrokes); context disambiguates |
 | **Typo repair** | Impossible syllables get fixed by the model |
 | **Next-word suggestions** | After you commit (tap-to-chain on mobile, ⇧1-9 on desktop) |
 | **Fully offline** | 18 MB model runs on-device — no cloud, no telemetry |
@@ -53,7 +52,6 @@ Honest held-out (500 c4-zh-TW sentences, excluded from training):
 |---|---|
 | Whole-sentence exact (免選字) | **76%** |
 | Tonal per-char (homophone-hard) | **86%** (libchewing 71%) |
-| Tone-free | **77%** |
 
 Ceiling = 微軟新注音 / 自然輸入法; floor = libchewing. Method and sourcing in
 [docs/COMPARISON.md](docs/COMPARISON.md), [docs/EVAL.md](docs/EVAL.md).
@@ -89,7 +87,7 @@ against PyTorch.
 
 ## Roadmap
 
-- [x] **25M ternary shipped to all four frontends**: 76 / 86 / 77, all sharing `libslothe` (ggml/TQ2_0), replacing ONNX Runtime
+- [x] **25M ternary shipped to all four frontends**: 76 / 86, all sharing `libslothe` (ggml/TQ2_0), replacing ONNX Runtime
 - [ ] **Char-hints v2**: retrain a hinted ternary model to restore pick / document-context re-scoring (recipe still tuning; not yet beating the no-hints model)
 - [ ] Model-based next-word head; word-list filtering
 - [ ] Android hardware-keyboard polish; regular desktop packages
@@ -99,7 +97,7 @@ against PyTorch.
 
 <details><summary>Milestones done</summary>
 
-libchewing-free engine · web demo · tone-free / auto zh/en · SlothLM-E 11.6M ·
+libchewing-free engine · web demo · auto zh/en · SlothLM-E 11.6M ·
 char-hint channel · 新注音-style live conversion + candidate window · libchewing
 UI-parity suite · full reproducibility bundle on HF · IBus engine · native Android
 IME (BOOX e-ink) · 4-frontend next-word · `.deb` / `.apk` packaging ·

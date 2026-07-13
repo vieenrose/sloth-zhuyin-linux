@@ -153,30 +153,19 @@ bool has_tone_mark(const std::string & syl) {
     return false;
 }
 
-// Candidate reading chars for one syllable. Mirrors slothe_score.cpp's
-// candidates() EXACTLY, which is the validated decode logic:
-//   * The syllable is "tone-bearing" iff it carries a tone MARK (ˊˇˋ˙).
-//     Tone 1 is unmarked, so an unmarked syllable is treated as toneless.
-//   * tone-bearing + found  -> its exact tonal candidate list;
-//   * otherwise (toneless, OR tone-bearing but not found) -> the ordered union
-//     of every tone of the base (file order, deduped across tones);
-//   * nothing legal -> the token itself as a single literal candidate (this is
-//     how code-switch English tokens pass through verbatim).
-// NOTE: deciding by tone-mark presence (not by whether `tonal` happens to hold
-// an unmarked tone-1 key) is what keeps this faithful to the golden reference;
-// looking `tonal` up first would wrongly restrict unmarked syllables to tone 1.
+// Candidate reading chars for one syllable. Tone-optional decoding was REMOVED:
+// standard zhuyin — an UNMARKED syllable is tone-1 (陰平, its bare row), NOT a
+// union across all tones. Users type the tone key for other tones. So we look
+// the exact syllable up directly (bare -> tone-1; marked -> that tone).
+//   * found     -> its exact candidate list;
+//   * not found -> the token itself as a single literal candidate (this is how
+//                  code-switch English tokens pass through verbatim).
 const std::vector<std::string> & syllable_candidates(const PhoneticTable & table,
                                                      const std::string & syl,
                                                      std::vector<std::string> & literal_scratch) {
-    if (has_tone_mark(syl)) {
-        auto it = table.tonal.find(syl);
-        if (it != table.tonal.end()) {
-            return it->second;
-        }
-    }
-    auto it2 = table.toneless.find(strip_tones(syl));
-    if (it2 != table.toneless.end()) {
-        return it2->second;
+    auto it = table.tonal.find(syl);
+    if (it != table.tonal.end()) {
+        return it->second;
     }
     literal_scratch.assign(1, syl);
     return literal_scratch;

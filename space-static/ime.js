@@ -76,7 +76,7 @@ const validBase = new Set();           // legal syllable bases, filled from the 
 const segment = makeSegmenter(DACHEN, TONEK, validBase);
 const runToks = () => enMode ? (rawKeys ? [{t:'en',v:rawKeys}] : []) : segment(rawKeys);
 const hasRun = () => rawKeys.length>0;
-const bufKey = () => committed.map(t=>t.t+':'+t.v).join('|')+($('toneless').checked?'#TL':'');
+const bufKey = () => committed.map(t=>t.t+':'+t.v).join('|');
 
 // ?fresh — start from a factory state (demos, testing): drop the persisted
 // learn store + personal 聯想 bigrams before either module reads them
@@ -159,8 +159,7 @@ let phrase=null, phraseBusy=false, phraseFor=-1;
 function softmaxOver(data,base,ids){let mx=-Infinity;for(const id of ids)if(data[base+id]>mx)mx=data[base+id];
   let z=0;const e={};for(const id of ids){e[id]=Math.exp(data[base+id]-mx);z+=e[id];}return{e,z};}
 async function pairScores(a,b){   // 2-char phrases for zh tokens a,b -> [{ph,j}]
-  const tl=$('toneless').checked;
-  const s0=tl?strip(committed[a].v):committed[a].v, s1=tl?strip(committed[b].v):committed[b].v;
+  const s0=committed[a].v, s1=committed[b].v;
   const c0=candSet(s0), c1=candSet(s1);
   if(!c0.ids.length||!c1.ids.length) return [];
   const {data,V}=await encForward([s0,s1]);
@@ -199,7 +198,7 @@ function pickCand(j){                 // j is index within current page
   const idx=fixPage*PAGE+j;
   if(idx>=cands.length) return;
   overrides[fix]=cands[idx];
-  const syl=$('toneless').checked?strip(committed[fix].v):committed[fix].v;
+  const syl=committed[fix].v;
   learn[syl]=cands[idx]; saveLearn();
   if(preFixCursor>=0){ cursor=preFixCursor; preFixCursor=-1; } // chewing: restore
   fix=-1; phrase=null;
@@ -211,9 +210,8 @@ function pickPhrase(p){               // p = {ph, at}: 2-char phrase at [at, at+
   overrides[at]=chars[0];
   let n=at+1; while(n<committed.length&&committed[n].t!=='zh') n++;
   if(n<committed.length&&chars[1]) overrides[n]=chars[1];
-  const tl=$('toneless').checked;
-  learn[tl?strip(committed[at].v):committed[at].v]=chars[0];
-  if(n<committed.length&&chars[1]) learn[tl?strip(committed[n].v):committed[n].v]=chars[1];
+  learn[committed[at].v]=chars[0];
+  if(n<committed.length&&chars[1]) learn[committed[n].v]=chars[1];
   saveLearn();
   pvKey=null; schedulePreview();      // re-score the sentence around the pick
   fix=-1; phrase=null; render();
@@ -344,7 +342,7 @@ function render(){
         const b=document.createElement('button'); b.className='cand'+(c===cur?' sel':'');
         b.textContent=c;
         b.onclick=()=>{ overrides[li]=c;
-          const syl=$('toneless').checked?strip(committed[li].v):committed[li].v;
+          const syl=committed[li].v;
           learn[syl]=c; saveLearn();
           pvKey=null; schedulePreview(); render(); };
         stripEl.appendChild(b);
@@ -394,7 +392,6 @@ async function runPreview(){
   const key=bufKey(), gen=++previewGen;
   const toksSnap=committed.map(t=>({t:t.t,v:t.v}));  // snapshot for stale seed
   try{
-    const toneless=$('toneless').checked;
     // Decode each punctuation-delimited segment independently: punctuation
     // (，。、！？…) marks a semantic boundary, so the model needn't see across
     // it. Shorter context => faster (decode time ~ segment length, not whole
@@ -491,8 +488,7 @@ function dl1(a,b){ if(a===b)return 0; const la=a.length,lb=b.length;
   const s=la<lb?a:b, l=la<lb?b:a;                                  // 1 ins/del
   for(let i=0;i<=s.length;i++){ if(s.slice(0,i)+l[i]+s.slice(i)===l)return 1; }
   return 2; }
-function candChars(syl){let chars=tonal[syl];
-  if(!chars){const base=strip(syl);chars=[];for(const k in tonal)if(strip(k)===base)for(const c of tonal[k])if(!chars.includes(c))chars.push(c);}
+function candChars(syl){const chars=tonal[syl]||[];  // tone-optional removed: unmarked = tone-1 (its bare row), no all-tone union
   return chars.length?chars:[syl];}
 // Typo tolerance: for an impossible syllable, candidate corrections within
 // edit distance 1 that keep the typed tone: [{syl, chars}].
@@ -755,7 +751,6 @@ document.addEventListener('keydown',e=>{
 document.addEventListener('keyup',e=>{ if(e.key==='Shift'&&shiftAlone){ shiftAlone=false; toggleEnMode(); } });
 $('commit').onclick=()=>commitSentence();
 $('clear').onclick=()=>{ clearAll(); render(); };
-$('toneless').onchange=()=>{ pvKey=null; render(); };
 
 // test hook for the differential UI-parity suite (eval/ui-parity): the
 // observable UI state, same schema as chewing_trace.c (structure only).
