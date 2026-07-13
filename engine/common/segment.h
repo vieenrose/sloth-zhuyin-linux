@@ -224,7 +224,7 @@ private:
         std::vector<ZhCand> res;
         std::string bopo;
         int lastSlot = -1;
-        bool dig = false;
+        bool dig = false, letter = false;
         for (int L = 0; L < 3 && i + L < static_cast<int>(keys.size()); L++) {
             const char k = keys[i + L];
             auto it = dachenMap().find(k);
@@ -234,11 +234,18 @@ private:
             lastSlot = slot;
             bopo += it->second.first;
             if (k >= '0' && k <= '9') dig = true;
+            else letter = true;
             const char *tk = (i + L + 1 < static_cast<int>(keys.size()))
                                  ? segToneMark(keys[i + L + 1])
                                  : nullptr;
             if (validBase_.count(bopo)) {
-                res.push_back({L + 1, L + 1, bopo, dig, false});
+                // hard (a real, cheap zhuyin signal) requires a tone OR a digit
+                // key typed ALONGSIDE a letter key. A PURE-digit toneless base
+                // (20=ㄉㄢ, 19=ㄅㄞ, 5=ㄓ) is ambiguous with a NUMBER, so it is
+                // soft (expensive) — otherwise it gets carved out of number
+                // literals (2024-01-15, COVID-19, 3-5). A tone digit still
+                // marks it hard (204=ㄉㄢˋ) via the toned variant below.
+                res.push_back({L + 1, L + 1, bopo, dig && letter, false});
                 if (tk) res.push_back({L + 2, L + 1, bopo + tk, true, false});
             } else if (tk) {
                 // typo tolerance: unknown base + tone = zhuyin intent; the

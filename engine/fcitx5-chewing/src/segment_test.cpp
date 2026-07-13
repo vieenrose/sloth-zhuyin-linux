@@ -95,6 +95,11 @@ int main(int argc, char **argv) {
         // en punctuation inside en text: a dachen-punct key ('-'=ㄦ, etc.)
         // flanked by English/number context is a literal char, not zhuyin.
         {"7-11", "en:7-11", "digit-hyphen-digit is literal (not 7兒11)"},
+        {"3-5", "en:3-5", "lone-digit hyphen range stays literal (not 3-|ㄓ)"},
+        {"2024-01-15", "en:2024-01-15",
+         "ISO date stays one literal (not ㄉㄢ|24-01-15)"},
+        {"COVID-19", "en:COVID-19",
+         "word-hyphen-number stays literal (not COVID-|ㄅㄞ)"},
         {"a-b", "en:a-b", "letter-hyphen-letter is literal English"},
         {"0912-345", "en:0912-345", "phone-number hyphen stays literal"},
         // but a genuine zhuyin final ㄦ after a tone digit is preserved: a tone

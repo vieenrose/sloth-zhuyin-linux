@@ -37,14 +37,19 @@ export function makeSegmenter(DACHEN, TONEK, validBase, words=WORDS){
   // hard = carries a tone or a number-row key -> a real zhuyin signal; a
   // pure-letter syllable (soft) mid letter-run is almost always English.
   function zhAt(keys,i){
-    const res=[]; let bopo='', lastSlot=-1, dig=false;
+    const res=[]; let bopo='', lastSlot=-1, dig=false, letter=false;
     for(let L=0; L<3 && i+L<keys.length; L++){
       const k=keys[i+L], d=DACHEN[k]; if(!d) break;
       if(d[1]<=lastSlot) break;            // initial < medial < final, each once
-      lastSlot=d[1]; bopo+=d[0]; if(isDigit(k)) dig=true;
+      lastSlot=d[1]; bopo+=d[0]; if(isDigit(k)) dig=true; else letter=true;
       const tk=keys[i+L+1];
       if(validBase.has(bopo)){
-        res.push({len:L+1, v:bopo, syms:L+1, hard:dig});
+        // hard (a real, cheap zhuyin signal) requires a tone OR a digit key
+        // typed ALONGSIDE a letter key. A PURE-digit toneless base (20=ㄉㄢ,
+        // 19=ㄅㄞ, 5=ㄓ) is ambiguous with a NUMBER, so it is soft (expensive)
+        // — otherwise it gets carved out of number literals (2024-01-15,
+        // COVID-19, 3-5). A tone digit still marks it hard (204=ㄉㄢˋ) below.
+        res.push({len:L+1, v:bopo, syms:L+1, hard:dig&&letter});
         if(tk && TONEK[tk]) res.push({len:L+2, v:bopo+TONEK[tk], syms:L+1, hard:true});
       } else if(tk && TONEK[tk]){
         // typo tolerance: an unknown base followed by a tone key is still
