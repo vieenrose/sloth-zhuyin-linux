@@ -43,8 +43,8 @@ SOCK="${XDG_RUNTIME_DIR:-/tmp}/slothingd.sock"
 if [ -S "$SOCK" ] || systemctl --user is-active --quiet slothingd 2>/dev/null; then
     echo "   slothingd already running."
 else
-    if [ ! -f model/slothe_4m_onnx/model_quantized.onnx ]; then
-        say "fetching model (~5 MB ONNX)"
+    if [ ! -f model/slothe_t_25m/slothe-t-25m.gguf ]; then
+        say "fetching model (18 MB ternary GGUF)"
         packaging/fetch-model.sh
     fi
     say "installing slothingd as a systemd user service (auto-start at login)"
