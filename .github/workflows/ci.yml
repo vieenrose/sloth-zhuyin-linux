@@ -21,7 +21,7 @@ jobs:
             libfcitx5utils-dev extra-cmake-modules gettext libfmt-dev \
             python3 python3-pip
 
-      - name: Set up LLM runtime (llama.cpp + model + slothingd)
+      - name: Set up LLM runtime (llama.cpp + model + slothd)
         run: |
           pip install --break-system-packages huggingface_hub
           export PATH="$HOME/.local/bin:$PATH"
@@ -39,15 +39,15 @@ jobs:
       - name: Run the evaluation harness (regression gate)
         run: |
           export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
-          ./engine/slothingd/build/slothingd \
+          ./engine/slothd/build/slothd \
             -m llm/models/lfm2.5-230m-q4/LFM2.5-230M-Q4_0.gguf \
-            -s "$XDG_RUNTIME_DIR/slothingd.sock" &
+            -s "$XDG_RUNTIME_DIR/slothd.sock" &
           # wait for the socket to appear (model load)
           for i in $(seq 1 60); do
-            [ -S "$XDG_RUNTIME_DIR/slothingd.sock" ] && break
+            [ -S "$XDG_RUNTIME_DIR/slothd.sock" ] && break
             sleep 2
           done
-          python3 eval/run_eval.py --socket "$XDG_RUNTIME_DIR/slothingd.sock" \
+          python3 eval/run_eval.py --socket "$XDG_RUNTIME_DIR/slothd.sock" \
             | tee eval-result.txt
           # Gate on RECALL (right answer reachable in the candidate list), not
           # top-1: this is a pipeline-health check (harvest + grammar + daemon

@@ -1,4 +1,4 @@
-// OnnxDecoder — faithful in-process port of engine/slothingd/slothingd_e.py.
+// OnnxDecoder — faithful in-process port of engine/slothd/slothd_e.py.
 // See onnx_decoder.h for the contract. Loads the ternary GGUF encoder (by path)
 // + vocab/table strings (from Android assets) and reproduces the daemon's decode
 // with the libslothe/ggml forward pass (formerly ONNX Runtime).
@@ -15,13 +15,13 @@
 
 #ifdef __ANDROID__
 #include <android/log.h>
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "slothing.onnx", __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "sloth.onnx", __VA_ARGS__)
 #else
 #include <cstdio>
 #define LOGE(...) std::fprintf(stderr, __VA_ARGS__)
 #endif
 
-namespace slothing {
+namespace sloth {
 namespace {
 
 // UTF-8 codepoint split (each element is one whole UTF-8 char).
@@ -471,4 +471,4 @@ void OnnxDecoder::learn(const json &payload) {
     saveLearn();
 }
 
-} // namespace slothing
+} // namespace sloth

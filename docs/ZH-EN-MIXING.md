@@ -1,6 +1,6 @@
 # 中英混排 — zh-TW / English mixed writing & typing conventions
 
-*A convention study for the Slothing Zhuyin IME (2026-07-12). Authoritative ruleset behind the mixed-script segmenter/display behavior, derived from a multi-agent research pass over W3C CLReq, 教育部《重訂標點符號手冊》, pangu.js / 中文文案排版指北, and real zh-TW corpora, then adversarially reviewed.*
+*A convention study for the Sloth IME Zhuyin IME (2026-07-12). Authoritative ruleset behind the mixed-script segmenter/display behavior, derived from a multi-agent research pass over W3C CLReq, 教育部《重訂標點符號手冊》, pangu.js / 中文文案排版指北, and real zh-TW corpora, then adversarially reviewed.*
 
 It answers two load-bearing questions and fixes two shipped bugs: `7-11`→`7兒11` (hyphen read as zhuyin ㄦ) and `Expected: 你好`→`Expected：你好` (halfwidth colon widened after an English word).
 
@@ -48,10 +48,10 @@ Mode-less, segmenter-driven: default punctuation to FULLWIDTH in a zhuyin/Han ru
 | `NUM-letter-han-lexemes-glued` | numbers-ids | Taiwan-native single-letter+Han lexemes are written with NO space between the letter/digit and the Han character: K書, Q彈, T恤, 3C, A咖, PO文, AA制, call機. The letter stays half-width but glued. | Letter/digit directly glued to Han, no pangu space, no fullwidth. Worth a small IME lexeme dictionary. Note this is a lexical exception, distinct from a foreign word merely adjacent to Han (which under an opt-in pangu pass would take a space). | medium |
 | `IME-dual-key-run-decides` | ime-behavior | For a key that is BOTH a zhuyin symbol and ASCII punctuation ('-'=ㄦ etc.), the run type decides: inside a number/English run the ASCII meaning wins (half-width literal); inside a valid zhuyin syllable the zhuyin meaning wins. A tone digit (3/4/6/7) does NOT count as English context, so genuine finals like ㄦ (這兒, 女兒) survive. This is the 7-11-bug fix at the segmentation layer. | DP segmenter offers the flanked-punct-as-literal edge cheaply (so it merges into the English run) only when a non-tone alnum neighbor sits on at least one side; a real zhuyin syllable still wins when one parses. Already implemented in segment.h lines 128-148. | high |
 | `IME-segmenter-driven-width` | ime-behavior | Default punctuation to FULLWIDTH in a zhuyin/Han run and auto-emit HALFWIDTH inside an English/number run, driven by the segmenter's run classification — no manual 全形/半形 mode switch required for correct output. A manual toggle is offered only as an override. | Chinese context → ，。「」；：！？ (fullwidth default); English/number run → ,.-/:; (halfwidth), per PUNCT-halfwidth-after-english + sentence-terminal override. English/passthrough mode → always half-width. | medium |
-| `IME-english-passthrough-affordances` | ime-behavior | Match the modal affordances zh-TW users already know: Shift = temporary/toggle English, Caps Lock = sustained English/英數, Shift+Space = 全形/半形 toggle. English/passthrough output defaults to HALF-WIDTH (半形); only when the user explicitly chooses 全形 do letters/digits widen. | Passthrough English = half-width lowercase-preserving ASCII; 半形 is the default width for letters/digits/space/punctuation. Slothing's mode-less design MAY make Shift mean 'force this run English' as long as the OUTPUT (half-width English) matches expectation. | high |
+| `IME-english-passthrough-affordances` | ime-behavior | Match the modal affordances zh-TW users already know: Shift = temporary/toggle English, Caps Lock = sustained English/英數, Shift+Space = 全形/半形 toggle. English/passthrough output defaults to HALF-WIDTH (半形); only when the user explicitly chooses 全形 do letters/digits widen. | Passthrough English = half-width lowercase-preserving ASCII; 半形 is the default width for letters/digits/space/punctuation. Sloth IME's mode-less design MAY make Shift mean 'force this run English' as long as the OUTPUT (half-width English) matches expectation. | high |
 
 
-## How Slothing implements it
+## How Sloth IME implements it
 
 
 The behavior lives in the shared, frontend-free layer (`engine/common/segment.h` +

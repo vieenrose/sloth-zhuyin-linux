@@ -6,20 +6,20 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Release signing — credentials live OUTSIDE the repo in ~/.slothing/
+// Release signing — credentials live OUTSIDE the repo in ~/.sloth/
 // keystore.properties (storeFile/storePassword/keyAlias/keyPassword).
 // Absent file => release builds stay unsigned (CI / other machines).
 val signingProps = Properties().apply {
-    val f = File(System.getProperty("user.home"), ".slothing/keystore.properties")
+    val f = File(System.getProperty("user.home"), ".sloth/keystore.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
-    namespace = "com.slothing.ime"
+    namespace = "com.sloth.ime"
     compileSdk = 34            // android-34 installed; bump to 35 (android-35 also installed) by editing this line only
 
     defaultConfig {
-        applicationId = "com.slothing.ime"
+        applicationId = "com.sloth.ime"
         minSdk = 30            // Android 11, BOOX Tab Mini C
         targetSdk = 34
         versionCode = 1
@@ -45,9 +45,9 @@ android {
 
     externalNativeBuild {
         cmake {
-            // Canonical native build owned by the decode-port/native agent. Target "slothing"
-            // -> libslothing.so, matching Core.kt's System.loadLibrary("slothing"). It compiles
-            // app/cpp/{jni_slothing,onnx_decoder,slothe}.cpp + engine/common headers, and links
+            // Canonical native build owned by the decode-port/native agent. Target "sloth"
+            // -> libsloth.so, matching Core.kt's System.loadLibrary("sloth"). It compiles
+            // app/cpp/{jni_sloth,onnx_decoder,slothe}.cpp + engine/common headers, and links
             // the vendored ggml static libs (app/ggml/lib/arm64-v8a/) — the ternary GGUF encoder.
             path = file("CMakeLists.txt")
             version = "3.22.1"   // the ONLY cmake installed; without this AGP tries to fetch another
@@ -58,7 +58,7 @@ android {
     // but keep the default assets dir too (holds the staged files + any static assets).
     sourceSets["main"].assets.srcDirs("src/main/assets")
 
-    // ggml is linked STATICALLY into libslothing.so (app/ggml/lib/arm64-v8a/*.a),
+    // ggml is linked STATICALLY into libsloth.so (app/ggml/lib/arm64-v8a/*.a),
     // so there is no external inference .so to bundle here anymore. libc++_shared.so
     // is added automatically by the NDK from the c++_shared STL.
 
@@ -120,7 +120,7 @@ dependencies {
 
     // No ONNX Runtime dependency: inference is now libslothe/ggml, cross-compiled
     // for arm64-v8a and vendored as static libs under app/ggml/ (linked directly
-    // by app/CMakeLists.txt into libslothing.so). Fully offline, no AAR/Prefab.
+    // by app/CMakeLists.txt into libsloth.so). Fully offline, no AAR/Prefab.
 }
 
 /*
@@ -132,11 +132,11 @@ val modelDir = rootProject.file("../model")
 val encDir   = rootProject.file("../model/slothe_10m_onnx")
 
 val copyModelAssets by tasks.registering(Copy::class) {
-    description = "Stage vocab + phonetic table + 聯想 dict into src/main/assets/slothing"
-    into(layout.projectDirectory.dir("src/main/assets/slothing"))
+    description = "Stage vocab + phonetic table + 聯想 dict into src/main/assets/sloth"
+    into(layout.projectDirectory.dir("src/main/assets/sloth"))
 
     // NB: the model itself is now the ternary GGUF (slothe-t-25m.gguf), committed
-    // directly under src/main/assets/slothing/ (18 MB, built by the slothe port).
+    // directly under src/main/assets/sloth/ (18 MB, built by the slothe port).
     // The old model_quantized.onnx is no longer staged or loaded.
     from(encDir) {
         include("syl_vocab.json")

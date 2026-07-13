@@ -2,7 +2,7 @@
 // the model through a Decoder*: on the Linux fcitx5/ibus engines it is left null
 // and core.h calls the Unix-socket free functions in daemon.h
 // (queryDecoder / queryDecoderWithHints / queryPhrasesScored / sendLearn); on
-// Android there is no daemon, so SlothingSession injects an in-process
+// Android there is no daemon, so SlothSession injects an in-process
 // OnnxDecoder (engine runs ONNX Runtime on-device). Same state machine, two
 // transports, no behavioral difference on Linux.
 #ifndef _SLOTHING_COMMON_DECODER_H_
@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-namespace slothing {
+namespace sloth {
 
 using json = nlohmann::json;
 
@@ -59,6 +59,6 @@ public:
     virtual void learn(const json & /*payload*/) {}
 };
 
-} // namespace slothing
+} // namespace sloth
 
 #endif // _SLOTHING_COMMON_DECODER_H_

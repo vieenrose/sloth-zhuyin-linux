@@ -1,8 +1,8 @@
-# externalNativeBuild for libslothing.so — the on-device Slothing IME core.
+# externalNativeBuild for libsloth.so — the on-device Sloth IME IME core.
 # Compiles the header-only shared core (engine/common: core.h, segment.h,
 # zhuyin.h, display.h) + the decode port + JNI glue + libslothe (the ggml
-# ternary-encoder forward pass) into one .so that com.slothing.ime.Core loads
-# with System.loadLibrary("slothing"). ggml is linked STATICALLY (vendored
+# ternary-encoder forward pass) into one .so that com.sloth.ime.Core loads
+# with System.loadLibrary("sloth"). ggml is linked STATICALLY (vendored
 # under app/ggml/) so there is no companion .so to ship — unlike the old ORT
 # path which needed libonnxruntime.so in jniLibs.
 #
@@ -18,7 +18,7 @@
 # Gradle drives this once per ABI with ANDROID_ABI / ANDROID_PLATFORM already
 # set by the NDK toolchain, so we don't hardcode them here.
 cmake_minimum_required(VERSION 3.22.1)
-project(slothing LANGUAGES CXX)
+project(sloth LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -57,9 +57,9 @@ foreach(gl ggml ggml-cpu ggml-base)
   set_target_properties(${gl} PROPERTIES IMPORTED_LOCATION "${GGML_LIBDIR}/lib${gl}.a")
 endforeach()
 
-# --- libslothing.so ---------------------------------------------------------
-add_library(slothing SHARED
-  cpp/jni_slothing.cpp     # JNI boundary + one SlothingSession per handle
+# --- libsloth.so ---------------------------------------------------------
+add_library(sloth SHARED
+  cpp/jni_sloth.cpp     # JNI boundary + one SlothSession per handle
   cpp/onnx_decoder.cpp     # the decode port's Decoder impl (now ggml-backed)
   cpp/slothe.cpp)          # libslothe: the ggml forward pass (validated port)
 # Header-only pieces (session.h, decoder.h, onnx_decoder.h, and all of
@@ -68,17 +68,17 @@ add_library(slothing SHARED
 # slothe.cpp carries its own validation main() behind SLOTHE_NO_MAIN — suppress it.
 set_source_files_properties(cpp/slothe.cpp PROPERTIES COMPILE_DEFINITIONS SLOTHE_NO_MAIN)
 
-target_include_directories(slothing PRIVATE
+target_include_directories(sloth PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/cpp"   # session.h, decoder.h, onnx_decoder.h, slothe.h
   "${SLOTHING_COMMON}"                # core.h, segment.h, zhuyin.h, display.h, nlohmann/
   "${GGML_INCLUDE_DIR}")             # ggml.h, gguf.h, ggml-cpu.h, ...
 
-target_compile_options(slothing PRIVATE -Wall)
+target_compile_options(sloth PRIVATE -Wall)
 # nlohmann/json needs exceptions + RTTI; both are ON by NDK default
 # (don't add -fno-exceptions / -fno-rtti here).
 
 find_library(log-lib log)
 # Link order matters for the static ggml libs: ggml -> ggml-cpu -> ggml-base.
-target_link_libraries(slothing PRIVATE ggml ggml-cpu ggml-base android ${log-lib})
+target_link_libraries(sloth PRIVATE ggml ggml-cpu ggml-base android ${log-lib})
 
-# No external .so to bundle: ggml is linked statically into libslothing.so.
+# No external .so to bundle: ggml is linked statically into libsloth.so.

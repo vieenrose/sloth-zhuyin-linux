@@ -11,7 +11,7 @@ model expected to clear libchewing's 61%.
 |---|---|---|
 | keystroke → bopomofo syllable (layout FSM) | `zhuyin.h` ZhuyinBuffer (this repo) | **A (done/testable)** |
 | composing buffer + preedit | engine holds `ZhuyinBuffer`, renders syllables | B |
-| sentence decode (zhuyin → Han) | slothingd decode mode (`{"syllables":[...]}`) | done |
+| sentence decode (zhuyin → Han) | slothd decode mode (`{"syllables":[...]}`) | done |
 | candidate window (Down per-phrase) | LLM per-phrase rerank (SELECT1) | later |
 | symbols / punctuation | direct passthrough table | B |
 | userphrase learning | drop (LLM personalization via LoRA later) | — |

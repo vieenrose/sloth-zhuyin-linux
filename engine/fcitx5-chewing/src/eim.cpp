@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  */
-// Slothing engine, fcitx5 adapter: keystrokes are segmented by the shared DP
+// Sloth IME engine, fcitx5 adapter: keystrokes are segmented by the shared DP
 // segmenter (engine/common), the typed syllables are decoded to Traditional
-// Chinese by the local SlothLM model via slothingd's decode mode, and the
+// Chinese by the local SlothLM model via slothd's decode mode, and the
 // shared state machine (engine/common/core.h) drives the chewing-parity
 // interaction. This file only decodes fcitx keys, runs the async decode
 // workers, and paints. No libchewing.
@@ -27,20 +27,20 @@
 #include <thread>
 
 using json = nlohmann::json;
-using slothing::DaemonError;
-using slothing::isAsciiRun;
-using slothing::joinDisplay;
-using slothing::punctMap;
-using slothing::splitUtf8;
-using slothing::symbolCats;
-using slothing::tidySpaces;
-using slothing::toFullWidth;
-using slothing::toksDisplay;
+using sloth::DaemonError;
+using sloth::isAsciiRun;
+using sloth::joinDisplay;
+using sloth::punctMap;
+using sloth::splitUtf8;
+using sloth::symbolCats;
+using sloth::tidySpaces;
+using sloth::toFullWidth;
+using sloth::toksDisplay;
 
 namespace fcitx {
 
-FCITX_DEFINE_LOG_CATEGORY(slothing_log, "chewing");
-#define SLOTHING_DEBUG() FCITX_LOGC(slothing_log, Debug)
+FCITX_DEFINE_LOG_CATEGORY(sloth_log, "chewing");
+#define SLOTHING_DEBUG() FCITX_LOGC(sloth_log, Debug)
 
 namespace {
 
@@ -126,7 +126,7 @@ void ChewingEngine::loadPhoneticTable() {
         path = env;
     } else {
         path = StandardPath::global().locate(StandardPath::Type::Data,
-                                             "slothing/phonetic_table.tsv");
+                                             "sloth/phonetic_table.tsv");
     }
     if (path.empty()) {
         SLOTHING_DEBUG() << "phonetic table not found; decode unavailable";
@@ -161,7 +161,7 @@ void ChewingEngine::loadPhoneticTable() {
             validBase.insert(std::move(base));
         }
     }
-    segmenter_ = std::make_unique<slothing::Segmenter>(std::move(validBase));
+    segmenter_ = std::make_unique<sloth::Segmenter>(std::move(validBase));
 }
 
 void ChewingEngine::loadAssoc() {
@@ -171,7 +171,7 @@ void ChewingEngine::loadAssoc() {
         path = env;
     } else {
         path = StandardPath::global().locate(StandardPath::Type::Data,
-                                             "slothing/assoc_tc.tsv");
+                                             "sloth/assoc_tc.tsv");
     }
     if (!path.empty()) {
         std::ifstream f(path);
@@ -182,7 +182,7 @@ void ChewingEngine::loadAssoc() {
     const char *home = std::getenv("HOME");
     std::string dir = (xdg ? std::string(xdg)
                            : std::string(home ? home : ".") + "/.local/share") +
-                      "/slothing";
+                      "/sloth";
     // same per-user store the daemon's learn.tsv lives beside
     assoc_.load(dictTsv, dir + "/assoc_user.tsv");
 }
@@ -289,8 +289,8 @@ void ChewingEngine::renderComposing(InputContext *ic) {
                                      : comp_.rawKeys);
     }
     std::vector<std::string> disp =
-        slothing::staleDisplay(comp_.toks, liveToks_, liveDisp_);
-    slothing::JoinResult jr =
+        sloth::staleDisplay(comp_.toks, liveToks_, liveDisp_);
+    sloth::JoinResult jr =
         joinDisplay(comp_.toks, disp, comp_.tokCursor, tail);
     const std::string &pre = jr.text;
     if (!pre.empty()) {
@@ -404,7 +404,7 @@ void ChewingEngine::scheduleLiveDecode(InputContext *ic) {
             }
             DaemonError err = DaemonError::None;
             auto sentences =
-                slothing::queryDecoder(run, 1, runCtx, inflightFd_, err);
+                sloth::queryDecoder(run, 1, runCtx, inflightFd_, err);
             if (!sentences.empty() &&
                 utf8::lengthValidated(sentences[0]) == run.size()) {
                 const std::string &sent = sentences[0];
@@ -512,12 +512,12 @@ void ChewingEngine::startDecode(InputContext *ic, bool commitDirect) {
 
     const bool pureZh = std::all_of(
         comp_.toks.begin(), comp_.toks.end(),
-        [this](const slothing::SegTok &t) {
+        [this](const sloth::SegTok &t) {
             return t.zh && phoneticTable_.count(t.v);
         });
 
     worker_ = std::thread([this, icRef, generation, n, pureZh, commitDirect,
-                           toks = std::vector<slothing::SegTok>(comp_.toks),
+                           toks = std::vector<sloth::SegTok>(comp_.toks),
                            positions = std::move(positions),
                            context = std::move(context)]() {
         DaemonError err = DaemonError::None;
@@ -532,9 +532,9 @@ void ChewingEngine::startDecode(InputContext *ic, bool commitDirect) {
                 syls.push_back(t.v);
             }
             json full;
-            for (auto &sentence : slothing::queryDecoder(
+            for (auto &sentence : sloth::queryDecoder(
                      syls, n, context, inflightFd_, err, &full)) {
-                if (!slothing::matchesPositions(sentence, positions)) {
+                if (!sloth::matchesPositions(sentence, positions)) {
                     continue;
                 }
                 if (std::find(verified.begin(), verified.end(), sentence) ==
@@ -582,7 +582,7 @@ void ChewingEngine::startDecode(InputContext *ic, bool commitDirect) {
                     i++;
                 }
                 auto sentences =
-                    slothing::queryDecoder(run, 1, "", inflightFd_, err);
+                    sloth::queryDecoder(run, 1, "", inflightFd_, err);
                 if (!sentences.empty() &&
                     utf8::lengthValidated(sentences[0]) == run.size()) {
                     const std::string &sent = sentences[0];
@@ -611,10 +611,10 @@ void ChewingEngine::startDecode(InputContext *ic, bool commitDirect) {
         if (verified.empty()) {
             switch (err) {
             case DaemonError::Connect:
-                failNotice = "slothingd 未執行";
+                failNotice = "slothd 未執行";
                 break;
             case DaemonError::Io:
-                failNotice = "slothingd 無回應";
+                failNotice = "slothd 無回應";
                 break;
             default:
                 failNotice = "無法解碼";
@@ -872,7 +872,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             // learn the user's corrections before committing
             json payload = choosing_.learnPayload();
             if (!payload["chars"].empty() || !payload["phrases"].empty()) {
-                slothing::sendLearn(payload);
+                sloth::sendLearn(payload);
             }
             acceptConversion(ic, choosing_.composedSentence());
             return;
@@ -1086,7 +1086,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         if (!comp_.rawKeys.empty()) {
             return; // chewing: arrows ignored while composing a syllable
         }
-        using Move = slothing::ComposingCore::Move;
+        using Move = sloth::ComposingCore::Move;
         comp_.moveCursor(keyEvent.key().check(FcitxKey_Left)    ? Move::Left
                          : keyEvent.key().check(FcitxKey_Right) ? Move::Right
                          : keyEvent.key().check(FcitxKey_Home)  ? Move::Home
@@ -1212,7 +1212,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
         }
 
         // A tone key completes the last syllable -> finalize + live decode.
-        if (slothing::segToneMark(c) && !comp_.rawKeys.empty()) {
+        if (sloth::segToneMark(c) && !comp_.rawKeys.empty()) {
             keyEvent.filterAndAccept();
             comp_.rawKeys += c;
             comp_.commitRun(segmenter_.get(), enMode_);
@@ -1244,7 +1244,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
             const int ins = comp_.tokCursor < 0
                                 ? static_cast<int>(comp_.toks.size())
                                 : comp_.tokCursor;
-            comp_.insertToken({false, slothing::punctMark(rawSym, pit->second,
+            comp_.insertToken({false, sloth::punctMark(rawSym, pit->second,
                                                           comp_.toks, ins)});
             scheduleLiveDecode(ic);
             renderComposing(ic);
@@ -1253,7 +1253,7 @@ void ChewingEngine::keyEvent(const InputMethodEntry &, KeyEvent &keyEvent) {
 
         // Any zhuyin-mappable or alphanumeric key extends the raw run; the
         // segmenter re-decides zh/en live (auto code-switch, no mode key).
-        const bool feeds = slothing::dachenMap().count(c) ||
+        const bool feeds = sloth::dachenMap().count(c) ||
                            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
                            (c >= '0' && c <= '9') || c == '\'';
         if (feeds) {

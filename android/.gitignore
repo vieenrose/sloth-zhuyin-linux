@@ -6,7 +6,7 @@ build/
 .cxx/
 
 # Staged at build time from ../model by the copyModelAssets task.
-/app/src/main/assets/slothing/
+/app/src/main/assets/sloth/
 
 # Vendored ONNX Runtime (28 MB arm64 .so + headers). Regenerate with:
 #   curl -fsSLO https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/1.27.0/onnxruntime-android-1.27.0.aar

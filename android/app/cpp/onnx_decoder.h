@@ -1,10 +1,10 @@
 // OnnxDecoder — the on-device Decoder. NOW ggml-BACKED (libslothe / ternary
 // GGUF encoder cross-compiled for arm64-v8a); the class name is kept so callers
-// (jni_slothing.cpp, session.h) are untouched. Owns one slothe_model loaded
+// (jni_sloth.cpp, session.h) are untouched. Owns one slothe_model loaded
 // from a GGUF file PATH handed in from Kotlin (the asset is copied to app cache
-// first — see SlothingImeService), plus the syllable/char vocabularies and the
+// first — see SlothImeService), plus the syllable/char vocabularies and the
 // phonetic legality tables parsed from the asset strings. It is a faithful
-// in-process port of engine/slothingd/slothingd_e.py's decode: phonetic-legality
+// in-process port of engine/slothd/slothd_e.py's decode: phonetic-legality
 // mask, char-hint channel (INERT — the shipped GGUF has no hints input), ED1
 // typo repair with the insertion prior, n-best by lowest-margin flips,
 // per-position model-ranked candidates, phrase scoring, and the learn-store
@@ -30,7 +30,7 @@
 
 #include "slothe.h" // libslothe ggml forward: slothe_load / slothe_logits / ...
 
-namespace slothing {
+namespace sloth {
 
 class OnnxDecoder final : public Decoder {
 public:
@@ -63,7 +63,7 @@ public:
 
 private:
     static constexpr int CTX_MAX = 12;
-    // calibrated 2026-07-11 (see slothingd_e.py): 6/8 over-personalized
+    // calibrated 2026-07-11 (see slothd_e.py): 6/8 over-personalized
     static constexpr double CHAR_BONUS = 2.0, PHRASE_BONUS = 3.0;
 
     // one forward over B sequences of length T. syl is the flat [B*T] batch
@@ -107,6 +107,6 @@ private:
     std::mutex learnMu_;
 };
 
-} // namespace slothing
+} // namespace sloth
 
 #endif // _SLOTHING_ANDROID_ONNX_DECODER_H_

@@ -1,5 +1,5 @@
 // core_trace: feed a key sequence to the SHARED C++ core (the exact
-// SlothingSession state machine that fcitx5, IBus and Android all drive) and
+// SlothSession state machine that fcitx5, IBus and Android all drive) and
 // dump the observable UI state after every keystroke — same JSON schema as
 // demo_trace.mjs and chewing_trace.c, so compare_traces.py / compare_core_web.py
 // can diff the web reimplementation against the C++ core structurally.
@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-using namespace slothing;
+using namespace sloth;
 
 // A model-free Decoder: returns the phonetic table's top char per syllable so
 // the conversion path (beginConvert / commitLive) behaves structurally like the
@@ -100,9 +100,9 @@ static std::vector<Key> parseKeys(const std::string &s) {
 static bool isTone(char c) { return c == '3' || c == '4' || c == '6' || c == '7'; }
 
 int main(int argc, char **argv) {
-    // Isolate from any live slothingd (the shared core never touches a socket
+    // Isolate from any live slothd (the shared core never touches a socket
     // here — the injected StubDecoder is the only decode path).
-    setenv("SLOTHINGD_SOCKET", "/nonexistent/slothingd.sock", 1);
+    setenv("SLOTHD_SOCKET", "/nonexistent/slothd.sock", 1);
 
     std::string keystr = argc > 1 ? argv[1] : "";
     std::string tablePath = argc > 2 ? argv[2] : "../../model/phonetic_table.tsv";
@@ -131,7 +131,7 @@ int main(int argc, char **argv) {
     }
 
     std::string assoc = assocPath.empty() ? std::string() : slurp(assocPath);
-    SlothingSession sess(std::move(stub), table, assoc);
+    SlothSession sess(std::move(stub), table, assoc);
 
     auto keys = parseKeys(keystr);
     bool enMode = false; // lone-Shift forced-English toggle (<S>)
@@ -140,7 +140,7 @@ int main(int argc, char **argv) {
             enMode = !enMode;
             sess.setEnglishMode(enMode);
         } else if (k.ch) {
-            // printable ascii — mirror SlothingImeService.onKey():
+            // printable ascii — mirror SlothImeService.onKey():
             // space / tone finalize the run via toneOrSpace, everything else
             // (bopomofo, punctuation, digit, latin) via feedKey. In the
             // candidate window a digit picks; Enter/Esc handled below.
@@ -151,7 +151,7 @@ int main(int argc, char **argv) {
                 sess.toneOrSpace(static_cast<uint32_t>(k.ch));
             } else {
                 // English mode: EVERY key (space/tone included) goes through
-                // feedKey's passthrough branch — matches SlothingImeService.
+                // feedKey's passthrough branch — matches SlothImeService.
                 sess.feedKey(static_cast<uint32_t>(k.ch));
             }
         } else if (k.named == "B") {

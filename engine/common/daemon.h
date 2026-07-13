@@ -1,4 +1,4 @@
-// slothingd protocol client — frontend-free, shared by the fcitx5 and IBus
+// slothd protocol client — frontend-free, shared by the fcitx5 and IBus
 // engines (extracted from eim.cpp so both speak the daemon with one codec).
 // Blocking Unix-socket JSON requests with a hard timeout; callers that must
 // not block the UI thread run these on a worker and publish the fd into an
@@ -19,27 +19,27 @@
 #include <unistd.h>
 #include <vector>
 
-namespace slothing {
+namespace sloth {
 
 using json = nlohmann::json;
 
-constexpr int kSlothingdTimeoutMs = 3000;
+constexpr int kSlothdTimeoutMs = 3000;
 
-// Keep identical to default_socket_path() in slothingd and
-// packaging/run-slothingd.sh.
-inline std::string slothingdSocketPath() {
-    if (const char *env = std::getenv("SLOTHINGD_SOCKET")) {
+// Keep identical to default_socket_path() in slothd and
+// packaging/run-slothd.sh.
+inline std::string slothdSocketPath() {
+    if (const char *env = std::getenv("SLOTHD_SOCKET")) {
         return env;
     }
     if (const char *xdg = std::getenv("XDG_RUNTIME_DIR")) {
-        return std::string(xdg) + "/slothingd.sock";
+        return std::string(xdg) + "/slothd.sock";
     }
-    return "/tmp/slothingd.sock";
+    return "/tmp/slothd.sock";
 }
 
 enum class DaemonError { None, Connect, Io, Empty };
 
-// Sends a request to slothingd and returns its "sentences". Publishes the
+// Sends a request to slothd and returns its "sentences". Publishes the
 // connected fd into `fdSlot` so the owner can shutdown() it to unblock
 // this thread at teardown.
 inline std::vector<std::string>
@@ -52,15 +52,15 @@ sendDaemonRequest(const std::string &req, std::atomic<int> &fdSlot,
         return {};
     }
     struct timeval tv;
-    tv.tv_sec = kSlothingdTimeoutMs / 1000;
-    tv.tv_usec = (kSlothingdTimeoutMs % 1000) * 1000;
+    tv.tv_sec = kSlothdTimeoutMs / 1000;
+    tv.tv_usec = (kSlothdTimeoutMs % 1000) * 1000;
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    std::string sockPath = slothingdSocketPath();
+    std::string sockPath = slothdSocketPath();
     strncpy(addr.sun_path, sockPath.c_str(), sizeof(addr.sun_path) - 1);
     if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) !=
         0) {
@@ -188,6 +188,6 @@ queryPhrasesScored(const std::vector<std::string> &syllables, int at, int n) {
     return out;
 }
 
-} // namespace slothing
+} // namespace sloth
 
 #endif // _SLOTHING_COMMON_DAEMON_H_

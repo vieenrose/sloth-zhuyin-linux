@@ -1,7 +1,7 @@
 # 銀髮族鍵盤 — Design-Research Report
 
 > Deep research for the queued feature: an alternative keyboard layout for
-> seniors / aged users, exploiting Slothing's sentence-level LLM to absorb the
+> seniors / aged users, exploiting Sloth IME's sentence-level LLM to absorb the
 > ambiguity of a T9-style grouped bopomofo keypad. **Target device: an
 > iPhone-17-class smartphone (iOS custom keyboard extension)** — NOT a tablet or
 > e-ink device (updated 2026-07-12; the e-ink/BOOX profile, §1.5 & §5.5, is now
@@ -25,7 +25,7 @@
    402/3 ≈ **134 pt (~22 mm)** columns — *above* the elder-optimal 19 mm (Pro Max
    → ~24 mm). Grouping is *forced by the touch-target math*, before we even
    invoke the LLM. Height is the constrained axis on a phone, not width. (§1, §5)
-3. **The thing seniors hate most about zhuyin is exactly what Slothing
+3. **The thing seniors hate most about zhuyin is exactly what Sloth IME
    removes.** Taiwanese sources repeatedly name 同音字/選字 (homophone
    candidate-picking) as zhuyin's fatal flaw on phones; sentence-level 免選字
    conversion is the real UX bar. (§3, §4)
@@ -147,7 +147,7 @@ animation; static high-contrast black-on-white.
 
 **Pattern:** senior products fix launchers/contacts/SOS and **punt text entry
 to the stock keyboard or voice**. No widely-used product pairs an elder-sized
-grouped zhuyin grid with sentence-level disambiguation. That is Slothing's
+grouped zhuyin grid with sentence-level disambiguation. That is Sloth IME's
 opening.
 
 ## 3. Zhuyin input for seniors in Taiwan
@@ -163,7 +163,7 @@ opening.
 - **Voice is rising**; effort-expectancy (typing difficulty) pushes elders
   toward voice. [Frontiers UTAUT 2025](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2025.1618689/full)
 - **The stated pain point is candidate selection** (同音字/選字) — the single
-  most important finding: Slothing's 免選字 conversion attacks elders' #1
+  most important finding: Sloth IME's 免選字 conversion attacks elders' #1
   complaint.
 
 ### 3.2 The feature-phone 注音 grid (muscle memory)
@@ -206,7 +206,7 @@ opening.
   grammar tells the decoder which group-member is legal before any LM.
 - gcin's 21-key layout deliberately co-locates an initial + a final on one key
   (they rarely collide) rather than two initials.
-- **Tone can be dropped entirely** (already Slothing's default), the sentence
+- **Tone can be dropped entirely** (already Sloth IME's default), the sentence
   decoder absorbs it.
 
 ### 4.3 Existing grouped zhuyin IMEs (competitive baseline)
@@ -287,11 +287,11 @@ see §6.)
 ### 5.5 iOS platform realities (custom keyboard extension)
 
 The target is an **iOS custom keyboard extension** (App Extension) — a frontend
-Slothing does not yet have (current: fcitx5, IBus, Android, web). The extension
+Sloth IME does not yet have (current: fcitx5, IBus, Android, web). The extension
 sandbox drives several hard constraints:
 
 - **Memory limit (~60–70 MB, jetsam-enforced).** A keyboard extension is killed
-  if it exceeds it. **This is where Slothing's tiny-model bet pays off:** the
+  if it exceeds it. **This is where Sloth IME's tiny-model bet pays off:** the
   12 M int8 (~12 MB) and the ternary (~8 MB) load in-process with room to spare,
   where a multi-hundred-MB LLM would be killed outright. On-device decode via
   Core ML or ONNX-Runtime-iOS, in-process (no daemon) — mirrors the Android
@@ -333,7 +333,7 @@ sandbox drives several hard constraints:
 
 **Bottom line:** ship **Candidate A (大注音九宮格)** as default — familiar 3×4,
 ~120 dp/19 mm keys, table-order chunking, tone-free, no long-press/no mode
-toggles, one skippable ≤3-chip large prediction line, haptic-on, Slothing's
+toggles, one skippable ≤3-chip large prediction line, haptic-on, Sloth IME's
 sentence-LLM as the error-forgiveness engine that makes 免選字 real. Provide
 **Candidate B** + swabbing/hold-duration as accessibility profiles and an
 e-ink profile. Before locking specs, run the three §6 validations.

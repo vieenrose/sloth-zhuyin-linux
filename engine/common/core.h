@@ -1,4 +1,4 @@
-// The frontend-free Slothing IME state machine, shared by the fcitx5 and
+// The frontend-free Sloth IME IME state machine, shared by the fcitx5 and
 // IBus engines (extracted from eim.cpp so the chewing-parity behavior is
 // written once and unit-testable offline — see core_test.cpp).
 //
@@ -25,7 +25,7 @@
 #include <string>
 #include <vector>
 
-namespace slothing {
+namespace sloth {
 
 // Verifies `sentence` is exactly one candidate from each entry of `positions`,
 // in order -- so it can only be a combination of legal characters, never
@@ -213,7 +213,7 @@ public:
     // Decode transport. When null (the Linux fcitx5/ibus engines), rescore()
     // and ensurePhrases() call the Unix-socket free functions in daemon.h,
     // exactly as before. When set (the on-device Android frontend injects an
-    // in-process OnnxDecoder via SlothingSession), they route through it — so
+    // in-process OnnxDecoder via SlothSession), they route through it — so
     // the same state machine drives both with no behavioral change on Linux.
     Decoder *decoder_ = nullptr;
     void setDecoder(Decoder *d) { decoder_ = d; }
@@ -541,6 +541,6 @@ public:
     }
 };
 
-} // namespace slothing
+} // namespace sloth
 
 #endif // _SLOTHING_COMMON_CORE_H_

@@ -3,7 +3,7 @@
 
 Full pretraining (not LoRA) over model/train.bin, packing the stream into
 fixed-length blocks. Saves an HF LlamaForCausalLM checkpoint that
-convert_hf_to_gguf.py + model/register_tokenizer.py turn into a slothingd
+convert_hf_to_gguf.py + model/register_tokenizer.py turn into a slothd
 GGUF.
 
   python3 model/train_slothlm.py --data model/train.bin \

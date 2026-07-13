@@ -1,5 +1,5 @@
 /*
- * harvest: replicate the Slothing engine's candidate harvest against
+ * harvest: replicate the Sloth IME engine's candidate harvest against
  * libchewing, for the evaluation harness.
  *
  * Usage: ./harvest "su3cl3"   (default-layout key sequence; ' ' = tone 1)

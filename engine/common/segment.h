@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-namespace slothing {
+namespace sloth {
 
 struct SegTok {
     bool zh;        // zhuyin syllable (v = bopomofo, tone mark included) …
@@ -291,6 +291,6 @@ private:
     std::set<std::string> validBase_;
 };
 
-} // namespace slothing
+} // namespace sloth
 
 #endif

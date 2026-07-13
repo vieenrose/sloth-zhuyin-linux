@@ -7,7 +7,7 @@
   https://developer.android.com/develop/ui/views/touch-and-input/creating-input-method#define-ime
 -->
 <input-method xmlns:android="http://schemas.android.com/apk/res/android"
-    android:settingsActivity="com.slothing.ime.EnableActivity"
+    android:settingsActivity="com.sloth.ime.EnableActivity"
     android:icon="@drawable/ic_launcher"
     android:isDefault="false"
     android:supportsSwitchingToNextInputMethod="true">

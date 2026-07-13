@@ -89,7 +89,7 @@ ChatML. Tokenizer is unchanged (one token per bopomofo symbol / Han char).
 llama.cpp/GGUF is decoder-oriented; a bidirectional encoder is served via
 **onnxruntime** instead. This is *already* the demo's runtime (Transformers.js
 / ONNX), so the web demo is unaffected and gets faster (1 pass). The desktop
-`slothingd` would swap its llama.cpp backend for onnxruntime's C++ API — a
+`slothd` would swap its llama.cpp backend for onnxruntime's C++ API — a
 contained change, and arguably cleaner (one runtime, no GGUF conversion). The
 phonetic-legality masking stays identical.
 

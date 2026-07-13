@@ -3,7 +3,7 @@
 Multi-source, adversarially verified research pass (July 2026): 5 search
 angles, 24 sources fetched, 115 claims extracted, 25 surviving 3-vote
 verification, 0 refuted. Emphasis: concrete techniques and shipped-vs-research
-status, to position Slothing.
+status, to position Sloth IME.
 
 ## China (pinyin ecosystem): the research→industry arc
 
@@ -12,7 +12,7 @@ First published use of a Chinese GPT for pinyin conversion. A *frozen* GPT
 under constrained decoding reaches SOTA on perfect (fully spelled) pinyin —
 but collapses on abbreviated (initials-only) input. Two fixes recover it:
 pinyin-enriched context and pinyin-constrained training to separate
-homophones. *Validates Slothing's core premise (generic LM + phonetic
+homophones. *Validates Sloth IME's core premise (generic LM + phonetic
 constraints beats traditional conversion) and flags abbreviated/partial input
 as the hard case.*
 
@@ -59,10 +59,10 @@ Verified against current repos/wikis (June–July 2026):
   (wiki-confirmed — no bigrams, let alone neural).
 - **vChewing**: frequency-based Homa engine, separate TC/SC dictionaries —
   traditional statistical.
-- **libchewing / fcitx5-chewing**: classic n-gram/HMM, as Slothing already
+- **libchewing / fcitx5-chewing**: classic n-gram/HMM, as Sloth IME already
   knows firsthand.
 
-**Slothing's local-LLM grammar-constrained reranking has no verified
+**Sloth IME's local-LLM grammar-constrained reranking has no verified
 open-source precedent in the zhuyin ecosystem.** Even iFlytek's commercial
 system couldn't yet run on-device at 2.6B in 2023 — a local 230M model on
 desktop Linux is precisely the gap they named as future work.
@@ -87,7 +87,7 @@ desktop Linux is precisely the gap they named as future work.
 
 **Positioning takeaway:** even Apple's zh-TW AI push is post-typing writing
 assistance layered *around* the IME — the conversion step Taiwanese users
-fight daily (homophone 選字) remains unimproved by Apple. Slothing attacks
+fight daily (homophone 選字) remains unimproved by Apple. Sloth IME attacks
 exactly that step, on desktop Linux, open source; Keyly's existence shows
 there is commercial appetite for local-first AI zhuyin, with no open-source
 or Linux equivalent.
@@ -98,7 +98,7 @@ LLM features; ASUS 智慧輸入法 internals; Apple/Google zh-TW; RIME/librime L
 plugins; PTT/v2ex community experiments. Also unknown: whether iFlytek shipped
 on-device GeneInput after Nov 2023.
 
-## Implications for Slothing
+## Implications for Sloth IME
 1. **Reranking headroom is proven** (oracle CER 2.01 vs 11.27) — improving
    selection over libchewing's lattice is the right lever before considering
    generative decoding.
@@ -106,11 +106,11 @@ on-device GeneInput after Nov 2023.
    zhuyin-text alignment (PY-GEC's 0.26→0.82 lesson); explicit conversion
    tasks in fine-tuning should materially lift reranking quality.
 3. **Implicit feedback is free training signal** (GeneInput's RLHF recipe):
-   Slothing's accepted/rejected conversion candidates could drive local
+   Sloth IME's accepted/rejected conversion candidates could drive local
    preference tuning with zero privacy cost — all on-device.
 4. **Noisy/abbreviated input is the next frontier**: GeneInput's FK2C scope
    (wrong/missing keys, initials-only) is where generation beats reranking;
-   Slothing's tone-free-zhuyin ambition maps onto this.
+   Sloth IME's tone-free-zhuyin ambition maps onto this.
 5. **Hybrid is the shipped pattern everywhere** (PERT + n-gram + lexicon;
    GeneInput atop existing infra): keeping libchewing as the hot path matches
    industry practice, not just pragmatism.

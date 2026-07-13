@@ -12,8 +12,8 @@
 #include <string>
 #include <vector>
 
-using slothing::SegTok;
-using slothing::Segmenter;
+using sloth::SegTok;
+using sloth::Segmenter;
 
 static int failures = 0;
 

@@ -1,4 +1,4 @@
-// demo_trace: feed a key sequence to the Slothing web demo (headless) and
+// demo_trace: feed a key sequence to the Sloth IME web demo (headless) and
 // dump the observable UI state after every keystroke — same JSON schema as
 // chewing_trace.c, so compare_traces.py can diff the two structurally.
 //
@@ -24,7 +24,7 @@ const b=await chromium.launch();
 const p=await b.newPage({viewport:{width:680,height:1000}});
 await p.goto(base+'/index.html');
 await p.waitForFunction(()=>window.__ui && document.getElementById('hint').textContent.includes('直接打'),{timeout:30000});
-await p.evaluate(()=>localStorage.removeItem('slothing-learn'));
+await p.evaluate(()=>localStorage.removeItem('sloth-learn'));
 
 let prevOut=0;
 for(const k of keys){

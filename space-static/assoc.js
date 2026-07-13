@@ -2,7 +2,7 @@
 // lock-step (same dict format, same personal-bigram semantics, same ranking:
 // personal counts first, then dictionary completions; punctuation/latin
 // breaks adjacency and clears the prediction tail).
-export function makeAssoc(storageKey = 'slothing-assoc') {
+export function makeAssoc(storageKey = 'sloth-assoc') {
   let dict = {}, user = {}, tail = '';
   try { user = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch (e) {}
   const save = () => { try { localStorage.setItem(storageKey, JSON.stringify(user)); } catch (e) {} };

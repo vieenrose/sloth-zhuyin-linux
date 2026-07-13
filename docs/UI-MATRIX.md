@@ -17,7 +17,7 @@
 | **改詞(詞)** | aux 列 ⇧1-9(**不可點**,純文字) | aux 文字(同) | #phrases 晶片:⇧1-9/點/←→⏎ | 詞晶片:點(⇧N 僅為標示) |
 | **聯想(上字後)** | **無** | **無** | **無** | 聯:詞典 5178 字頭+個人 bigram,點選接龍(上限 5) |
 | **學習觸發** | Choosing 上字 diff | 同 | 每次選字/詞(localStorage) | Choosing 上字 + 句中即點改字 + **每次上字記 bigram** |
-| **學習儲存** | daemon learn.tsv | 同 | `slothing-learn`(音節→字) | learn.tsv + assoc_user.tsv |
+| **學習儲存** | daemon learn.tsv | 同 | `sloth-learn`(音節→字) | learn.tsv + assoc_user.tsv |
 
 ## 分類:平台合理 vs 真缺口
 
@@ -53,7 +53,7 @@
 
 ## fcitx5 vs IBus:同一狀態的實際版面(2026-07-11)
 
-![懶音 on IBus(真實截圖)vs fcitx5(依 eim.cpp 重現)](ui-ibus-vs-fcitx-v2.png)
+![樹懶 on IBus(真實截圖)vs fcitx5(依 eim.cpp 重現)](ui-ibus-vs-fcitx-v2.png)
 
 按鍵與語意**逐項相同**(同一個 ChoosingCore):↓ 開窗、1-9 選字、⇧1-9 選詞、
 ←→ 移動、⏎ 確認、Esc 兩段取消、PgUp/PgDn 翻頁。版面差異只有兩點,皆為
@@ -75,7 +75,7 @@ libchewing master)。重點:**chewing 自家的兩個前端之間本來就有差
 (預設每頁 5 vs 10、space-as-selection 預設關 vs 開、easy-symbol 預設開 vs
 關、簡/糊拼引擎選項只在 ibus 版)——同框架不同文化是常態。
 
-| 面向 | chewing(ibus/fcitx5) | 懶音(ibus/fcitx5) |
+| 面向 | chewing(ibus/fcitx5) | 樹懶(ibus/fcitx5) |
 |---|---|---|
 | 開窗 | ↓ 於游標字(同) | ↓ 於游標字 ✓ 對齊 |
 | 詞/字呈現 | **長度循環**:同一窗先最長詞,Down 翻過末頁→縮短詞距(台北市→北市→市→回捲) | **同時呈現**:詞列(aux)+字列(表)並列——刻意改良(使用者決策,見 waiver) |
@@ -86,6 +86,6 @@ libchewing master)。重點:**chewing 自家的兩個前端之間本來就有差
 | 失焦 | ibus 版上字(PREEDIT_COMMIT);fcitx 版可設 | 兩前端皆上字 ✓ 對齊 |
 | 窗內 j/k | 有(libchewing Rust 版:移動改字點) | 網頁版有 j/k;fcitx/ibus 用關窗←→移焦——小差異 |
 
-**結論**:懶音兩前端的差異(單/多 aux 行、桌面代畫)與 chewing 兩前端
+**結論**:樹懶兩前端的差異(單/多 aux 行、桌面代畫)與 chewing 兩前端
 的差異同源同級,屬框架常態;真正需要動手的仍是 UI-MATRIX 上表的 G1–G4
 (桌面/網頁聯想、網頁觸控條、句晶片學習)與筆電 fcitx 重建。

@@ -1,8 +1,8 @@
-# UI-parity suite: libchewing vs Slothing
+# UI-parity suite: libchewing vs Sloth IME
 
 Differential testing so behavior parity with chewing is **measured, not
 discovered case-by-case**: identical key sequences go to real libchewing and
-to the Slothing web demo; the observable UI state after every keystroke is
+to the Sloth IME web demo; the observable UI state after every keystroke is
 compared structurally (converted-vs-bopomofo shape, candidate window
 open/closed, cursor, commit events — never the chosen characters, which the
 model is *supposed* to improve on).
@@ -69,7 +69,7 @@ mirrored in eim.cpp in the same commits.
 
 ## Internal 4-way parity: the frontends vs each other
 
-The comparison above is *external* (Slothing vs libchewing). The other axis is
+The comparison above is *external* (Sloth IME vs libchewing). The other axis is
 *internal*: do the four frontends — fcitx5, IBus, Android, web — behave
 identically to one another? Three of them already do **by construction**:
 fcitx5 (`eim.cpp`), IBus (`main.cpp`) and Android (`session.h`) all drive the
@@ -87,7 +87,7 @@ g++ -std=c++17 -I android/app/cpp -I engine/common \
 python3 eval/ui-parity/compare_core_web.py            # 15/15
 ```
 
-`core_trace.cpp` drives the real `SlothingSession` dispatch (the Android/desktop
+`core_trace.cpp` drives the real `SlothSession` dispatch (the Android/desktop
 key handler) over the shared core with a model-free stub `Decoder` (parity is
 structural, so the model's ranking is irrelevant) and emits the same JSON as
 `demo_trace.mjs`. `compare_core_web.py` diffs the two over the 12 deterministic

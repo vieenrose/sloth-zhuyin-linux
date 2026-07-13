@@ -1,8 +1,8 @@
 #!/bin/sh
 # Fetch the 25M ternary GGUF from Hugging Face into model/slothe_t_25m
-# (what slothingd_slothe serves). Vocab/char maps come from the repo itself.
+# (what slothd_slothe serves). Vocab/char maps come from the repo itself.
 #
-# The previous 11.6M int8 ONNX (slothe_10m_onnx, served by slothingd_e.py) is
+# The previous 11.6M int8 ONNX (slothe_10m_onnx, served by slothd_e.py) is
 # no longer the default; recover it from git history if you need the ONNX path.
 set -e
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"

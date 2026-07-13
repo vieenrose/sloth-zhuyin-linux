@@ -1,0 +1,7 @@
+[InputMethod]
+Name=樹懶
+Icon=fcitx-sloth
+Label=懶
+LangCode=zh_TW
+Addon=sloth
+Configurable=True

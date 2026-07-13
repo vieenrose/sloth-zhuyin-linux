@@ -1,7 +1,0 @@
-[InputMethod]
-Name=懶音
-Icon=fcitx-slothing
-Label=懶
-LangCode=zh_TW
-Addon=slothing
-Configurable=True

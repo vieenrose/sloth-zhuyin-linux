@@ -63,7 +63,7 @@ slothe_model * slothe_load(const char * path) {
     slothe_model * m = new slothe_model();
     m->backend = ggml_backend_cpu_init();
     // parallelize the decode across the device's cores (capped); matches the
-    // engine/slothingd copy. Android/NDK has real pthreads.
+    // engine/slothd copy. Android/NDK has real pthreads.
     {
         unsigned hc = std::thread::hardware_concurrency();
         ggml_backend_cpu_set_n_threads(m->backend, hc ? (int) (hc < 8u ? hc : 8u) : 4);
@@ -361,7 +361,7 @@ static void run_full(slothe_model & m, int T, const int32_t * syl,
 
 #ifndef SLOTHE_NO_MAIN
 int main(int argc, char ** argv) {
-    BASE = (argc > 1) ? argv[1] : "/tmp/slothing.cpp/slothe_port";
+    BASE = (argc > 1) ? argv[1] : "/tmp/sloth.cpp/slothe_port";
     std::string gguf = BASE + "/slothe-t-25m.gguf";
     slothe_model * m = slothe_load(gguf.c_str());
     ggml_backend_cpu_set_n_threads(m->backend, 4);

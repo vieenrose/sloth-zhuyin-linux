@@ -37,7 +37,7 @@ are ones whose chewing harvest doesn't reconstruct the sentence.
 ```sh
 pip install "transformers>=4.45" "trl>=0.11" peft datasets accelerate bitsandbytes
 python finetune/train_lora.py --data finetune/train.jsonl \
-    --out out/lfm2-230m-slothing
+    --out out/lfm2-230m-sloth
 ```
 
 LoRA (r=16) on attn+MLP projections of `LiquidAI/LFM2.5-230M` (the base, not
@@ -48,28 +48,28 @@ GPU; a few epochs over ~100k examples is well under an hour on an A10G/L4.
 
 ```sh
 python -c "from peft import AutoPeftModelForCausalLM as M; \
-m=M.from_pretrained('out/lfm2-230m-slothing').merge_and_unload(); \
+m=M.from_pretrained('out/lfm2-230m-sloth').merge_and_unload(); \
 m.save_pretrained('out/merged'); \
 from transformers import AutoTokenizer as T; \
-T.from_pretrained('out/lfm2-230m-slothing').save_pretrained('out/merged')"
+T.from_pretrained('out/lfm2-230m-sloth').save_pretrained('out/merged')"
 
 python llm/llama.cpp/convert_hf_to_gguf.py out/merged \
-    --outfile out/lfm2-230m-slothing-f16.gguf --outtype f16
+    --outfile out/lfm2-230m-sloth-f16.gguf --outtype f16
 llm/llama.cpp/build/bin/llama-quantize \
-    out/lfm2-230m-slothing-f16.gguf \
-    llm/models/lfm2.5-230m-slothing/LFM2.5-230M-slothing-Q4_0.gguf Q4_0
+    out/lfm2-230m-sloth-f16.gguf \
+    llm/models/lfm2.5-230m-sloth/LFM2.5-230M-sloth-Q4_0.gguf Q4_0
 ```
 
 ## 4. A/B against the baseline
 
 ```sh
 # baseline daemon already benchmarked in eval/README.md; now the tuned one:
-./engine/slothingd/build/slothingd \
-    -m llm/models/lfm2.5-230m-slothing/LFM2.5-230M-slothing-Q4_0.gguf &
+./engine/slothd/build/slothd \
+    -m llm/models/lfm2.5-230m-sloth/LFM2.5-230M-sloth-Q4_0.gguf &
 python3 eval/run_eval.py            # compare sentence/char acc + latency
 ```
 
-Ship the tuned GGUF (point `run-slothingd.sh` at it) only if it beats the
+Ship the tuned GGUF (point `run-slothd.sh` at it) only if it beats the
 83% / 95.8% baseline without a latency regression. Record the new numbers in
 `eval/README.md` and `MODEL_BENCHMARKS.md`.
 

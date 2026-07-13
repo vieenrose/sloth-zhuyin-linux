@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Slothing desktop installer — one command, fcitx5 or IBus.
+# Sloth IME desktop installer — one command, fcitx5 or IBus.
 #
 #   ./install.sh              # auto-detect fcitx5 or IBus
 #   ./install.sh fcitx5       # force fcitx5
@@ -46,11 +46,11 @@ else
     say "ggml runtime already built — skipping"
 fi
 
-# ---- 2. decode daemon (slothingd_slothe, links ggml only) ------------------
-if [ ! -x engine/slothingd/build_slothe/slothingd_slothe ]; then
+# ---- 2. decode daemon (slothd_slothe, links ggml only) ------------------
+if [ ! -x engine/slothd/build_slothe/slothd_slothe ]; then
     say "building the decode daemon"
-    cmake -S engine/slothingd -B engine/slothingd/build_slothe -DCMAKE_BUILD_TYPE=Release >/dev/null
-    cmake --build engine/slothingd/build_slothe --target slothingd_slothe -j"$JOBS"
+    cmake -S engine/slothd -B engine/slothd/build_slothe -DCMAKE_BUILD_TYPE=Release >/dev/null
+    cmake --build engine/slothd/build_slothe --target slothd_slothe -j"$JOBS"
 else
     say "decode daemon already built — skipping"
 fi
@@ -65,7 +65,7 @@ fi
 
 # ---- 4. auto-start the daemon at login (systemd user service) --------------
 say "installing the decode daemon as a login service"
-packaging/install-slothingd-service.sh
+packaging/install-slothd-service.sh
 
 # ---- 5. the frontend engine ------------------------------------------------
 if [ "$FRONTEND" = fcitx5 ]; then
@@ -78,10 +78,10 @@ if [ "$FRONTEND" = fcitx5 ]; then
     cat <<EOF
 
 ============================================================================
-Done. One manual step: add "Slothing" as an input method.
+Done. One manual step: add "Sloth IME" as an input method.
 
   • Open  Fcitx5 Configuration  (or run: fcitx5-configtool)
-  • Add  "Slothing"  to your input-method list
+  • Add  "Sloth IME"  to your input-method list
   • Switch to it with  Ctrl+Space
 
 Then type   5k4  ->  ㄓㄜˋ  ->  這   (↓ opens candidates, Enter commits).
@@ -90,5 +90,5 @@ A lone Shift tap toggles 中/英.
 EOF
 else
     say "installing the IBus engine (delegates to its own installer)"
-    engine/ibus-slothing/install.sh
+    engine/ibus-sloth/install.sh
 fi

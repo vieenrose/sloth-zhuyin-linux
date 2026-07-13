@@ -177,7 +177,7 @@ def main():
         n += 1
         if args.max_sentences and n > args.max_sentences:
             break
-        # Serving-time context prefix (see build_user_message in slothingd):
+        # Serving-time context prefix (see build_user_message in slothd):
         # committed text before the cursor, phrased as fill-in-the-blank.
         # ~30% of task docs carry it, when a preceding sentence exists.
         ctx = prev + "＿＿＿\n" if prev and bucket(s, "ctx") < 30 else ""

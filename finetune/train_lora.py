@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""LoRA SFT for LFM2.5-230M on the Slothing conversion dataset.
+"""LoRA SFT for LFM2.5-230M on the Sloth IME conversion dataset.
 
 Run on a GPU workstation (not this CPU box). Expects a JSONL of chat
 examples from gen_dataset.py. Produces a LoRA adapter; merge + GGUF-convert
 per finetune/README.md, then A/B on eval/run_eval.py.
 
   pip install "transformers>=4.45" "trl>=0.11" peft datasets accelerate bitsandbytes
-  python finetune/train_lora.py --data train.jsonl --out out/lfm2-230m-slothing
+  python finetune/train_lora.py --data train.jsonl --out out/lfm2-230m-sloth
 """
 import argparse
 
@@ -21,7 +21,7 @@ BASE = "LiquidAI/LFM2.5-230M"  # base (not the -GGUF); fine-tune then convert
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
-    ap.add_argument("--out", default="out/lfm2-230m-slothing")
+    ap.add_argument("--out", default="out/lfm2-230m-sloth")
     ap.add_argument("--base", default=BASE)
     ap.add_argument("--epochs", type=float, default=3.0)
     ap.add_argument("--lr", type=float, default=2e-4)

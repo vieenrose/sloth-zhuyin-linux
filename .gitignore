@@ -35,4 +35,4 @@ model/hf_release/golden/
 # Android prebuilt ggml static libs — regenerate via android/build-ggml.sh
 android/app/ggml/lib/
 # daemon build dir
-engine/slothingd/build_slothe/
+engine/slothd/build_slothe/

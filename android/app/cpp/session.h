@@ -1,5 +1,5 @@
-// SlothingSession — the frontend-free IME driver behind the JNI. It is to
-// Android what SlothingImpl (engine/ibus-slothing/src/main.cpp) is to IBus:
+// SlothSession — the frontend-free IME driver behind the JNI. It is to
+// Android what SlothImpl (engine/ibus-sloth/src/main.cpp) is to IBus:
 // it owns the shared state machine (Segmenter + ComposingCore + ChoosingCore),
 // runs the same chewing-parity flow, and drives decode through an injected
 // Decoder instead of the Unix socket. The one difference from the Linux
@@ -38,7 +38,7 @@
 #include <string>
 #include <vector>
 
-namespace slothing {
+namespace sloth {
 
 // ---- view structs handed to the JNI (mapped to Kotlin data classes) --------
 
@@ -69,14 +69,14 @@ enum class KeyOutcome {
     Committed  // text was staged for commit; drain getCommit() + repaint
 };
 
-class SlothingSession {
+class SlothSession {
 public:
     // dec is owned by the session. table = the phonetic_table.tsv bytes
     // (syllable \t chars), same file the Linux addons install; it seeds both
     // the reading map and the Segmenter's valid bases. assocTsv = the 聯想
     // dictionary (head char \t completions, from model/assoc_tc.tsv);
     // assocUserPath = the personal bigram store ("" = in-memory only).
-    SlothingSession(std::unique_ptr<Decoder> dec, const std::string &table,
+    SlothSession(std::unique_ptr<Decoder> dec, const std::string &table,
                     const std::string &assocTsv = std::string(),
                     std::string assocUserPath = std::string())
         : dec_(std::move(dec)) {
@@ -911,6 +911,6 @@ private:
     std::mutex mu_;
 };
 
-} // namespace slothing
+} // namespace sloth
 
 #endif // _SLOTHING_ANDROID_SESSION_H_

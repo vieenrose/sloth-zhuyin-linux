@@ -2,7 +2,7 @@
 # Capture the Android demo GIF on a connected BOOX (or any adb device) by
 # INJECTING the dachen keystream as hardware keyevents — the same method that
 # produced docs/android-boox-demo-v10.gif. Keyevents route through
-# SlothingImeService.onKeyDown -> core.feedKey, so they are immune to the BOOX
+# SlothImeService.onKeyDown -> core.feedKey, so they are immune to the BOOX
 # rotated-touch-panel bug (`input tap` coords are broken; keyevents are not).
 #
 # Sentence: 晚上熬夜看 world cup，白天在 louisa
@@ -13,7 +13,7 @@
 #   - the fullwidth ，comes from Shift+Comma ('<' -> punctMap -> ，); it renders
 #     fullwidth because 看 sits in the clause before it (punctInEnglishClause=false)
 #
-# Prereqs: Slothing IME selected as the active keyboard, a text field focused
+# Prereqs: Sloth IME IME selected as the active keyboard, a text field focused
 # (e.g. a note/search box), device unlocked. Run:  bash android/capture-demo-gif.sh
 set -euo pipefail
 
@@ -30,7 +30,7 @@ echo "== device: $(adb get-serialno)"
 # --- keep the e-ink panel awake & responsive -------------------------------
 adb shell svc power stayon true
 adb shell dumpsys deviceidle disable >/dev/null || true
-adb shell settings put global slothing_flash_ms "$FLASH_MS"
+adb shell settings put global sloth_flash_ms "$FLASH_MS"
 echo "== flash hold = ${FLASH_MS}ms"
 
 rm -rf "$OUT"; mkdir -p "$OUT"
@@ -67,5 +67,5 @@ ffmpeg -y -v error -framerate 6 -pattern_type glob -i "$OUT/*.png" -i /tmp/adpal
 echo "== wrote $GIF ($(du -h "$GIF" | cut -f1))"
 
 # restore
-adb shell settings delete global slothing_flash_ms || true
+adb shell settings delete global sloth_flash_ms || true
 adb shell svc power stayon false

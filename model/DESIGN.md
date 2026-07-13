@@ -3,7 +3,7 @@
 Design synthesized from three research passes (July 2026): the Supra-50M
 recipe, the from-scratch tiny-Chinese-LM landscape, and single-RTX-3060
 data/compute feasibility. Goal: replace the generic LFM2.5-230M in
-`slothingd` with a much smaller model that is *better at our one task*.
+`slothd` with a much smaller model that is *better at our one task*.
 
 ## Why from-scratch beats fine-tuning a generic model here
 
@@ -118,14 +118,14 @@ ambiguity — fine for weights we train, note in the model card.
 ## Execution phases
 
 0. **GGUF dry-run first** (hours, no training): build the tokenizer, init a
-   random 35M checkpoint, run `convert_hf_to_gguf.py` + load in `slothingd`.
+   random 35M checkpoint, run `convert_hf_to_gguf.py` + load in `slothd`.
    Flushes out the entire compatibility risk before a single GPU-hour.
 1. Data pipeline at scale on the training box (corpus pull → filter → mix →
    synthetic task data → memmap).
 2. Train ~35M × ~1.5B tokens (~1–2 days on the 3060), loss-curve sanity
    checks at intervals.
 3. Convert → Q8_0 → A/B on the eval harness vs chewing and LFM2.5-230M.
-4. If gates pass: ship as slothingd default; upload weights + card to the
+4. If gates pass: ship as slothd default; upload weights + card to the
    user's HF account; keep LFM2.5 as a documented alternative.
 
 ## Status
@@ -134,7 +134,7 @@ ambiguity — fine for weights we train, note in the model card.
   one token per bopomofo symbol / common Han char); random ~34M
   LlamaForCausalLM converts to GGUF via `model/register_tokenizer.py` (maps
   our pre-tokenizer hash → `gpt-2`, the one llama.cpp gotcha the research
-  flagged); the GGUF loads in **unmodified** slothingd and produces
+  flagged); the GGUF loads in **unmodified** slothd and produces
   grammar-constrained candidate output. The full custom-model → daemon path is
   proven before spending any GPU time. Training box: RTX 3060 12GB, torch
   2.12+cu130, 400k-sentence TC corpus pulled.

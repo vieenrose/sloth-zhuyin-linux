@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component>
+  <name>org.freedesktop.IBus.Sloth</name>
+  <description>樹懶智慧輸入法(樹懶注音輸入法/Sloth IME): LLM-powered zhuyin IME (libchewing-free)</description>
+  <exec>@CMAKE_INSTALL_FULL_LIBEXECDIR@/ibus-engine-sloth --ibus</exec>
+  <version>@PROJECT_VERSION@</version>
+  <author>sloth-zhuyin-linux</author>
+  <license>LGPL-2.1-or-later</license>
+  <homepage>https://github.com/vieenrose/sloth-zhuyin-linux</homepage>
+  <textdomain>ibus-sloth</textdomain>
+  <engines>
+    <engine>
+      <name>sloth</name>
+      <language>zh_TW</language>
+      <license>LGPL-2.1-or-later</license>
+      <author>sloth-zhuyin-linux</author>
+      <icon>ibus-sloth</icon>
+      <layout>us</layout>
+      <longname>樹懶</longname>
+      <description>樹懶智慧輸入法(樹懶注音輸入法/Sloth IME): LLM-powered zhuyin IME (libchewing-free)</description>
+      <rank>0</rank>
+    </engine>
+  </engines>
+</component>

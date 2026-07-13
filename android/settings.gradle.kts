@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "slothing-ime"
+rootProject.name = "sloth-ime"
 include(":app")

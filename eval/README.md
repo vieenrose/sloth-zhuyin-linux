@@ -1,6 +1,6 @@
 # Evaluation harness
 
-Scores the full Slothing pipeline (libchewing harvest → slothingd → top-1)
+Scores the full Sloth IME pipeline (libchewing harvest → slothd → top-1)
 against a homophone-trap test set, replicating the engine's exact harvest
 logic so the numbers reflect what users actually get.
 

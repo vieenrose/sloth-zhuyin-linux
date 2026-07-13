@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Slothing IME — ONYX BOOX Tab Mini C, Android 11 (API 30), arm64-v8a.
-  The package/namespace (com.slothing.ime) is set in app/build.gradle.kts.
+  Sloth IME — ONYX BOOX Tab Mini C, Android 11 (API 30), arm64-v8a.
+  The package/namespace (com.sloth.ime) is set in app/build.gradle.kts.
 
   An IME is a bound Service: the framework binds it under the system-only
   BIND_INPUT_METHOD permission, finds it via the "android.view.InputMethod"
@@ -20,7 +20,7 @@
 
         <!-- The input method service. -->
         <service
-            android:name=".SlothingImeService"
+            android:name=".SlothImeService"
             android:label="@string/ime_name"
             android:permission="android.permission.BIND_INPUT_METHOD"
             android:exported="true">
@@ -33,7 +33,7 @@
         </service>
 
         <!-- Launcher + settings screen: deep-links to the system input-method
-             settings (enable) and the IME picker (switch to Slothing). Also the
+             settings (enable) and the IME picker (switch to Sloth IME). Also the
              IME's android:settingsActivity target (method.xml). -->
         <activity
             android:name=".EnableActivity"

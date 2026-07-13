@@ -3,7 +3,7 @@
  * observable UI state after every keystroke, as JSON lines. The reference
  * trace for the differential UI-parity suite (compare_traces.py).
  *
- * We record STRUCTURE, not characters (Slothing's model is supposed to pick
+ * We record STRUCTURE, not characters (Sloth IME's model is supposed to pick
  * different/better chars):
  *   {"key":"j","zh":2,"bopo":1,"cand":0,"cursor":2,"commit":0}
  *     zh     = converted (Chinese) chars in the preedit

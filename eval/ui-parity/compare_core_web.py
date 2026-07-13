@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Internal 4-way UI-parity: the Slothing web demo vs the SHARED C++ core.
+"""Internal 4-way UI-parity: the Sloth IME web demo vs the SHARED C++ core.
 
 fcitx5, IBus and Android all drive engine/common/core.h (ComposingCore +
 ChoosingCore) *by construction*, so they behave identically to one another. The

@@ -1,12 +1,12 @@
-# 懶音輸入法（Slothing）
+# 樹懶智慧輸入法（Sloth IME）
 
 **打注音，一顆本機小模型幫你整句轉成正確的中文——免選字。**
 
-樹懶注音輸入法（Slothing）用一顆從零訓練的 **25M 三值（ternary）語言模型**，
+樹懶注音輸入法（Sloth IME）用一顆從零訓練的 **25M 三值（ternary）語言模型**，
 在你的裝置上把注音解碼成繁體中文。不靠 libchewing、不連雲端，每個字都保證
 「音對得上」。桌面（fcitx5、IBus）、Android、瀏覽器四種前端共用同一顆模型。
 
-**▶ [線上試用（免安裝）](https://huggingface.co/spaces/Luigi/slothing-web)** ·
+**▶ [線上試用（免安裝）](https://huggingface.co/spaces/Luigi/sloth-web)** ·
 [English](README.en.md) ·
 [模型下載](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
 
@@ -34,13 +34,13 @@ cd sloth-zhuyin-linux
 ./install.sh          # 自動偵測 fcitx5 或 IBus,建置、下載模型、設定登入自啟
 ```
 
-裝好後,在你的輸入法設定裡加入「Slothing」,用 **Ctrl+Space** 切換就能用。
+裝好後,在你的輸入法設定裡加入「Sloth IME」,用 **Ctrl+Space** 切換就能用。
 （需要 `git`、`cmake`、C++ 編譯器;安裝引擎那一步會要 `sudo`。）
 
 | 其他平台 | 怎麼用 |
 |---|---|
 | **Android** | 下載 Releases 的 `.apk`——離線、模型內建、免 daemon |
-| **瀏覽器** | 免安裝,直接開 [線上 Demo](https://huggingface.co/spaces/Luigi/slothing-web) |
+| **瀏覽器** | 免安裝,直接開 [線上 Demo](https://huggingface.co/spaces/Luigi/sloth-web) |
 
 ## 準確度
 

@@ -8,7 +8,7 @@
 #ifndef _FCITX5_CHEWING_EIM_H_
 #define _FCITX5_CHEWING_EIM_H_
 
-// Slothing: a libchewing-free zhuyin input method. The IME state machine
+// Sloth IME: a libchewing-free zhuyin input method. The IME state machine
 // (token buffer, segment-conversion window, re-scoring, learning) lives in
 // the frontend-free shared core (engine/common/core.h) also used by the
 // IBus engine; this class is the fcitx5 adapter: key decoding, async decode
@@ -112,7 +112,7 @@ public:
 private:
     // Pull-model, three states. Composing: the token buffer accumulates typed
     // runs (shown as the preedit) with live decode. Enter/↓ send the
-    // syllables to slothingd's decode mode (Converting) and either commit
+    // syllables to slothd's decode mode (Converting) and either commit
     // directly or show the decoded sentence as an editable segment list
     // (Choosing).
     enum class ConvertState { Composing, Converting, Choosing };
@@ -146,12 +146,12 @@ private:
     EventDispatcher dispatcher_;
 
     // Shared frontend-free state machine (engine/common/core.h).
-    slothing::ComposingCore comp_;
-    slothing::ChoosingCore choosing_;
+    sloth::ComposingCore comp_;
+    sloth::ChoosingCore choosing_;
 
     // 聯想 next-word predictions (shared AssocEngine; 微軟新注音-style:
     // shown in aux after a commit, ⇧1-9 selects, any key dismisses).
-    slothing::AssocEngine assoc_;
+    sloth::AssocEngine assoc_;
     bool predicting_ = false;
     int predictChain_ = 0;
     void loadAssoc();
@@ -173,7 +173,7 @@ private:
     // ↓ focus hint for showConversionChoices (segment at the cursor). -1 =
     // first ambiguous segment.
     int pendingFocus_ = -1;
-    std::unique_ptr<slothing::Segmenter> segmenter_; // built from the table
+    std::unique_ptr<sloth::Segmenter> segmenter_; // built from the table
 
     ConvertState convertState_ = ConvertState::Composing;
     std::string convertBuffer_; // best decoded sentence (seed / original)
@@ -182,14 +182,14 @@ private:
     std::vector<std::vector<std::string>> convertPositions_;
     std::vector<std::pair<int, int>> convertIntervals_;
     std::vector<std::string> convertSyllables_;
-    std::vector<slothing::SegTok> convertToks_;
+    std::vector<sloth::SegTok> convertToks_;
 
     // Live (modeless) conversion state: the decoded preedit (spaces around
     // English) and the tokens it corresponds to. Used only when it matches
     // the current comp_.toks.
     std::string livePreedit_; // joined display (commit form)
     std::vector<std::string> liveDisp_; // per-token display, aligned to toks
-    std::vector<slothing::SegTok> liveToks_;
+    std::vector<sloth::SegTok> liveToks_;
     uint64_t liveGeneration_ = 0;
 
     std::string convertNotice_;

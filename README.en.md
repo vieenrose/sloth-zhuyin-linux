@@ -1,14 +1,14 @@
-# Slothing (懶音輸入法)
+# Sloth IME (樹懶智慧輸入法)
 
 **Type bopomofo; a small on-device model turns the whole sentence into correct
 Chinese — no candidate-picking.**
 
-Slothing decodes Zhuyin to Traditional Chinese with a from-scratch **25M ternary
+Sloth IME decodes Zhuyin to Traditional Chinese with a from-scratch **25M ternary
 language model** that runs on your device — no libchewing, no cloud, and every
 character guaranteed to be a legal reading of what you typed. Four frontends —
 desktop (fcitx5, IBus), Android, and the browser — share one model.
 
-**▶ [Try it now (no install)](https://huggingface.co/spaces/Luigi/slothing-web)** ·
+**▶ [Try it now (no install)](https://huggingface.co/spaces/Luigi/sloth-web)** ·
 [中文說明](README.md) ·
 [Model](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
 
@@ -36,14 +36,14 @@ cd sloth-zhuyin-linux
 ./install.sh        # auto-detects fcitx5 or IBus: builds, downloads the model, sets up autostart
 ```
 
-Then add **"Slothing"** in your input-method settings and switch to it with
+Then add **"Sloth IME"** in your input-method settings and switch to it with
 **Ctrl+Space**. (Needs `git`, `cmake`, a C++ compiler; the engine-install step
 asks for `sudo`.)
 
 | Other platforms | How |
 |---|---|
 | **Android** | Grab the `.apk` from Releases — offline, model built in, no daemon |
-| **Browser** | Nothing to install: [live demo](https://huggingface.co/spaces/Luigi/slothing-web) |
+| **Browser** | Nothing to install: [live demo](https://huggingface.co/spaces/Luigi/sloth-web) |
 
 ## Accuracy
 
@@ -71,7 +71,7 @@ so no bitnet.cpp is needed.
 ## How it works
 
 Zhuyin→Chinese is *aligned sequence labeling* (N syllables → N characters, each
-constrained to its homophone set), so Slothing uses a **bidirectional encoder**
+constrained to its homophone set), so Sloth IME uses a **bidirectional encoder**
 (non-autoregressive, one forward pass) rather than a causal LM. A dependency-free
 segmenter parses the keystream (auto zh/en) and decoding is masked per position to
 legal readings.

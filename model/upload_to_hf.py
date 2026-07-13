@@ -34,7 +34,7 @@ tags:
 SlothLM is a ~34M-parameter LlamaForCausalLM trained from scratch to do one
 job well: convert typed Zhuyin (Bopomofo) into Traditional Chinese for an
 input method. It is the decoder for
-[Slothing](https://github.com/vieenrose/sloth-zhuyin-linux), a **libchewing-
+[Sloth IME](https://github.com/vieenrose/sloth-zhuyin-linux), a **libchewing-
 free** fcitx5 IME: SlothLM decodes the syllables directly under a phonetic-
 legality grammar (each position constrained to the characters actually read
 that way), so output is always phonetically valid, never hallucinated.
@@ -52,7 +52,7 @@ char at ~125 ms** (CPU, f16) — ahead of the libchewing statistical baseline
   symbol and per common Han char (so GBNF candidate constraints align to
   token boundaries)
 - **Context:** 1024
-- **Intended use:** grammar-constrained candidate selection inside Slothing;
+- **Intended use:** grammar-constrained candidate selection inside Sloth IME;
   not a general-purpose chat/knowledge model
 
 {eval_block}

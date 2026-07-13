@@ -127,7 +127,7 @@ def main():
     tonal = [l.split("\t")[0] for l in open(args.table, encoding="utf-8")
              if "\t" in l and any(t in l.split("\t")[0] for t in TONES)]
     ZH = tonal[::7]
-    EN = ("model world banana slothing kubernetes javascript keyboard password "
+    EN = ("model world banana sloth kubernetes javascript keyboard password "
           "apple random coffee video manager github docker linux chrome firefox "
           "android laptop server client router monitor speaker battery charger "
           "online upload download update install backup restore reboot").split()

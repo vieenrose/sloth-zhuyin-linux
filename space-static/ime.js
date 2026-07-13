@@ -1,4 +1,4 @@
-// Slothing static web IME — chewing-style UX, fully in-browser.
+// Sloth IME static web IME — chewing-style UX, fully in-browser.
 //  * inline conversion: preedit shows CHINESE as you type (live decode);
 //    bopomofo visible only for the syllable being composed
 //  * Enter commits; Space = tone 1
@@ -77,13 +77,13 @@ const bufKey = () => committed.map(t=>t.t+':'+t.v).join('|');
 // ?fresh — start from a factory state (demos, testing): drop the persisted
 // learn store + personal 聯想 bigrams before either module reads them
 if (new URLSearchParams(location.search).has('fresh')) {
-  try{ localStorage.removeItem('slothing-learn'); localStorage.removeItem('slothing-assoc'); }catch(e){}
+  try{ localStorage.removeItem('sloth-learn'); localStorage.removeItem('sloth-assoc'); }catch(e){}
 }
 
 // session learning (persisted): syllable -> last picked char
 let learn = {};
-try{ learn = JSON.parse(localStorage.getItem('slothing-learn')||'{}'); }catch(e){}
-const saveLearn = ()=>{ try{localStorage.setItem('slothing-learn',JSON.stringify(learn));}catch(e){} };
+try{ learn = JSON.parse(localStorage.getItem('sloth-learn')||'{}'); }catch(e){}
+const saveLearn = ()=>{ try{localStorage.setItem('sloth-learn',JSON.stringify(learn));}catch(e){} };
 
 // 聯想 (dictionary + personal bigrams; lock-step with engine/common/assoc.h)
 const assoc = makeAssoc();

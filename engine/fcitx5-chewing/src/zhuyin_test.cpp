@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-using slothing::ZhuyinBuffer;
+using sloth::ZhuyinBuffer;
 
 static int failures = 0;
 

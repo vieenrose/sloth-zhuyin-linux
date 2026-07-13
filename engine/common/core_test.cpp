@@ -7,7 +7,7 @@
 #include "core.h"
 #include <cstdio>
 
-using namespace slothing;
+using namespace sloth;
 
 static int failures = 0;
 #define CHECK(cond, desc)                                                      \
@@ -34,9 +34,9 @@ static ChoosingCore fixture(int pendingFocus = -1) {
 }
 
 int main() {
-    // Isolate from a live slothingd: point the socket at nowhere so daemon
+    // Isolate from a live slothd: point the socket at nowhere so daemon
     // calls fail fast and phrase lists are deterministically empty.
-    setenv("SLOTHINGD_SOCKET", "/nonexistent/slothingd.sock", 1);
+    setenv("SLOTHD_SOCKET", "/nonexistent/slothd.sock", 1);
     // ---- matchesPositions ----
     {
         std::vector<std::vector<std::string>> pos = {{"我", "窩"}, {"在"}};

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the phonetic table: bopomofo syllable -> legal Traditional characters.
 
-This is the libchewing-free legality constraint: slothingd's decode mode maps
+This is the libchewing-free legality constraint: slothd's decode mode maps
 each typed syllable to this table's character set and builds a GBNF grammar
 from it, so the model can only ever emit a character actually read that way.
 

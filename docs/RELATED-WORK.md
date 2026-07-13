@@ -1,6 +1,6 @@
 # Related Work & Baselines
 
-Prior art closest to Slothing, and what we take from it.
+Prior art closest to Sloth IME, and what we take from it.
 
 ## Closest prior system — cross-multi-IME integration (TAAI 2024)
 
@@ -8,7 +8,7 @@ Prior art closest to Slothing, and what we take from it.
 編輯器整合系統》**, TAAI 2024 (計畫 113-2813-C-008-024-E).
 
 A deep-learning system that merges **注音 / 英文 / 倉頡 / 漢語拼音** into one
-keystream — the same problem space as Slothing, and it uses the **same dachen
+keystream — the same problem space as Sloth IME, and it uses the **same dachen
 keystroke encoding** (大城市 = `284t/6g4`), so the numbers are directly
 comparable. Three phases:
 
@@ -28,9 +28,9 @@ mis-keys as slips to the 8 physically-neighbouring QWERTY keys (key `h` →
 `t y u / g h j / b n m`), used both to *simulate* training noise and to *correct*
 at decode time.
 
-## How Slothing differs
+## How Sloth IME differs
 
-| | TAAI 2024 | Slothing |
+| | TAAI 2024 | Sloth IME |
 |---|---|---|
 | **Disambiguation** | candidate selection (Trie + LD + frequency) → still **選字** | legality-masked sentence LLM → **免選字** |
 | **en/zh split** | 4 learned DNN classifiers | DP segmenter (`engine/common/segment.h`, [[zhuyin-wins]]) |
@@ -38,15 +38,15 @@ at decode time.
 | **Mixed-script typography** | not addressed | no CJK-Latin autospace, clause-based punct width ([`ZH-EN-MIXING.md`](ZH-EN-MIXING.md)) |
 | **Whole-sequence metric** | E2E **0.613** (mixed multi-IME, strict) | **免選字 72 %** held-out (zh-only, whole-sentence) |
 
-The core advance: Slothing **replaces the candidate-selection stage with a
+The core advance: Sloth IME **replaces the candidate-selection stage with a
 legality-masked sentence model** — the thing the TAAI system still leaves to the
-user (Phase 2/3 選字) is exactly what Slothing removes. (Metrics aren't
+user (Phase 2/3 選字) is exactly what Sloth IME removes. (Metrics aren't
 apples-to-apples — different tasks, sets, and strictness — but they bracket the
 same regime.)
 
 ## Adopted from it — the 8-adjacency error model
 
-Slothing's simulated typo-noise (`model/train_slothe_ternary.py`,
+Sloth IME's simulated typo-noise (`model/train_slothe_ternary.py`,
 `build_typo_neighbors`) previously treated **any** edit-distance-1 syllable as an
 equally likely slip — physically wrong (`ㄉ→ㄙ` was as likely as `ㄉ→ㄊ`). It now
 constrains substitutions to the **QWERTY 8-neighbourhood** (`_dachen_key_adjacency`):

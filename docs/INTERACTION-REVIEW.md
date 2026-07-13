@@ -1,11 +1,11 @@
-# Interaction review: Slothing vs chewing / 微軟新注音 / 自然 / 華碩智慧
+# Interaction review: Sloth IME vs chewing / 微軟新注音 / 自然 / 華碩智慧
 
-A differential review of Slothing's **interaction contracts** against the four
+A differential review of Sloth IME's **interaction contracts** against the four
 reference 注音 IMEs, grounded in the actual code (`engine/common/core.h`,
 `core_test.cpp`, `android/app/cpp/session.h`, `engine/fcitx5-chewing/src/eim.cpp`)
 and in the cross-frontend parity harness (`eval/ui-parity/`). This is about
 *behaviour* — what a key does and what the UI shows — not decode accuracy (that
-is `eval/`, `slothing-real-benchmark`).
+is `eval/`, `sloth-real-benchmark`).
 
 Verdicts: **=** matches the references · **~** intended divergence (waiver) ·
 **△** real gap / recommendation.
@@ -17,11 +17,11 @@ Verdicts: **=** matches the references · **~** intended divergence (waiver) ·
 | **libchewing** | Classic bopomofo: tone finalizes a syllable, modal ↓ candidate window, Shift = English passthrough. Open source — the behavioural floor. |
 | **微軟新注音** | Modeless intelligent conversion (免選字): type a whole reading, it converts; ↓ / space to correct; fullwidth Chinese punctuation; Shift+Space fullwidth toggle; Shift = English passthrough. |
 | **自然輸入法** | Intelligent conversion in the 微軟 mould, historically the strongest 免選字; fullwidth-Chinese / halfwidth-English punctuation convention. |
-| **華碩智慧輸入法** | 注音/英文**混合模式 — 免按 Shift 中英混打** (auto zh/en switching), autocomplete, 刪除贅字, Shift+Space fullwidth toggle. The closest sibling to Slothing's model. |
+| **華碩智慧輸入法** | 注音/英文**混合模式 — 免按 Shift 中英混打** (auto zh/en switching), autocomplete, 刪除贅字, Shift+Space fullwidth toggle. The closest sibling to Sloth IME's model. |
 
-The single most important observation: **Slothing's headline behaviour — auto
+The single most important observation: **Sloth IME's headline behaviour — auto
 zh/en code-switching without a mode key — is not a divergence from the field, it
-is exactly 華碩智慧's model.** Slothing sits in the 微軟/自然/華碩 "intelligent,
+is exactly 華碩智慧's model.** Sloth IME sits in the 微軟/自然/華碩 "intelligent,
 modeless" lineage, using chewing only as the low-level keying/candidate floor.
 
 ## Dimension-by-dimension
@@ -35,7 +35,7 @@ modeless" lineage, using chewing only as the low-level keying/candidate floor.
 - Space between two English words is kept literal (faithful, no CJK-Latin autospace). **=** 自然/華碩 halfwidth-English convention. See `docs/ZH-EN-MIXING.md`.
 
 ### Modeless conversion (免選字)
-- Type a whole reading; the model converts without opening a window; ↓ only to correct. **=** 微軟/自然/華碩 (the whole point). **△** vs chewing, which is more per-syllable — an intended *improvement*, and the real accuracy bar (see `slothing-real-benchmark`).
+- Type a whole reading; the model converts without opening a window; ↓ only to correct. **=** 微軟/自然/華碩 (the whole point). **△** vs chewing, which is more per-syllable — an intended *improvement*, and the real accuracy bar (see `sloth-real-benchmark`).
 
 ### Candidate window (↓)
 - ↓ opens a modal window on the segment at the cursor; a pick **closes** the window (no auto-advance); Esc closes; typing/Enter ignored while modal. **=** chewing semantics (implemented from `chewingio.c`, not guessed — `core_test.cpp`).
@@ -79,5 +79,5 @@ Intended divergences (all waived/tracked):
 3. Web-demo-only English buffering (the 3 shipping frontends passthrough like the references).
 
 Recommendations (optional, not gaps):
-- **△ 華碩-style 刪除贅字 / 框選查詢** — 華碩 advertises "delete redundant chars" and select-to-query. Slothing has learning + the ↓ window but no explicit "select a committed span and re-query" gesture. If a future desktop gesture is wanted, that is the reference to match. Low priority; the modeless path already covers most of it.
+- **△ 華碩-style 刪除贅字 / 框選查詢** — 華碩 advertises "delete redundant chars" and select-to-query. Sloth IME has learning + the ↓ window but no explicit "select a committed span and re-query" gesture. If a future desktop gesture is wanted, that is the reference to match. Low priority; the modeless path already covers most of it.
 - **△ Decide whether English buffering should ever reach the shipping frontends.** Today it is web-only by choice. If users ask for editable English on desktop/mobile, `core.h`'s enMode passthrough (`eim.cpp:1171`, `session.h:129`, `main.cpp`) is the single place to change, and the parity waiver would flip to a strict contract. Currently: **keep passthrough** (matches all four references).

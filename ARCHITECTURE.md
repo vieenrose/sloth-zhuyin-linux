@@ -1,6 +1,6 @@
 # Architecture
 
-Slothing(懶音輸入法,全名「樹懶注音輸入法」)is an LLM-assisted Zhuyin (Bopomofo) input method for fcitx5 on
+Sloth IME(樹懶智慧輸入法,全名「樹懶注音輸入法」)is an LLM-assisted Zhuyin (Bopomofo) input method for fcitx5 on
 Linux. It keeps libchewing as the fast, proven decoder and adds an on-demand
 local-LLM conversion step that reranks libchewing's own candidates. Nothing
 leaves the machine.
@@ -14,10 +14,10 @@ leaves the machine.
 ┌──────────────────────┐        Ctrl+Enter (convert key)
 │ fcitx5 engine        │  ───────────────────────────────┐
 │ engine/fcitx5-chewing│                                  │
-│  (libslothing.so)    │                                  ▼
+│  (libsloth.so)    │                                  ▼
 │  - libchewing decode │                        ┌───────────────────────┐
-│  - ConvertState SM   │   harvest candidates   │ slothingd daemon      │
-│  - CommonCandidateList│  ────────────────────▶ │ engine/slothingd      │
+│  - ConvertState SM   │   harvest candidates   │ slothd daemon      │
+│  - CommonCandidateList│  ────────────────────▶ │ engine/slothd      │
 │    of LLM sentences  │   {positions, n, ctx}  │  - llama.cpp C API    │
 │  - learns on accept  │ ◀──────────────────────│  - GBNF grammar over  │
 └──────────────────────┘   {sentences:[...]}    │    the real candidates│
@@ -26,7 +26,7 @@ leaves the machine.
    committed text                                └───────────────────────┘
 ```
 
-### `engine/fcitx5-chewing/` — the fcitx5 addon (`libslothing.so`)
+### `engine/fcitx5-chewing/` — the fcitx5 addon (`libsloth.so`)
 A fork of upstream fcitx5-chewing, re-namespaced so it installs side-by-side
 with stock chewing. In **Composing** state it *is* stock chewing — no LLM work
 during ordinary typing. The convert key (default Ctrl+Enter) moves through a
@@ -38,7 +38,7 @@ correction (`chewing_userphrase_add`, tone-correct via `chewing_get_phoneSeq`).
 Long sentences convert only a tail window; the prefix becomes context. The UI
 (diff-highlighting, error feedback) is under separate iteration.
 
-### `engine/slothingd/` — the reranker daemon
+### `engine/slothd/` — the reranker daemon
 A small C++ daemon linking llama.cpp's C API directly (no llama-server, no
 Python). One request = one connection on a per-user `$XDG_RUNTIME_DIR` socket.
 For each request it builds a **GBNF grammar** that admits exactly the
@@ -50,7 +50,7 @@ because the SlothLM model is trained against it.
 
 ### `llm/` — the local runtime (not vendored)
 A llama.cpp checkout (built for headers + libs the daemon links) plus the GGUF
-model. Set up with `scripts/setup-llm.sh`. Runs via `packaging/run-slothingd.sh`
+model. Set up with `scripts/setup-llm.sh`. Runs via `packaging/run-slothd.sh`
 (manual start by design). The daemon being down just means conversion is a
 no-op; typing still works as stock chewing.
 

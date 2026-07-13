@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 懶音「夜森林」dark palette (docs/THEME.md). Only sloth_* flips at night;
+<!-- 樹懶「夜森林」dark palette (docs/THEME.md). Only sloth_* flips at night;
      the eink_* palette is fixed — e-ink panels have no dark mode worth having. -->
 <resources>
     <color name="sloth_bg">#FF18211B</color>

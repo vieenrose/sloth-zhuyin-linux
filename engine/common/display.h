@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace slothing {
+namespace sloth {
 
 // ---- UTF-8 (dependency-free replacements for fcitx-utils/utf8) ----------
 
@@ -219,6 +219,6 @@ inline std::string punctMark(char shiftedKey, const char *fullwidth,
     return std::string(fullwidth);
 }
 
-} // namespace slothing
+} // namespace sloth
 
 #endif // _SLOTHING_COMMON_DISPLAY_H_

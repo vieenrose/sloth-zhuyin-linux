@@ -7,7 +7,7 @@
             surface is a flat fill so a page refresh is one clean redraw.
             Forced on ONYX devices (Skin.EINK), day and night alike.
 
-  sloth_* — 懶音「樹梢」light palette for ordinary LCD/OLED phones; the
+  sloth_* — 樹懶「樹梢」light palette for ordinary LCD/OLED phones; the
             「夜森林」dark variant lives in values-night/. Bark/amber is the
             primary (pressed) accent, leaf green the secondary (focus).
 -->

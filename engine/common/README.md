@@ -1,15 +1,15 @@
 # engine/common — the shared, frontend-free IME core
 
-One implementation of Slothing's chewing-parity behavior, used verbatim by
+One implementation of Sloth IME's chewing-parity behavior, used verbatim by
 both the fcitx5 addon (`engine/fcitx5-chewing`) and the IBus engine
-(`engine/ibus-slothing`). Everything here is header-only, has no
+(`engine/ibus-sloth`). Everything here is header-only, has no
 fcitx/ibus/glib dependency, and is unit-tested offline:
 
 | header | contents | tests |
 |---|---|---|
 | `zhuyin.h` | Dàqiān key→bopomofo tables, ZhuyinBuffer FSM | `../fcitx5-chewing/src/zhuyin_test.cpp`, `zhuyin_keys_test.cpp` |
 | `segment.h` | DP keystream segmenter (auto zh/en), lock-step with `space-static/segment.js` | `../fcitx5-chewing/src/segment_test.cpp` (mirrors `test-segment.mjs`) |
-| `daemon.h` | slothingd Unix-socket JSON client (decode / hints / phrases / learn) | exercised end-to-end by the IBus smoke test |
+| `daemon.h` | slothd Unix-socket JSON client (decode / hints / phrases / learn) | exercised end-to-end by the IBus smoke test |
 | `display.h` | UTF-8 utils, zh/en join spacing, fullwidth, symbol menu, punctuation map | `core_test.cpp` |
 | `core.h` | ComposingCore (token buffer + cursor + stale-preserving display) and ChoosingCore (candidate window: highlight loop, pick-closes-window, hint re-scoring, learn diff) | `core_test.cpp` |
 

@@ -1,6 +1,6 @@
 # Reranker model benchmarks
 
-Quick, informal benchmark to pick the LLM for `slothingd` (Milestone 2). Not
+Quick, informal benchmark to pick the LLM for `slothd` (Milestone 2). Not
 a rigorous eval — two hand-picked homophone-heavy test sentences, run
 through llama.cpp's grammar-constrained decoding so the model can only ever
 emit one of libchewing's real candidate characters per syllable position
@@ -21,8 +21,8 @@ with a GBNF grammar restricting output to exactly those candidates,
 - **Test 3** (LFM2.5-230M only, added after it aced 1+2): `他是老師`.
 - **Test 4** (LFM2.5-230M only): `今天天氣很好`.
 
-Models after LFM2.5-1.2B were run through the actual `slothingd` daemon
-(`engine/slothingd/`, this project's own llama.cpp-C-API Unix-socket
+Models after LFM2.5-1.2B were run through the actual `slothd` daemon
+(`engine/slothd/`, this project's own llama.cpp-C-API Unix-socket
 reranker) rather than `llama-server`, once it was working — same
 grammar-constrained-decoding technique either way.
 
@@ -58,6 +58,6 @@ grammar-constrained-decoding technique either way.
   classification-shaped task, and smaller LFM2.5 checkpoints aren't simply
   "worse" than bigger ones on it — worth retesting if quality regresses on
   harder sentences later.
-- **Decision: LFM2.5-230M** is what `slothingd` (Milestone 2) ships with —
+- **Decision: LFM2.5-230M** is what `slothd` (Milestone 2) ships with —
   it's simultaneously the smallest, fastest, and most accurate model
   benchmarked.

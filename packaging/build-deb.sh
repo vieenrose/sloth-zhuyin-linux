@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build the fcitx5-slothing .deb (the fcitx5 addon). The decode daemon + model
+# Build the fcitx5-sloth .deb (the fcitx5 addon). The decode daemon + model
 # are NOT in the package — they come from ./install.sh (or packaging/
-# fetch-model.sh + install-slothingd-service.sh); the addon behaves like stock
-# chewing until slothingd is running.
+# fetch-model.sh + install-slothd-service.sh); the addon behaves like stock
+# chewing until slothd is running.
 #
 # Needs: cmake, g++, pkg-config, fcitx5 dev headers, libchewing dev headers.
 # Missing build deps are installed with apt (sudo) unless SLOTHING_NO_APT=1.
@@ -41,7 +41,7 @@ cat <<EOF
 
 Install the addon:   sudo apt install "$DEB"
 Then the decoder:    ./install.sh          # builds the daemon, fetches the 18 MB model, sets up autostart
-                     #  (or: packaging/fetch-model.sh && packaging/install-slothingd-service.sh)
+                     #  (or: packaging/fetch-model.sh && packaging/install-slothd-service.sh)
 
-The addon behaves like stock chewing until the slothingd daemon is running.
+The addon behaves like stock chewing until the slothd daemon is running.
 EOF

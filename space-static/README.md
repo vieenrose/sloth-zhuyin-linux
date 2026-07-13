@@ -1,5 +1,5 @@
 ---
-title: 懶音輸入法 Slothing
+title: 樹懶智慧輸入法 Sloth IME
 emoji: 🦥
 colorFrom: yellow
 colorTo: gray
@@ -11,7 +11,7 @@ models:
   - Luigi/slothe-t-25m-zhuyin
 ---
 
-# Slothing — a web Zhuyin (Bopomofo) input method
+# Sloth IME — a web Zhuyin (Bopomofo) input method
 
 Type Zhuyin on the on-screen Dàqiān keyboard (or your physical keyboard); a
 **25M-parameter ternary (W1.58A8)** from-scratch bidirectional encoder
@@ -33,6 +33,6 @@ disambiguation): honest held-out **86% homophone-hard / 76% 免選字 sentence /
 same `libslothe` (ggml) core across all four frontends (fcitx5, IBus, Android,
 web), ~2.3× the throughput of int8.
 
-Demo of [Slothing](https://github.com/vieenrose/sloth-zhuyin-linux), a
+Demo of [Sloth IME](https://github.com/vieenrose/sloth-zhuyin-linux), a
 libchewing-free IME. **No server, no cloud** — a static Space; all inference
 runs client-side.

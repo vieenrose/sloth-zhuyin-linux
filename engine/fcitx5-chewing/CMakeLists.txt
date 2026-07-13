@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.6)
-project(fcitx5-slothing VERSION 5.0.14)
+project(fcitx5-sloth VERSION 5.0.14)
 
 find_package(ECM REQUIRED 1.0.0)
 set(CMAKE_MODULE_PATH ${ECM_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
@@ -23,18 +23,18 @@ add_subdirectory(src)
 add_subdirectory(data)
 add_subdirectory(po)
 
-fcitx5_translate_desktop_file(org.fcitx.Fcitx5.Addon.Slothing.metainfo.xml.in
-                              org.fcitx.Fcitx5.Addon.Slothing.metainfo.xml XML)
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/org.fcitx.Fcitx5.Addon.Slothing.metainfo.xml" DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
+fcitx5_translate_desktop_file(org.fcitx.Fcitx5.Addon.Sloth.metainfo.xml.in
+                              org.fcitx.Fcitx5.Addon.Sloth.metainfo.xml XML)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/org.fcitx.Fcitx5.Addon.Sloth.metainfo.xml" DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
 feature_summary(WHAT ALL FATAL_ON_MISSING_REQUIRED_PACKAGES)
 
 # --- .deb packaging (the fcitx5 addon only) --------------------------------
-# `cpack -G DEB` from the build dir produces an installable fcitx5-slothing
+# `cpack -G DEB` from the build dir produces an installable fcitx5-sloth
 # .deb. This packages ONLY the addon (the part that needs a system install);
 # the LLM daemon + model stay user-local via scripts/setup-llm.sh, since
 # llama.cpp isn't a system package. The addon runs fine without the daemon --
-# it just behaves like stock chewing until slothingd is running.
-set(CPACK_PACKAGE_NAME "fcitx5-slothing")
+# it just behaves like stock chewing until slothd is running.
+set(CPACK_PACKAGE_NAME "fcitx5-sloth")
 set(CPACK_PACKAGE_CONTACT "luigi.plurital@gmail.com")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "LLM-enhanced Zhuyin (Bopomofo) input method addon for fcitx5")

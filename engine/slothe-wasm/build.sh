@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build libslothe for the browser: ggml CPU forward (engine/slothingd/slothe.cpp)
+# Build libslothe for the browser: ggml CPU forward (engine/slothd/slothe.cpp)
 # + the emscripten wrapper -> space-static/enc/slothe.{js,wasm}.
 #   SIMD=1 (default) -> -msimd128 wasm SIMD
 #   THREADS=1        -> -pthread multi-thread (needs COOP/COEP via coi-serviceworker)
@@ -28,9 +28,9 @@ SRC=(
   "$GGML/src/ggml-cpu/repack.cpp" "$GGML/src/ggml-cpu/traits.cpp"
   "$GGML/src/ggml-cpu/hbm.cpp"
   "$GGML/src/ggml-cpu/quants.c" "$GGML/src/ggml-cpu/arch/wasm/quants.c"
-  "$REPO/engine/slothingd/slothe.cpp" "$REPO/engine/slothe-wasm/slothe_wasm.cpp"
+  "$REPO/engine/slothd/slothe.cpp" "$REPO/engine/slothe-wasm/slothe_wasm.cpp"
 )
-INC="-I$GGML/include -I$GGML/src -I$GGML/src/ggml-cpu -I$REPO/engine/slothingd"
+INC="-I$GGML/include -I$GGML/src -I$GGML/src/ggml-cpu -I$REPO/engine/slothd"
 
 set -x
 "$EMCC" $CFLAGS -DGGML_VERSION='"0.0.0"' -DGGML_COMMIT='"wasm"' $INC "${SRC[@]}" $LINK \

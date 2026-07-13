@@ -1,6 +1,6 @@
 #!/bin/sh
-# One-command setup for the Slothing LLM runtime: clone + build llama.cpp,
-# download the model, and build slothingd. Idempotent -- safe to re-run; each
+# One-command setup for the Sloth IME LLM runtime: clone + build llama.cpp,
+# download the model, and build slothd. Idempotent -- safe to re-run; each
 # step is skipped if already done. Does NOT install the fcitx5 addon (that
 # needs sudo; see README "Build & install the fcitx5 addon").
 #
@@ -30,7 +30,7 @@ pkg-config --exists chewing || {
     exit 1
 }
 
-# 1. llama.cpp (headers + libs that both slothingd and the engine link against)
+# 1. llama.cpp (headers + libs that both slothd and the engine link against)
 if [ ! -d "$LLAMA_DIR/.git" ]; then
     say "cloning llama.cpp"
     git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
@@ -56,14 +56,14 @@ else
     say "model already downloaded, skipping"
 fi
 
-# 3. slothingd
-if [ ! -x engine/slothingd/build/slothingd ]; then
-    say "building slothingd"
-    cmake -B engine/slothingd/build -S engine/slothingd -DCMAKE_BUILD_TYPE=Release
-    cmake --build engine/slothingd/build -j"$JOBS"
+# 3. slothd
+if [ ! -x engine/slothd/build/slothd ]; then
+    say "building slothd"
+    cmake -B engine/slothd/build -S engine/slothd -DCMAKE_BUILD_TYPE=Release
+    cmake --build engine/slothd/build -j"$JOBS"
 else
-    say "slothingd already built, skipping"
+    say "slothd already built, skipping"
 fi
 
-say "done. Start the reranker with: packaging/run-slothingd.sh"
+say "done. Start the reranker with: packaging/run-slothd.sh"
 say "To build/install the fcitx5 addon (needs sudo), see the README."

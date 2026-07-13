@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stage A probe: libchewing-free LLM decoding vs the libchewing baseline.
 
-Feeds each testset case's bopomofo syllables straight to slothingd's decode
+Feeds each testset case's bopomofo syllables straight to slothd's decode
 mode ({"syllables": [...]}) -- no libchewing candidates involved; legality
 comes from model/phonetic_table.tsv. Scores three decoders on the same cases:
 
@@ -10,7 +10,7 @@ comes from model/phonetic_table.tsv. Scores three decoders on the same cases:
   toneless  : same but tones stripped -- the future tone-free typing mode
 
 The daemon must be started with -t:
-  slothingd -m model.gguf -s $SOCK -t model/phonetic_table.tsv
+  slothd -m model.gguf -s $SOCK -t model/phonetic_table.tsv
 
 Usage: python3 eval/run_decode_eval.py [--socket PATH] [--limit N] [--verbose]
 """
@@ -84,9 +84,9 @@ def score(name, results, latencies):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--socket",
-                    default=os.environ.get("SLOTHINGD_SOCKET")
+                    default=os.environ.get("SLOTHD_SOCKET")
                     or os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"),
-                                    "slothingd.sock"))
+                                    "slothd.sock"))
     ap.add_argument("--limit", type=int, default=0, help="0 = all cases")
     ap.add_argument("--no-toneless", action="store_true")
     ap.add_argument("--verbose", action="store_true")

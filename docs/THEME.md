@@ -1,4 +1,4 @@
-# 懶音 UI 主題 — 樹懶與樹(Sloth & Tree)
+# 樹懶 UI 主題 — 樹懶與樹(Sloth & Tree)
 
 One visual identity across web / desktop / Android: **the sloth carries the
 warmth, the tree carries the calm.** Bark browns and sloth-fur ambers are the
@@ -33,8 +33,8 @@ icon; leaf green is reserved for *secondary* signals so the shipped demo GIFs
 - **Web** (`space-static/index.html`): CSS custom properties; light by
   default, dark via `prefers-color-scheme` **and** a `?theme=dark|light` URL
   override (testing/screenshots). `color-scheme: light dark` is declared.
-- **Desktop / fcitx5** (`packaging/themes/`): 懶音·樹梢 (`Slothing`) and
-  懶音·夜森林 (`Slothing-Dark`) — panel bg/border/highlight from the token
+- **Desktop / fcitx5** (`packaging/themes/`): 樹懶·樹梢 (`Sloth IME`) and
+  樹懶·夜森林 (`Sloth IME-Dark`) — panel bg/border/highlight from the token
   table. IBus draws with the system (KDE/GTK) theme and cannot be themed
   per-engine; the sloth identity there is the 懶 icon.
 - **Android** (`values/colors.xml` + `values-night/`): sloth light/dark

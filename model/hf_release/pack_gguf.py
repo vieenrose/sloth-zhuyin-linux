@@ -8,7 +8,7 @@ writes slothe-t-25m.gguf:
 """
 import json, os, sys
 
-GGUF_PY = "/tmp/slothing.cpp/gguf-py"
+GGUF_PY = "/tmp/sloth.cpp/gguf-py"
 sys.path.insert(0, GGUF_PY)
 
 import numpy as np

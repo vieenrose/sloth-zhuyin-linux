@@ -1,0 +1,13 @@
+[Addon]
+Name=樹懶智慧輸入法
+Comment=樹懶注音輸入法 Sloth IME — LLM zhuyin engine (libchewing-free)
+Category=InputMethod
+Version=@PROJECT_VERSION@
+Type=SharedLibrary
+OnDemand=True
+Configurable=True
+Library=libsloth
+
+[Addon/OptionalDependencies]
+0=chttrans
+

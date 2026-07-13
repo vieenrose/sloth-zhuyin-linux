@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">懶音輸入法</string>
-    <string name="ime_name">懶音 (大千)</string>
-    <string name="settings_name">懶音設定</string>
+    <string name="app_name">樹懶智慧輸入法</string>
+    <string name="ime_name">樹懶 (大千)</string>
+    <string name="settings_name">樹懶設定</string>
 
     <!-- %s => the localized locale name, e.g. "繁體中文 (台灣)". -->
     <string name="label_subtype_zh_tw">%s</string>
 
     <!-- EnableActivity -->
-    <string name="enable_title">懶音輸入法(Slothing)</string>
+    <string name="enable_title">樹懶智慧輸入法(Sloth IME)</string>
     <string name="enable_blurb">樹懶注音輸入法 · iPhone 大千注音排列 · 免選字整句轉換 · 離線 · e-ink 最佳化</string>
     <string name="btn_enable">1. 在系統設定啟用</string>
-    <string name="btn_pick">2. 切換到懶音</string>
-    <string name="status_enabled">已啟用，可在任何輸入框切換到懶音。</string>
+    <string name="btn_pick">2. 切換到樹懶</string>
+    <string name="status_enabled">已啟用，可在任何輸入框切換到樹懶。</string>
     <string name="status_disabled">尚未啟用：先點「在系統設定啟用」。</string>
 
     <!-- Keyboard labels -->

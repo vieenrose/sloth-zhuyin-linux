@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Slothing evaluation harness.
+"""Sloth IME evaluation harness.
 
 Reads eval/testset.tsv (bopomofo \t expected [\t context]), converts bopomofo
 to default-layout (Dachen) key sequences, harvests libchewing candidates via
-./harvest (same logic as the engine), queries the slothingd socket, and scores
+./harvest (same logic as the engine), queries the slothd socket, and scores
 the LLM's top-1 sentence against the expected text.
 
 Usage: python3 eval/run_eval.py [--socket PATH] [--n 4]
@@ -78,9 +78,9 @@ def char_accuracy(got: str, expected: str):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--socket",
-                    default=os.environ.get("SLOTHINGD_SOCKET")
+                    default=os.environ.get("SLOTHD_SOCKET")
                     or os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"),
-                                    "slothingd.sock"))
+                                    "slothd.sock"))
     ap.add_argument("--n", type=int, default=4)
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()

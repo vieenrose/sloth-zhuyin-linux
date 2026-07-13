@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-namespace slothing {
+namespace sloth {
 
 class AssocEngine {
 public:
@@ -159,6 +159,6 @@ private:
     std::string tail_;
 };
 
-} // namespace slothing
+} // namespace sloth
 
 #endif // _SLOTHING_COMMON_ASSOC_H_

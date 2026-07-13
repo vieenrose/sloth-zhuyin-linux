@@ -13,12 +13,12 @@
 #include <unordered_map>
 #include <vector>
 
-using slothing::ZhuyinBuffer;
+using sloth::ZhuyinBuffer;
 
 // bopomofo symbol -> Dachen key (inverse of zhuyin.h's map, incl. tones).
 static std::unordered_map<std::string, char> bopomofoToKey() {
     std::unordered_map<std::string, char> m;
-    for (auto &kv : slothing::dachenMap()) {
+    for (auto &kv : sloth::dachenMap()) {
         m[kv.second.first] = kv.first;
     }
     m["ˊ"] = '6'; m["ˇ"] = '3'; m["ˋ"] = '4'; m["˙"] = '7';

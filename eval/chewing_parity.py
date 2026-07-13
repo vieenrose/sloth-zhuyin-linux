@@ -7,14 +7,14 @@ against it and should win overall.
 
 For each testset case this compares, on the SAME zhuyin input:
   * libchewing's own decode (via eval/harvest, the exact engine harvest)
-  * SlothLM's decode  (slothingd, decode mode)
+  * SlothLM's decode  (slothd, decode mode)
 against the expected sentence, and reports:
   * sentence accuracy for each (must have: LLM >= chewing)
   * agreement rate (how often they already produce the same thing)
   * divergences: where they differ, who is right (the interesting cases)
 
 Run:
-  packaging/run-slothingd.sh   # (with the model under test)
+  packaging/run-slothd.sh   # (with the model under test)
   python3 eval/chewing_parity.py [--socket PATH] [--show N]
 Exit code is non-zero if the LLM regresses vs chewing on sentence accuracy,
 so it can gate CI / a model swap.
@@ -68,9 +68,9 @@ def slothlm(sock_path, syllables):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--socket",
-                    default=os.environ.get("SLOTHINGD_SOCKET")
+                    default=os.environ.get("SLOTHD_SOCKET")
                     or os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"),
-                                    "slothingd.sock"))
+                                    "slothd.sock"))
     ap.add_argument("--show", type=int, default=12,
                     help="how many divergences to print")
     args = ap.parse_args()

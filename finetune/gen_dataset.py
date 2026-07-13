@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Slothing fine-tuning dataset.
+"""Generate the Sloth IME fine-tuning dataset.
 
 For each training sentence we build three kinds of example, all in the chat
 format the daemon uses at inference so training matches serving:
@@ -78,7 +78,7 @@ def harvest(keys):
 
 
 def build_user_select(positions):
-    """Mirror slothingd.cpp build_user_message (no context)."""
+    """Mirror slothd.cpp build_user_message (no context)."""
     parts = []
     for i, cands in enumerate(positions):
         parts.append(f"第{i+1}字選(" + "/".join(cands) + ")")

@@ -16,7 +16,7 @@ pipeline_tag: token-classification
 
 # SlothE-T 25M — Ternary Zhuyin → Traditional Chinese IME model
 
-The conversion model behind **Slothing (懶音輸入法)**: a libchewing-free, on-device
+The conversion model behind **Sloth IME (樹懶智慧輸入法)**: a libchewing-free, on-device
 LLM-powered 注音 (Bopomofo) input method that does **免選字** (candidate-free)
 whole-sentence conversion — you type the phonetic keystream, it emits the sentence,
 with no candidate list to scroll.

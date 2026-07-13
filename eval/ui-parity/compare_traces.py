@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Differential UI-parity suite: libchewing vs the Slothing web demo.
+"""Differential UI-parity suite: libchewing vs the Sloth IME web demo.
 
 Feeds identical key sequences to both, compares the OBSERVABLE UI STATE after
 every keystroke (converted-vs-bopomofo shape, candidate window, cursor,
@@ -34,7 +34,7 @@ CORPUS = [
 ]
 
 # random traces are built from VALID syllable chunks + controls: junk key
-# runs diverge by design (Slothing auto-detects them as English — a superset
+# runs diverge by design (Sloth IME auto-detects them as English — a superset
 # feature chewing doesn't have).
 ALPHA = ["su3", "cl3", "w8 ", "ji3", "y94", "dl3", "xm4", "vup ", "tj/6",
          "5k4", "rm,6", "2k7", "cp3", "1;4",
@@ -85,7 +85,7 @@ def compare(name, keys, base, verbose):
     if diffs:
         print(f"FAIL {name} ({keys}): {len(diffs)} state mismatches")
         for i, k, f, av, bv in diffs[: 6 if not verbose else 99]:
-            print(f"    step {i} key '{k}': {f} chewing={av} slothing={bv}")
+            print(f"    step {i} key '{k}': {f} chewing={av} sloth={bv}")
         return False
     print(f"PASS {name}")
     return True

@@ -1,4 +1,4 @@
-// Emscripten wrapper around the libslothe ggml forward pass (engine/slothingd/
+// Emscripten wrapper around the libslothe ggml forward pass (engine/slothd/
 // slothe.{h,cpp}). Exposes 4 C entry points to ime.js: load the GGUF from a
 // byte buffer (written to MEMFS, then slothe_load), query n_char, run logits,
 // free. Built by build.sh -> space-static/enc/slothe.{js,wasm}.

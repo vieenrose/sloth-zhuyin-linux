@@ -26,7 +26,7 @@ const keysOf=syl=>[...syl].map(c=>REVT[c]??REV[c]).join('');   // syllable -> ke
 // --- vocab under test ---
 // English: dictionary words + OUT-of-dictionary words (the hard class) + tech terms
 const EN_IN=[...WORDS].filter(w=>w.length>=3).slice(0,60);
-const EN_OUT=('model world banana slothing kubernetes fcitx javascript sorry keyboard password '+
+const EN_OUT=('model world banana sloth kubernetes fcitx javascript sorry keyboard password '+
 'apple random boba coffee video manager github gitlab docker linux ubuntu debian fedora chrome '+
 'firefox safari windows android tablet laptop desktop server client router modem printer scanner '+
 'monitor speaker headset webcam battery charger adapter cable usb hdmi wifi bluetooth ethernet '+

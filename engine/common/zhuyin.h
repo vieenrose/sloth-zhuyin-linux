@@ -9,7 +9,7 @@
 //
 // The engine feeds ASCII keys in; ZhuyinBuffer accumulates the in-progress
 // syllable and a list of committed syllables (each a bopomofo string with its
-// tone mark, e.g. "ㄨㄛˇ") — exactly the form slothingd's decode mode wants.
+// tone mark, e.g. "ㄨㄛˇ") — exactly the form slothd's decode mode wants.
 // Header-only so it can be unit-tested offline with no fcitx5/libchewing.
 #ifndef _FCITX5_CHEWING_ZHUYIN_H_
 #define _FCITX5_CHEWING_ZHUYIN_H_
@@ -19,7 +19,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace slothing {
+namespace sloth {
 
 enum class Slot { Initial, Medial, Final, None };
 
@@ -97,7 +97,7 @@ public:
 
     bool empty() const { return committed_.empty() && !hasPending(); }
 
-    // Committed syllables (each with tone mark), for slothingd decode mode.
+    // Committed syllables (each with tone mark), for slothd decode mode.
     const std::vector<std::string> &syllables() const { return committed_; }
 
     // Human-readable preedit: committed syllables joined, plus the pending
@@ -143,6 +143,6 @@ private:
     std::vector<std::string> committed_;
 };
 
-} // namespace slothing
+} // namespace sloth
 
 #endif // _FCITX5_CHEWING_ZHUYIN_H_
