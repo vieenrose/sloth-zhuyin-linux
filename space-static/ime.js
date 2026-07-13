@@ -8,18 +8,14 @@
 //  * punctuation: Shift+, Shift+. Shift+/ Shift+1 Shift+; → ，。？！：
 //  * session learning: your picks become the default for that syllable
 //  * auto zh/en: continuous DP re-segmentation of the keystream (segment.js)
-// SlothLM-E (bidirectional encoder) served directly via onnxruntime-web: one
-// non-autoregressive forward pass, per-position argmax over each syllable's
-// legal char-ids. No transformers.js, no autoregression (so no truncation).
-import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.wasm.min.mjs';
-// iOS Safari has no SharedArrayBuffer here (HF static Spaces send no COOP/COEP),
-// so single-thread WASM is the path that loads reliably on mobile Safari.
-ort.env.wasm.numThreads = 1;
-ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+// SlothLM-E-T (25M ternary bidirectional encoder) runs via libslothe — a ggml
+// forward pass compiled to WebAssembly (enc/slothe.{js,wasm} + the GGUF). One
+// non-autoregressive pass, per-position argmax over each syllable's legal
+// char-ids. No transformers.js, no autoregression, no onnxruntime.
 import { makeSegmenter } from './segment.js?v=20260710zw';
 import { makeAssoc } from './assoc.js?v=20260711a';
 
-const ENC = './enc/';   // model_quantized.onnx + syl_vocab.json + char2id.json
+const ENC = './enc/';   // slothe.{js,wasm} + slothe-t-25m.gguf + syl_vocab.json + char2id.json
 const TONES = 'ˊˇˋ˙';
 const DACHEN = {'1':['ㄅ',0],'q':['ㄆ',0],'a':['ㄇ',0],'z':['ㄈ',0],'2':['ㄉ',0],'w':['ㄊ',0],
   's':['ㄋ',0],'x':['ㄌ',0],'e':['ㄍ',0],'d':['ㄎ',0],'c':['ㄏ',0],'r':['ㄐ',0],'f':['ㄑ',0],
@@ -469,11 +465,8 @@ function pickPredict(w){
   render();
 }
 
-// ---- model + decode (SlothLM-E encoder, onnxruntime-web) ----
-let session, sylVocab, char2id, ready=false;
-// encoder backend: 'slothe' = libslothe (ternary ggml encoder compiled to WASM),
-// 'onnx' = onnxruntime-web fallback. Chosen at init; libslothe preferred if present.
-let encBackend='onnx';
+// ---- model + decode (SlothLM-E-T ternary encoder, libslothe ggml/WASM) ----
+let sylVocab, char2id, ready=false;
 let slotheMod=null, slotheNChar=0;
 const tonal={};
 // Damerau-Levenshtein distance capped at 1 (typo tolerance: one wrong /
@@ -500,7 +493,7 @@ function typoFixes(syl){const tone=[...syl].filter(c=>TONES.includes(c)).join(''
 // candidate chars + their output token-ids (from char2id) for a syllable
 function candSet(syl){const out=[],ids=[];for(const c of candChars(syl)){const i=char2id[c];if(i!=null&&!ids.includes(i)){ids.push(i);out.push(c);}}return{chars:out,ids};}
 // one bidirectional forward pass over the syllable sequence -> per-position logits
-let modelHasHints=false;   // set at init from the session's input names
+let modelHasHints=false;   // ternary encoder has no hint/context channel
 const CTX_MAX=12;
 // ---- libslothe (WASM) forward path ----
 // The ternary ggml encoder is syl-only: no context/hint channel, so L=0 and
@@ -526,39 +519,9 @@ function slotheForwardBatch(rows){
   for(let b=0;b<B;b++) data.set(slotheLogits(rows[b]), b*T*V);
   return {data, V, T};
 }
-async function encForward(syls, hintIds, ctxChars){
-  if(encBackend==='slothe') return slotheForward(syls);
-  // context = committed text before the cursor, riding the hint channel on
-  // <pad>-id prefix positions (matches training)
-  const ctx=(modelHasHints&&ctxChars)?[...ctxChars].filter(c=>char2id[c]!=null).slice(-CTX_MAX):[];
-  const L=ctx.length;
-  const ids=[...new Array(L).fill(0), ...syls.map(s=>sylVocab[s]??1)], T=ids.length;
-  const feed={
-    syl:new ort.Tensor('int64',BigInt64Array.from(ids.map(BigInt)),[1,T]),
-    amask:new ort.Tensor('bool',Uint8Array.from(new Array(T).fill(1)),[1,T]),
-  };
-  if(modelHasHints){
-    const h=[...ctx.map(c=>char2id[c]+1), ...(hintIds||new Array(syls.length).fill(0))];
-    feed.hints=new ort.Tensor('int64',BigInt64Array.from(h.map(BigInt)),[1,T]);
-  }
-  const out=await session.run(feed);
-  return {data:out.logits.data, V:out.logits.dims[2], T, L};
-}
+async function encForward(syls){ return slotheForward(syls); }
 // batched forward for typo scoring: rows = variants of the same sentence
-async function encForwardBatch(rows){
-  if(encBackend==='slothe') return slotheForwardBatch(rows);
-  const B=rows.length, T=rows[0].length, flat=[];
-  for(const r of rows) for(const id of r) flat.push(BigInt(id));
-  const feed={
-    syl:new ort.Tensor('int64',BigInt64Array.from(flat),[B,T]),
-    amask:new ort.Tensor('bool',Uint8Array.from(new Array(B*T).fill(1)),[B,T]),
-  };
-  if(modelHasHints){
-    feed.hints=new ort.Tensor('int64',BigInt64Array.from(new Array(B*T).fill(0n)),[B,T]);
-  }
-  const out=await session.run(feed);
-  return {data:out.logits.data, V:out.logits.dims[2], T};
-}
+async function encForwardBatch(rows){ return slotheForwardBatch(rows); }
 const LEARN_BONUS=2.0;   // recalibrated 2026-07-11: 6.0 over-personalized (59% vs 74% on the 免選字 set with a used store); 2.0 keeps near-tie flips (ㄧㄣ→音) without overriding strong context
 async function decodeZh(sylsIn, forced={}, hints={}, ctx=''){
   // typo tolerance: an impossible syllable (no legal chars) is replaced by
@@ -764,8 +727,8 @@ window.__ui = () => ({
   fresh: pvKey === bufKey() || !committed.some(t => t.t === 'zh'),
 });
 
-// Encoder selection: try libslothe (ggml/WASM) first; on any failure (missing
-// gguf/module, load error) fall back to onnxruntime-web so the demo still runs.
+// Load the encoder: libslothe (ggml/WASM) is the only backend. Any failure
+// (missing gguf/module, load error) surfaces as a load-error message.
 async function initEncoder(){
   try{
     const resp=await fetch(ENC+'slothe-t-25m.gguf');
@@ -783,11 +746,8 @@ async function initEncoder(){
     console.log('encoder: libslothe (ggml/WASM), n_char='+slotheNChar);
     return 'slothe';
   }catch(e){
-    console.warn('libslothe unavailable, falling back to onnxruntime-web:', (e&&e.message)||e);
-    session=await ort.InferenceSession.create(ENC+'model_quantized.onnx');
-    modelHasHints=session.inputNames.includes('hints');
-    console.log('encoder: onnxruntime-web (fallback)');
-    return 'onnx';
+    console.error('libslothe failed to load:', (e&&e.message)||e);
+    throw e;
   }
 }
 
@@ -799,7 +759,7 @@ async function initEncoder(){
     fetch(ENC+'syl_vocab.json').then(r=>r.json()),
     fetch(ENC+'char2id.json').then(r=>r.json()),
   ]);
-  encBackend=await initEncoder();
+  await initEncoder();
   ready=true; render();
 })().catch(e=>{console.error(e);$('hint').textContent='模型載入失敗：'+(e&&e.name?e.name+' / ':'')+(e&&e.message||e);});
 render();
