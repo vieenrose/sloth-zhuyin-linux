@@ -125,7 +125,7 @@
   .key:active,.key.pressed{background:linear-gradient(180deg,var(--brown2),var(--brown));color:var(--hi);
     border-color:var(--brown);transform:translateY(2px);box-shadow:0 0 0 var(--key-edge)}
   .key.pressed .k,.key:active .k{color:var(--hi)}
-  .key .k{font-size:.55rem;color:var(--muted);transition:color .12s}
+  .key .k{font-size:.74rem;font-weight:600;color:var(--ink2);transition:color .12s}
   .key .s{font-size:1.05rem;line-height:1.15}
   .key.wide{width:158px;height:40px;font-size:.9rem;color:var(--ink2)}
   .key.wide2{width:112px;height:40px;font-size:.92rem;font-weight:700;
@@ -139,7 +139,7 @@
   /* iOS-style keyboard (phones / ?kb=ios): bopomofo-only caps like the
      iPhone 注音 keyboard — same Dàqiān grid, no latin hints, right-hand
      function column. */
-  .ioskb .key .k{display:none}
+  .ioskb .key .k{font-size:.62rem;font-weight:600;color:var(--ink2)}
   .ioskb .key .s{font-size:1.15rem}
   .ioskb .key.fn{background:linear-gradient(180deg,#e7d7bd,#d9c3a0);font-weight:700}
   @media (prefers-color-scheme:dark){ .ioskb .key.fn{background:linear-gradient(180deg,#3d3126,#332821)} }

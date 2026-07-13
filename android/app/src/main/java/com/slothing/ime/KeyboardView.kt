@@ -266,7 +266,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val hint = TextView(context).apply {
             text = latin
             includeFontPadding = false
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)   // larger latin corner label — readable for touch/mouse users
             setTextColor(hintColors)
             isDuplicateParentStateEnabled = true
             layoutParams = android.widget.FrameLayout.LayoutParams(
