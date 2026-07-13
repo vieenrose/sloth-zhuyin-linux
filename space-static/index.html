@@ -158,6 +158,11 @@
   .ioskb .candbar .cand.ph{font-size:1.18rem}      /* phrase pill same height as chars */
   .ioskb .candbar .pg{flex:0 0 auto}
   .ioskb .candbar:not(:has(.cand)){display:none}
+  /* iOS model: field shows space-separated bopomofo; headline sentence
+     candidate is the prominent boxed pill that leads the bar. */
+  .ioskb .pre .bopo{margin-right:.34em;letter-spacing:.01em}
+  .ioskb .candbar .cand.ph{font-weight:600}
+  .ioskb .candbar .cand.ph.hlp{outline:2px solid var(--hi);outline-offset:1px}
   /* iPhone compact foot: fluid punctuation row + one function row (中 ← → 空白
      符 ⏎上字), so nothing wraps and the desktop rows never stack on top of the
      right-hand ⌫/、/？/⏎ column. Mirrors the native keyboard's clean bottom. */
@@ -216,6 +221,6 @@
     <a href="https://huggingface.co/Luigi/slothe-t-25m-zhuyin" target="_blank">SlothE-T 25M 三值</a>
   </footer>
 </main>
-<script type="module" src="./ime.js?v=20260713-ioskb2"></script>
+<script type="module" src="./ime.js?v=20260714-iosmodel"></script>
 </body>
 </html>

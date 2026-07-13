@@ -271,7 +271,11 @@ function render(){
     if(i===cursor && !hasRun()) pre.appendChild(caret());
     const span=document.createElement('span');
     span.className='pchar'+(fix===i?' fixsel':'')+(tok.t!=='zh'?' en':'');
-    span.textContent=displayFor(i);   // faithful: no injected CJK-Latin spaces
+    // iOS model (mobile): the FIELD shows the raw bopomofo you typed (space-
+    // separated, verifiable); the conversion lives in the candidate bar. Desktop
+    // keeps the eager 免選字 converted display.
+    if(iosKb && tok.t==='zh'){ span.textContent=tok.v; span.classList.add('bopo'); }
+    else span.textContent=displayFor(i);   // faithful: no injected CJK-Latin spaces
     if(tok.t==='zh') span.onclick=()=>{ fix===i?(fix=-1,render()):openFix(i); };
     pre.appendChild(span);
     if(i===committed.length-1 && cursor===committed.length && !hasRun()) pre.appendChild(caret());
@@ -297,6 +301,20 @@ function render(){
 
   // phrase candidates (2-char), when available
   const phEl=$('phrases'); phEl.innerHTML='';
+  // iOS model (mobile): the candidate bar LEADS with the full-sentence
+  // conversion (boxed) + shorter prefix fallbacks; tap to commit the whole run.
+  if(iosKb && fix<0 && committed.some(t=>t.t==='zh') && pvKey===bufKey()){
+    const disp = committed.map((t,i)=>displayFor(i));
+    const full = disp.join('');
+    const mk=(text,n,cls)=>{ const b=document.createElement('button');
+      b.className='cand ph'+(cls||''); b.textContent=text;
+      b.onclick=()=>commitPrefix(n); phEl.appendChild(b); };
+    mk(full, committed.length, ' hlp');              // headline: full sentence, boxed
+    // progressively shorter prefixes (like iOS 這是樹懶輸入法 / 這是 / 這)
+    const stops=[];
+    for(let k=committed.length-1;k>0;k--) if(committed[k].t==='zh') stops.push(k);
+    for(const k of stops.slice(0,3)) mk(disp.slice(0,k).join(''), k, '');
+  }
   if(fix>=0 && phrase && phrase.length){
     const lbl=document.createElement('span'); lbl.className='pg'; lbl.textContent='詞';
     phEl.appendChild(lbl);
@@ -450,6 +468,25 @@ async function commitSentence(){
   const c=a+t.length; ta.selectionStart=ta.selectionEnd=c;
   assoc.record(t); predictChain=0;   // 聯想: strip flips to predictions
   clearAll(); render();
+}
+
+// iOS-model: commit the first n committed tokens' conversion to the output and
+// keep the rest still composing (tapping a shorter prefix candidate). n === all
+// is the full-sentence commit.
+async function commitPrefix(n){
+  if(!ready) return;
+  if(n>=committed.length) return commitSentence();
+  if(!(await ensureConverted())) return;
+  const t=committed.slice(0,n).map((tok,i)=>displayFor(i)).join('');
+  const ta=$('out');
+  const a=(ta.selectionStart!=null)?ta.selectionStart:ta.value.length;
+  const b=(ta.selectionEnd!=null)?ta.selectionEnd:a;
+  ta.value=ta.value.slice(0,a)+t+ta.value.slice(b);
+  ta.selectionStart=ta.selectionEnd=a+t.length;
+  assoc.record(t); predictChain=0;
+  committed=committed.slice(n); overrides=overrides.slice(n);
+  cursor=committed.length; pvKey=null; fix=-1;
+  render(); schedulePreview();
 }
 
 // tap/⇧n on a 聯想 chip: insert at the output caret, learn, chain (cap 5)
