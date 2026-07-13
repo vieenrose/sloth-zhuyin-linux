@@ -12,7 +12,7 @@ desktop (fcitx5, IBus), Android, and the browser — share one model.
 [中文說明](README.md) ·
 [Model](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
 
-<p align="center"><img src="docs/demo-web-v13.gif" width="470" alt="Web demo: typing 晚上熬夜看world cup,白天在louisa key-by-key — whole sentence correct, auto zh/en, each keypress highlighted"></p>
+<p align="center"><img src="docs/demo-web-v14.gif" width="470" alt="Web demo: typing 晚上熬夜看world cup,白天在louisa key-by-key — whole sentence correct, auto zh/en, each keypress highlighted"></p>
 <p align="center"><img src="docs/android-boox-demo-v12.gif" width="470" alt="Native Android IME (BOOX e-ink): typing 晚上熬夜看world cup,白天在louisa key-by-key — whole sentence correct, auto zh/en switch"></p>
 
 ## What you get
