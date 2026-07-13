@@ -66,3 +66,45 @@ Known INTENDED divergences (waivers):
 The fcitx engine shares behavior with the web demo by construction (same
 segmenter with lock-step tests, same daemon); contracts fixed here are
 mirrored in eim.cpp in the same commits.
+
+## Internal 4-way parity: the frontends vs each other
+
+The comparison above is *external* (Slothing vs libchewing). The other axis is
+*internal*: do the four frontends — fcitx5, IBus, Android, web — behave
+identically to one another? Three of them already do **by construction**:
+fcitx5 (`eim.cpp`), IBus (`main.cpp`) and Android (`session.h`) all drive the
+same `engine/common/core.h` state machine (`ComposingCore` + `ChoosingCore`),
+pinned at the primitive level by `engine/common/core_test.cpp`. The one
+independent reimplementation is the web demo (`space-static/ime.js`).
+
+So the internal test reduces to one comparison — **web ↔ the shared C++ core** —
+run keystroke-for-keystroke with the same structural schema:
+
+```sh
+g++ -std=c++17 -I android/app/cpp -I engine/common \
+    eval/ui-parity/core_trace.cpp -o /tmp/core_trace
+(cd space-static && python3 -m http.server 8777 &)
+python3 eval/ui-parity/compare_core_web.py            # 15/15
+```
+
+`core_trace.cpp` drives the real `SlothingSession` dispatch (the Android/desktop
+key handler) over the shared core with a model-free stub `Decoder` (parity is
+structural, so the model's ranking is irrelevant) and emits the same JSON as
+`demo_trace.mjs`. `compare_core_web.py` diffs the two over the 12 deterministic
+contracts plus 3 forced-English scenarios.
+
+### Current score: 15/15 (12 strict + 3 English-waived)
+
+Waivers (intended divergences):
+- **Forced-English input model** — the web demo BUFFERS English into the
+  preedit (editable, commit on Enter); the three C++ frontends PASSTHROUGH each
+  key straight to the app, matching 微軟新注音 / chewing / 自然 / 華碩. This is a
+  deliberate web-demo-only difference (see `docs/INTERACTION-REVIEW.md`); the
+  `<S>hi<E>` / `<S>hi go<E>` / `<S>ok<S>su3<E>` scenarios are still run so a
+  regression on any *non-English* field would surface, but their English-field
+  mismatches are reported WAIVED.
+- **`cursor` field once a conversion is active** — while the modal candidate
+  window is open, or after a pick while the buffer is still in the converted
+  display, web keeps the insertion cursor at the buffer end while the C++ core
+  reports the focused segment. Both are legitimate; `cursor` is compared only
+  in plain composing (arrows, Home/End, mid-cursor typing still checked).

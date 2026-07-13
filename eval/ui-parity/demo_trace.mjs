@@ -7,7 +7,7 @@ import { chromium } from 'playwright';
 
 const KEYMAP = { D:'ArrowDown', U:'ArrowUp', L:'ArrowLeft', R:'ArrowRight',
                  E:'Enter', ESC:'Escape', B:'Backspace', T:'Tab',
-                 H:'Home', N:'End' };
+                 H:'Home', N:'End', S:'Shift' };  // <S> = lone-Shift English toggle
 
 function parseKeys(s){
   const out=[];

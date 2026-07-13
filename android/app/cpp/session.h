@@ -722,6 +722,36 @@ public:
         return v;
     }
 
+    // Structural observables for the cross-frontend parity harness (the C++
+    // analogue of the web demo's window.__ui): token count, pending-run flag,
+    // candidate/symbol window open, cursor — never the chosen characters (the
+    // model is *supposed* to differ). eval/ui-parity/core_trace.cpp diffs this
+    // against the web trace so the shared core and the web reimplementation are
+    // proven to agree keystroke-for-keystroke. Cheap.
+    struct UiTrace {
+        int zh;     // tokens in the composing buffer (Choosing: segment count)
+        int bopo;   // 1 iff a raw bopomofo run is pending
+        int cand;   // 1 iff the candidate window or the symbol menu is open
+        int cursor; // token cursor (Composing only; modal window is UI-specific)
+    };
+    UiTrace traceState() {
+        std::lock_guard<std::mutex> lk(mu_);
+        UiTrace u{};
+        if (state_ == State::Choosing) {
+            u.zh = static_cast<int>(choosing_.positions.size());
+            u.bopo = 0;
+            u.cand = choosing_.candListOpen ? 1 : 0;
+            u.cursor = choosing_.segFocus;
+        } else {
+            u.zh = static_cast<int>(comp_.toks.size());
+            u.bopo = comp_.rawKeys.empty() ? 0 : 1;
+            u.cand = symbolMode_ ? 1 : 0;
+            u.cursor = comp_.tokCursor < 0 ? static_cast<int>(comp_.toks.size())
+                                           : comp_.tokCursor;
+        }
+        return u;
+    }
+
     // Cheap read of the pre-warmed phrase cache for the focused segment.
     std::vector<PhraseView> getPhrases() {
         std::lock_guard<std::mutex> lk(mu_);
