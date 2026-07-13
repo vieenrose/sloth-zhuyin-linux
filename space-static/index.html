@@ -134,13 +134,47 @@
   footer a:hover{color:var(--brown2)}
   footer code{background:var(--panel);border:1px solid var(--border);border-radius:5px;
     padding:.05em .35em;font-size:.92em}
-  /* iOS-style keyboard (phones / ?kb=ios): bopomofo-only caps like the
-     iPhone 注音 keyboard — same Dàqiān grid, no latin hints, right-hand
-     function column. */
-  .ioskb .key .k{font-size:.95rem;font-weight:700;color:var(--leaf)}
-  .ioskb .key .s{font-size:1.15rem}
-  .ioskb .key.fn{background:linear-gradient(180deg,#e7d7bd,#d9c3a0);font-weight:700}
-  @media (prefers-color-scheme:dark){ .ioskb .key.fn{background:linear-gradient(180deg,#3d3126,#332821)} }
+  /* iOS-style keyboard (phones / ?kb=ios): the iPhone 注音 keyboard's tidy
+     Dàqiān grid, kept BILINGUAL — BOTH the alphanumeric (green, top) and the
+     bopomofo (below) legible. Flatter, calmer keys than the desktop set, more
+     rounding, and a candidate bar sitting directly on top of the keys. */
+  .ioskb .key .k{font-size:1rem;font-weight:700;color:var(--leaf);line-height:1;margin-bottom:1px}
+  .ioskb .key .s{font-size:1.16rem;line-height:1}
+  .ioskb .key{height:50px}   /* a touch taller so both labels breathe */
+  /* flatten: drop the desktop 3D bottom-edge, softer fill, larger radius */
+  .ioskb .key{border-radius:11px;box-shadow:0 1px 1.5px rgba(0,0,0,.16);
+    background:var(--key-top);border-color:transparent}
+  .ioskb .key:active,.ioskb .key.pressed{transform:translateY(1px)}
+  /* ⌫ blends with the letter keys like native (no loud tan cap) */
+  .ioskb .key.fn{background:var(--key-top);font-weight:400;color:var(--ink2)}
+  /* candidate bar atop the keyboard — one native-style horizontal scrolling
+     row, phrases first then chars; collapses to nothing until you type. */
+  .ioskb .candbar{width:100%;display:flex;flex-direction:row;align-items:center;gap:.3rem;
+    overflow-x:auto;scrollbar-width:none;flex-wrap:nowrap;
+    padding:.15rem .1rem .5rem;margin-bottom:.25rem;border-bottom:1px solid var(--border)}
+  .ioskb .candbar::-webkit-scrollbar{display:none}
+  .ioskb .candbar .cands{display:contents}        /* let phrases+chars share one row */
+  .ioskb .candbar .cand{flex:0 0 auto;white-space:nowrap;font-size:1.18rem;padding:.28rem .7rem}
+  .ioskb .candbar .cand.ph{font-size:1.18rem}      /* phrase pill same height as chars */
+  .ioskb .candbar .pg{flex:0 0 auto}
+  .ioskb .candbar:not(:has(.cand)){display:none}
+  /* iPhone compact foot: fluid punctuation row + one function row (中 ← → 空白
+     符 ⏎上字), so nothing wraps and the desktop rows never stack on top of the
+     right-hand ⌫/、/？/⏎ column. Mirrors the native keyboard's clean bottom. */
+  .ioskb .pkrow,.ioskb .fnrow{width:100%;gap:5px;flex-wrap:nowrap}
+  .ioskb .pkrow .pk{flex:1 1 0;width:auto;height:40px}
+  .ioskb .fnrow{align-items:stretch}
+  .ioskb .fnrow .key{width:auto;height:46px}
+  .ioskb .fnrow .fk{flex:0 0 auto;min-width:44px;padding:0 .35rem}
+  .ioskb .fnrow .sp{flex:1 1 auto;color:var(--ink2);font-size:.9rem;position:relative}
+  .ioskb .fnrow .sp .spw{position:absolute;right:.5rem;bottom:.28rem;font-size:.62rem;
+    color:var(--muted);opacity:.7;font-weight:400}
+  .ioskb .fnrow .fk .s,.ioskb .fnrow .sp .s,.ioskb .fnrow .ent .s{font-size:1rem}
+  .ioskb .fnrow .fk.on{background:linear-gradient(180deg,var(--brown2),var(--brown));color:var(--hi);border-color:var(--brown)}
+  .ioskb .fnrow .ent{flex:0 0 auto;min-width:82px;font-weight:700;
+    background:linear-gradient(180deg,var(--brown2),var(--brown));color:var(--hi);border-color:var(--brown);
+    box-shadow:0 2px 0 rgba(75,42,15,.55),0 3px 6px -2px rgba(139,90,43,.5)}
+  .ioskb .fnrow .ent .s{font-weight:700}
   /* iPhone / narrow: fluid keys that always fit 11-per-row at any width,
      with iOS-friendly touch height. Rows with fewer keys stay centered. */
   @media (max-width:520px){
@@ -182,6 +216,6 @@
     <a href="https://huggingface.co/Luigi/slothe-t-25m-zhuyin" target="_blank">SlothE-T 25M 三值</a>
   </footer>
 </main>
-<script type="module" src="./ime.js?v=20260713-enbuf"></script>
+<script type="module" src="./ime.js?v=20260713-ioskb2"></script>
 </body>
 </html>

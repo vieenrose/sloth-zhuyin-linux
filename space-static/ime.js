@@ -577,16 +577,23 @@ const iosKb = matchMedia('(pointer:coarse) and (max-width:600px)').matches
               || new URLSearchParams(location.search).get('kb')==='ios';
 if(iosKb) document.body.classList.add('ioskb');
 if(touchDev) document.body.classList.add('touchdev');
+// iOS lesson: the candidate suggestions sit directly ON TOP of the keyboard.
+// Relocate the existing #phrases/#cands strips into a bar at the head of #kb
+// (the nodes just move — render()/renderSymbols() still address them by id).
+if(iosKb){
+  const bar=document.createElement('div');bar.className='candbar';
+  bar.appendChild($('phrases'));bar.appendChild($('cands'));
+  kb.appendChild(bar);
+}
 ROWS.forEach((row,ri)=>{const r=document.createElement('div');r.className='krow';
   row.forEach(key=>{const b=document.createElement('button');b.className='key';
     const sym=DACHEN[key]?DACHEN[key][0]:(key in TONEK?TONEK[key]:'');
     b.onclick=()=>feedKey(key);r.appendChild(b);keyBtns.push({b,key,sym});});
-  if(iosKb){ // right-hand function column, iOS-style
-    const fns=[
+  if(iosKb){ // right-hand column, iOS-style: a single ⌫ at the end of the
+    // bottom bopomofo row, exactly like the native iPhone 注音 keyboard. Enter
+    // (⏎上字) and punctuation (、？…) live in the rows below — never repeated.
+    const fns=[ null, null, null,
       {t:'⌫', f:()=>{ if(committed.length||hasRun()) backspace(); }},
-      {t:'、', f:()=>directPunct('、')},
-      {t:'？', f:()=>directPunct('？')},
-      {t:'⏎', f:()=>commitSentence()},
     ][ri];
     if(fns){ const b=document.createElement('button'); b.className='key fn';
       b.innerHTML='<span class="s">'+fns.t+'</span>'; b.onclick=fns.f; r.appendChild(b); }
@@ -597,36 +604,67 @@ function paintKeys(){ for(const {b,key,sym} of keyBtns){
   b.innerHTML=enMode ? '<span class="s">'+key.toUpperCase()+'</span>'
                      : '<span class="k">'+key+'</span><span class="s">'+sym+'</span>'; } }
 paintKeys();
-const rowP=document.createElement('div');rowP.className='krow';
-// direct-insert punctuation incl. 、(頓號) and / (slash), which have no free
-// zhuyin key; the mapped ones route through feedKey/PUNCT.
-[['，','<'],['。','>'],['、',''],['？','?'],['！','!'],['：',':'],['/','']].forEach(([label,k])=>{
-  const b=document.createElement('button');b.className='key';b.style.width='36px';
+// These are closed over by the physical-keyboard flash handler and by
+// toggleEnMode(), so they live at module scope even though the two layouts
+// build them differently. bs stays undefined on iPhone (the right-hand
+// function column already carries ⌫), and flashKey() tolerates undefined.
+let sp,ent,bs,bl,br,paintEn;
+const PUNCTS=[['，','<'],['。','>'],['、',''],['？','?'],['！','!'],['：',':'],['/','']];
+const mkPunct=(row,cls)=>PUNCTS.forEach(([label,k])=>{
+  const b=document.createElement('button');b.className='key'+(cls?' '+cls:'');
+  if(!cls)b.style.width='36px';
   b.innerHTML='<span class="s">'+label+'</span>';
-  b.onclick=()=>{ (k in PUNCT)?feedKey(k):directPunct(label); };rowP.appendChild(b);});
-const bl=document.createElement('button');bl.className='key';bl.style.width='40px';
-bl.innerHTML='<span class="s">←</span>';bl.onclick=()=>moveCursor(-1);rowP.appendChild(bl);
-const br=document.createElement('button');br.className='key';br.style.width='40px';
-br.innerHTML='<span class="s">→</span>';br.onclick=()=>moveCursor(1);rowP.appendChild(br);
+  b.onclick=()=>{ (k in PUNCT)?feedKey(k):directPunct(label); };row.appendChild(b);});
+const mkBtn=(cls,html,fn)=>{const b=document.createElement('button');
+  b.className='key '+cls;b.innerHTML=html;b.onclick=fn;return b;};
+if(iosKb){
+  // iPhone-style compact bottom: ONE fluid punctuation row + ONE function row,
+  // mirroring the native 注音 keyboard's tidy foot instead of stacking the
+  // desktop rows on top of the right-hand function column (⌫ 、 ？ ⏎) it
+  // already provides. Fluid widths → nothing wraps, no stray lone-arrow row.
+  // punctuation row only — no ←/→ cursor keys: on the web the user just
+  // taps/clicks in the buffer to move the caret (native has no arrows either).
+  const rowP=document.createElement('div');rowP.className='krow pkrow';
+  mkPunct(rowP,'pk');
+  kb.appendChild(rowP);
+  // function row: native-style 4 keys — 中/英 · 空白（widest） · 符 · ⏎上字.
+  const r=document.createElement('div');r.className='krow fnrow';
+  const en=mkBtn('fk','','');en.onclick=()=>toggleEnMode();
+  paintEn=()=>{ en.innerHTML='<span class="s">'+(enMode?'英':'中')+'</span>'; en.classList.toggle('on',enMode); };
+  paintEn();
+  // native space bar: labelled 一聲 (space commits 1st tone) with a faint 注
+  // input-mode watermark in the corner.
+  sp=mkBtn('sp','<span class="s">一聲</span><span class="spw">注</span>',()=>{ if(hasRun()) feedKey(' '); });
+  const symb=mkBtn('fk','<span class="s">符</span>',()=>toggleSymbols());
+  ent=mkBtn('ent','<span class="s">⏎ 上字</span>',()=>commitSentence());
+  [en,sp,symb,ent].forEach(x=>r.appendChild(x));
+  kb.appendChild(r);
+} else {
+  const rowP=document.createElement('div');rowP.className='krow';
+  // direct-insert punctuation incl. 、(頓號) and / (slash), which have no free
+  // zhuyin key; the mapped ones route through feedKey/PUNCT.
+  mkPunct(rowP,'');
+  // ←/→ cursor keys removed: click/tap the buffer to move the caret.
 kb.appendChild(rowP);
 const r=document.createElement('div');r.className='krow';
-const sp=document.createElement('button');sp.className='key wide';sp.textContent='空白（一聲）';
+  sp=document.createElement('button');sp.className='key wide';sp.textContent='空白（一聲）';
 sp.onclick=()=>{ if(hasRun()) feedKey(' '); };
-const ent=document.createElement('button');ent.className='key wide2';ent.textContent='⏎ 上字';
+  ent=document.createElement('button');ent.className='key wide2';ent.textContent='⏎ 上字';
 ent.onclick=()=>commitSentence();
-const bs=document.createElement('button');bs.className='key';bs.style.width='56px';
+  bs=document.createElement('button');bs.className='key';bs.style.width='56px';
 bs.innerHTML='<span class="s">⌫</span>';
 bs.onclick=()=>{ if(committed.length||hasRun()) backspace(); };
 // English-mode toggle: escape hatch for what auto-detection can't infer
 // (short English words that look like zhuyin, symbols, clean typo editing).
 const en=document.createElement('button');en.className='key';en.style.width='52px';
-const paintEn=()=>{ en.innerHTML='<span class="s">'+(enMode?'英':'中')+'</span>'; en.style.background=enMode?'var(--brown)':''; en.style.color=enMode?'var(--hi)':''; };
+  paintEn=()=>{ en.innerHTML='<span class="s">'+(enMode?'英':'中')+'</span>'; en.style.background=enMode?'var(--brown)':''; en.style.color=enMode?'var(--hi)':''; };
 en.onclick=()=>toggleEnMode();
 paintEn();
 // ` symbol menu button (微軟/自然-style)
 const symb=document.createElement('button');symb.className='key';symb.style.width='52px';
 symb.innerHTML='<span class="s">符</span>';symb.onclick=()=>toggleSymbols();
 r.appendChild(sp);r.appendChild(ent);r.appendChild(bs);r.appendChild(en);r.appendChild(symb);kb.appendChild(r);
+}
 
 // Physical-keyboard feedback: flash the matching virtual key on keydown.
 const keyByChar={}; keyBtns.forEach(({b,key})=>keyByChar[key]=b);
