@@ -109,8 +109,6 @@
   .ctrls button.ghost{background:transparent;color:var(--ink2);border:1px solid var(--border2);
     box-shadow:none;font-weight:500}
   .ctrls button.ghost:hover{border-color:var(--brown);color:var(--brown)}
-  .toggle{margin-left:auto;color:var(--muted);font-size:.88rem;cursor:pointer;user-select:none}
-  .toggle input{accent-color:var(--brown)}
   .kb{display:flex;flex-direction:column;gap:.34rem;align-items:center;
     background:var(--panel);border:1px solid var(--border);border-radius:16px;
     padding:.8rem .6rem .9rem;box-shadow:var(--shadow)}
@@ -125,8 +123,8 @@
   .key:active,.key.pressed{background:linear-gradient(180deg,var(--brown2),var(--brown));color:var(--hi);
     border-color:var(--brown);transform:translateY(2px);box-shadow:0 0 0 var(--key-edge)}
   .key.pressed .k,.key:active .k{color:var(--hi)}
-  .key .k{font-size:.74rem;font-weight:600;color:var(--ink2);transition:color .12s}
-  .key .s{font-size:1.05rem;line-height:1.15}
+  .key .k{font-size:1rem;font-weight:700;color:var(--leaf);line-height:1.02;transition:color .12s}
+  .key .s{font-size:1.05rem;line-height:1.1}
   .key.wide{width:158px;height:40px;font-size:.9rem;color:var(--ink2)}
   .key.wide2{width:112px;height:40px;font-size:.92rem;font-weight:700;
     background:linear-gradient(180deg,var(--brown2),var(--brown));color:var(--hi);border-color:var(--brown);
@@ -139,7 +137,7 @@
   /* iOS-style keyboard (phones / ?kb=ios): bopomofo-only caps like the
      iPhone 注音 keyboard — same Dàqiān grid, no latin hints, right-hand
      function column. */
-  .ioskb .key .k{font-size:.62rem;font-weight:600;color:var(--ink2)}
+  .ioskb .key .k{font-size:.95rem;font-weight:700;color:var(--leaf)}
   .ioskb .key .s{font-size:1.15rem}
   .ioskb .key.fn{background:linear-gradient(180deg,#e7d7bd,#d9c3a0);font-weight:700}
   @media (prefers-color-scheme:dark){ .ioskb .key.fn{background:linear-gradient(180deg,#3d3126,#332821)} }
@@ -184,6 +182,6 @@
     <a href="https://huggingface.co/Luigi/slothe-t-25m-zhuyin" target="_blank">SlothE-T 25M 三值</a>
   </footer>
 </main>
-<script type="module" src="./ime.js?v=20260713-mt2"></script>
+<script type="module" src="./ime.js?v=20260713-kb"></script>
 </body>
 </html>

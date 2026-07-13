@@ -37,12 +37,12 @@
 <line x1="168.3" y1="270.3" x2="162.9" y2="151.7" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.6"/>
 <circle cx="168.3" cy="280.3" r="8" fill="#6b7280" stroke="#ffffff" stroke-width="2"/>
 <text x="168.3" y="304.3" font-size="13" font-weight="700" fill="#6b7280" text-anchor="middle">4M int8</text>
-<text x="168.3" y="319.3" font-size="11" fill="#6b7280" text-anchor="middle">免70 · 同83 · 無74</text>
+<text x="168.3" y="319.3" font-size="11" fill="#6b7280" text-anchor="middle">免70 · 同83</text>
 <circle cx="545.3" cy="233.4" r="8" fill="#2563eb" stroke="#ffffff" stroke-width="2"/>
 <text x="545.3" y="203.4" font-size="13" font-weight="700" fill="#2563eb" text-anchor="middle">12M int8</text>
-<text x="545.3" y="219.4" font-size="11" fill="#6b7280" text-anchor="middle">免72 · 同82 · 無79</text>
+<text x="545.3" y="219.4" font-size="11" fill="#6b7280" text-anchor="middle">免72 · 同82</text>
 <circle cx="162.9" cy="139.7" r="8" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>
 <text x="162.9" y="109.7" font-size="13" font-weight="700" fill="#dc2626" text-anchor="middle">25M ternary*</text>
-<text x="162.9" y="125.7" font-size="11" fill="#6b7280" text-anchor="middle">免76 · 同86 · 無77</text>
+<text x="162.9" y="125.7" font-size="11" fill="#6b7280" text-anchor="middle">免76 · 同86</text>
 <text x="74" y="42" font-size="11" fill="#9ca3af">* 25M ternary latency projected from measured-shape TQ2_0 / I2_S kernels</text>
 </svg>

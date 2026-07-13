@@ -233,6 +233,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val pressedInk = color(R.color.eink_pressed_ink)
         val ink = color(R.color.eink_ink)
         val muted = color(R.color.eink_muted)
+        val latinInk = color(R.color.eink_latin)
 
         fun shape(bg: Int) = GradientDrawable().apply {
             setColor(bg)
@@ -249,7 +250,7 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         )
         val hintColors = ColorStateList(
             arrayOf(intArrayOf(android.R.attr.state_pressed), intArrayOf()),
-            intArrayOf(pressedInk, muted),
+            intArrayOf(pressedInk, latinInk),
         )
         val main = TextView(context).apply {
             text = glyph
@@ -258,22 +259,25 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
             setTextColor(mainColors)
             isDuplicateParentStateEnabled = true
+            // bopomofo at bottom-right (dual-alphabet keycap: latin top-left, glyph bottom-right)
             layoutParams = android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            )
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END,
+            ).apply { setMargins(0, 0, dp(8), dp(4)) }
         }
         val hint = TextView(context).apply {
             text = latin
             includeFontPadding = false
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)   // larger latin corner label — readable for touch/mouse users
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)   // as prominent as the glyph; green (eink_latin) for distinction
             setTextColor(hintColors)
             isDuplicateParentStateEnabled = true
+            // latin at top-left (dual-alphabet keycap)
             layoutParams = android.widget.FrameLayout.LayoutParams(
                 android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.END,
-            ).apply { setMargins(0, dp(3), dp(5), 0) }
+                Gravity.TOP or Gravity.START,
+            ).apply { setMargins(dp(7), dp(3), 0, 0) }
         }
         val box = android.widget.FrameLayout(context).apply {
             isClickable = true

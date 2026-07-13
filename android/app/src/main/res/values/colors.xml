@@ -22,6 +22,7 @@
     <color name="eink_focus_bg">#FF000000</color>
     <color name="eink_focus_ink">#FFFFFFFF</color>
     <color name="eink_muted">#FF666666</color>
+    <color name="eink_latin">#FF4F7942</color>   <!-- latin key label: green on colour screens, a distinct mid grey on e-ink -->
 
     <color name="sloth_bg">#FFF6F1E8</color>
     <color name="sloth_ink">#FF382D24</color>

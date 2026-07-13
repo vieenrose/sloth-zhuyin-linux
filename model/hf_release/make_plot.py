@@ -71,7 +71,7 @@ for name, tag, lat, proj, mx, ho, tl, col in MODELS:
     s.append(f'<text x="{cx:.1f}" y="{name_y:.1f}" font-size="13" font-weight="700" '
              f'fill="{col}" text-anchor="middle">{name}{star}</text>')
     s.append(f'<text x="{cx:.1f}" y="{sub_y:.1f}" font-size="11" fill="#6b7280" '
-             f'text-anchor="middle">免{mx} · 同{ho} · 無{tl}</text>')
+             f'text-anchor="middle">免{mx} · 同{ho}</text>')
 
 # projection note under the title (avoids the crowded bottom axis area)
 s.append(f'<text x="{L}" y="42" font-size="11" fill="#9ca3af">'
