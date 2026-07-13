@@ -584,13 +584,13 @@ class SlothingImeService : InputMethodService(),
         }
     }
 
-    /** Refresh the always-visible composing-time suggestion strip: last-word
-     *  candidates first (mobile convention), then sentence alternates. */
+    /** Refresh the always-visible composing-time suggestion strip: per-position
+     *  candidates for the last word (cursor is at the end while typing). Correct
+     *  earlier chars by tapping them / the ↓ 字·詞 window — no whole-sentence 句. */
     private fun showSuggestions() {
         if (!::candidateBar.isInitialized) return
         val shown = candidateBar.renderComposing(
             core.getLastWordCands(), core.getLastWordCurrent(),
-            core.getLiveSuggestions(),
         )
         candidateBar.visibility = if (shown) View.VISIBLE else View.INVISIBLE
     }

@@ -117,14 +117,16 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
     }
 
     /**
-     * The full composing strip, mobile convention: candidates for the LAST
-     * word in the buffer show automatically (tap = replace in place, keep
-     * composing), then the whole-sentence alternates (tap = commit).
+     * The composing strip: candidates for the LAST word in the buffer show
+     * automatically (cursor is at the end while typing; tap = replace in place,
+     * keep composing). Whole-sentence 句 alternates were intentionally removed —
+     * single-flip n-best only differs by one char and just repeats the confident
+     * prefix; correction is done per-position (字) around the cursor/tapped
+     * char instead, matching web + desktop (see 點字改字 / the ↓ 字·詞 window).
      */
     fun renderComposing(
         lastCands: Array<String>,
         lastCurrent: String,
-        sentences: Array<String>,
     ): Boolean {
         strip.removeAllViews()
         scrollX = 0
@@ -134,16 +136,6 @@ class CandidateBar(context: Context) : HorizontalScrollView(context) {
             for (c in lastCands) {
                 val chip = chip(c, phrase = false, selected = c == lastCurrent)
                 chip.setOnClickListener { listener?.onPickLastWord(c) }
-                strip.addView(chip)
-                shown = true
-            }
-        }
-        if (sentences.isNotEmpty()) {
-            if (shown) strip.addView(divider())
-            strip.addView(labelChip("句"))
-            sentences.forEachIndexed { i, s ->
-                val chip = chip(s, phrase = true, selected = i == 0)
-                chip.setOnClickListener { listener?.onPickSuggestion(s) }
                 strip.addView(chip)
                 shown = true
             }

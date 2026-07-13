@@ -350,25 +350,10 @@ function render(){
         stripEl.appendChild(b);
       });
     }
-    // 句 alternates: flip the lowest-margin unfixed zh positions (the same
-    // margin-flip n-best the daemon/Android use)
-    const flips=committed.map((t,i)=>({i,m:pvMargins[i]??Infinity}))
-      .filter(x=>committed[x.i].t==='zh' && !overrides[x.i] && (pvCands[x.i]||[]).length>1 && x.i!==li)
-      .sort((a,b)=>a.m-b.m).slice(0,2);
-    if(flips.length){
-      const lbl2=document.createElement('span'); lbl2.className='pg'; lbl2.textContent='句';
-      stripEl.appendChild(lbl2);
-      flips.forEach(f=>{
-        const alt=[...pvChars]; alt[f.i]=pvCands[f.i][1];
-        const b=document.createElement('button'); b.className='cand ph';
-        b.textContent=alt.join('');
-        b.onclick=async()=>{ overrides[f.i]=pvCands[f.i][1];
-          const syl=$('toneless').checked?strip(committed[f.i].v):committed[f.i].v;
-          learn[syl]=pvCands[f.i][1]; saveLearn();   // a pick IS a correction (G4)
-          pvKey=null; await commitSentence(); };
-        stripEl.appendChild(b);
-      });
-    }
+    // Whole-sentence 句 alternates removed: single-flip n-best only differs by
+    // one char and repeats the confident prefix. Correction is per-position —
+    // 字 above (last word) and click-a-char (點字改字) / ↓ for earlier ones,
+    // always local to the cursor. Matches Android + desktop.
   }
   if(fix>=0 && pvKey===bufKey() && pvCands[fix]){
     const cands=pvCands[fix], pages=Math.ceil(cands.length/PAGE);
