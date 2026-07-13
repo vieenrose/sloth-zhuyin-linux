@@ -14,6 +14,7 @@ desktop (fcitx5, IBus), Android, and the browser — share one model.
 
 <p align="center"><img src="docs/demo-web-v14.gif" width="470" alt="Web demo: typing 晚上熬夜看world cup,白天在louisa key-by-key — whole sentence correct, auto zh/en, each keypress highlighted"></p>
 <p align="center"><img src="docs/android-boox-demo-v13.gif" width="470" alt="Native Android IME (BOOX e-ink): typing 晚上熬夜看world cup,白天在louisa key-by-key — whole sentence correct, auto zh/en switch"></p>
+<p align="center"><img src="docs/demo-lianxiang.gif" width="360" alt="Next-word 聯想: after committing 我, the 聯 row predicts 們/的/國/要…, ⇧1-9 or tap to chain"><br><sub>Next-word 聯想: after you commit, the 聯 row predicts the next word — ⇧1-9 or tap to chain</sub></p>
 
 ## What you get
 
@@ -77,9 +78,11 @@ legal readings.
 
 All four frontends are thin adapters over the shared core in `engine/common` and
 share one **`libslothe`** ggml forward pass: a native daemon on desktop, NDK arm64
-on Android, WASM in the browser. Behavior is held together by offline contract
-tests, a headless end-to-end test, and per-layer / per-character golden checks
-against PyTorch.
+on Android, and **multi-threaded WASM** in the browser (a coi-serviceworker enables
+`SharedArrayBuffer` for a **~4.7×** speedup, with automatic single-thread fallback).
+All four are now fully ONNX-Runtime-free. Behavior is held together by offline
+contract tests, a headless end-to-end test, and per-layer / per-character golden
+checks against PyTorch.
 
 - Model, GGUF + full reproduction pipeline: [Luigi/slothe-t-25m-zhuyin](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
 - Architecture & design: [`ARCHITECTURE.md`](ARCHITECTURE.md), `model/DESIGN-E.md`
@@ -88,7 +91,7 @@ against PyTorch.
 ## Roadmap
 
 - [x] **25M ternary shipped to all four frontends**: 76 / 86, all sharing `libslothe` (ggml/TQ2_0), replacing ONNX Runtime
-- [ ] **Char-hints v2**: retrain a hinted ternary model to restore pick / document-context re-scoring (recipe still tuning; not yet beating the no-hints model)
+- [ ] **Char-hints v2 (document context)**: the hinted model is trained and validated on clean held-out — document context *does* help (**+2.4%** whole-sentence), but the win is small and only for long-form, so it's deferred (not worth plumbing through all 4 frontends yet)
 - [ ] Model-based next-word head; word-list filtering
 - [ ] Android hardware-keyboard polish; regular desktop packages
 - [ ] [Senior-friendly keyboard layout](docs/SENIOR-KEYBOARD.md): standard layout + key-error-tolerant decoding
