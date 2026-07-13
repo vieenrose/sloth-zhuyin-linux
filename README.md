@@ -6,7 +6,7 @@
 在你的裝置上把注音解碼成繁體中文。不靠 libchewing、不連雲端，每個字都保證
 「音對得上」。桌面（fcitx5、IBus）、Android、瀏覽器四種前端共用同一顆模型。
 
-**▶ [線上試用（免安裝）](https://huggingface.co/spaces/Luigi/sloth-web)** ·
+**▶ [線上試用（免安裝）](https://huggingface.co/spaces/Luigi/slothing-web)** ·
 [English](README.en.md) ·
 [模型下載](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
 
@@ -40,7 +40,7 @@ cd sloth-zhuyin-linux
 | 其他平台 | 怎麼用 |
 |---|---|
 | **Android** | 下載 Releases 的 `.apk`——離線、模型內建、免 daemon |
-| **瀏覽器** | 免安裝,直接開 [線上 Demo](https://huggingface.co/spaces/Luigi/sloth-web) |
+| **瀏覽器** | 免安裝,直接開 [線上 Demo](https://huggingface.co/spaces/Luigi/slothing-web) |
 
 ## 準確度
 

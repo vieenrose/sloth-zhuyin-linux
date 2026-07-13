@@ -8,7 +8,7 @@ language model** that runs on your device — no libchewing, no cloud, and every
 character guaranteed to be a legal reading of what you typed. Four frontends —
 desktop (fcitx5, IBus), Android, and the browser — share one model.
 
-**▶ [Try it now (no install)](https://huggingface.co/spaces/Luigi/sloth-web)** ·
+**▶ [Try it now (no install)](https://huggingface.co/spaces/Luigi/slothing-web)** ·
 [中文說明](README.md) ·
 [Model](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
 
@@ -43,7 +43,7 @@ asks for `sudo`.)
 | Other platforms | How |
 |---|---|
 | **Android** | Grab the `.apk` from Releases — offline, model built in, no daemon |
-| **Browser** | Nothing to install: [live demo](https://huggingface.co/spaces/Luigi/sloth-web) |
+| **Browser** | Nothing to install: [live demo](https://huggingface.co/spaces/Luigi/slothing-web) |
 
 ## Accuracy
 
