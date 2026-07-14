@@ -274,7 +274,7 @@ function render(){
     // iOS model (mobile): the FIELD shows the raw bopomofo you typed (space-
     // separated, verifiable); the conversion lives in the candidate bar. Desktop
     // keeps the eager 免選字 converted display.
-    if(iosKb && tok.t==='zh'){ span.textContent=tok.v; span.classList.add('bopo'); }
+    if(uiMode==='ios' && tok.t==='zh'){ span.textContent=tok.v; span.classList.add('bopo'); }
     else span.textContent=displayFor(i);   // faithful: no injected CJK-Latin spaces
     if(tok.t==='zh') span.onclick=()=>{ fix===i?(fix=-1,render()):openFix(i); };
     pre.appendChild(span);
@@ -303,7 +303,7 @@ function render(){
   const phEl=$('phrases'); phEl.innerHTML='';
   // iOS model (mobile): the candidate bar LEADS with the full-sentence
   // conversion (boxed) + shorter prefix fallbacks; tap to commit the whole run.
-  if(iosKb && fix<0 && committed.some(t=>t.t==='zh') && pvKey===bufKey()){
+  if(uiMode==='ios' && fix<0 && committed.some(t=>t.t==='zh') && pvKey===bufKey()){
     const disp = committed.map((t,i)=>displayFor(i));
     const full = disp.join('');
     const mk=(text,n,cls)=>{ const b=document.createElement('button');
@@ -614,6 +614,16 @@ const iosKb = matchMedia('(pointer:coarse) and (max-width:600px)').matches
               || new URLSearchParams(location.search).get('kb')==='ios';
 if(iosKb) document.body.classList.add('ioskb');
 if(touchDev) document.body.classList.add('touchdev');
+// The INTERACTION MODEL adapts to the LAST input method, not the device:
+// touch / mouse-click  -> iOS (touch-screen) model  — bopomofo field + sentence bar
+// physical keystroke   -> Linux (keyboard) model    — eager 免選字 + key-driven select
+// (the on-screen keyboard LAYOUT stays device-based via .ioskb.)
+let uiMode = touchDev ? 'ios' : 'physical';
+function setMode(m){ if(uiMode===m) return; uiMode=m;
+  document.body.classList.toggle('iosmode', m==='ios'); if(ready) render(); }
+document.body.classList.toggle('iosmode', uiMode==='ios');
+// any pointer press (tapping a virtual key, clicking a candidate/output) = touch model
+document.addEventListener('pointerdown', ()=>setMode('ios'), true);
 // iOS lesson: the candidate suggestions sit directly ON TOP of the keyboard.
 // Relocate the existing #phrases/#cands strips into a bar at the head of #kb
 // (the nodes just move — render()/renderSymbols() still address them by id).
@@ -712,6 +722,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Shift'){ shiftAlone=true; return; }        // track lone-Shift (微軟 English toggle)
   if(e.key!=='Shift') shiftAlone=false;
   if(e.ctrlKey||e.altKey||e.metaKey)return;const k=e.key;
+  setMode('physical');   // a real keystroke → Linux/keyboard model
   flashKey(k===' '?sp : k==='Enter'?ent : k==='Backspace'?bs
            : k==='ArrowLeft'?bl : k==='ArrowRight'?br : keyByChar[k.toLowerCase()]);
   // Shift+Space toggles 全形/半形 (微軟/自然 convention)
