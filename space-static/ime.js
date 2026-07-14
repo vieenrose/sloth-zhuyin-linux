@@ -280,6 +280,9 @@ function insSym(s){ symbolMode=false; directPunct(s); }
 function toggleSymbols(){ symbolMode=!symbolMode; if(symbolMode){ if(hasRun())commitRun(); fix=-1; } render(); }
 function toggleEnMode(){ if(hasRun())commitRun(); enMode=!enMode; symbolMode=false; paintEn&&paintEn(); typeof paintKeys==='function'&&paintKeys(); render(); }
 function render(){
+  // touch model: when fixing one char, the 字 (single-char) candidates should
+  // LEAD the bar (that's what you tapped a syllable for), not the 詞 phrases.
+  document.body.classList.toggle('fixing', fix>=0);
   const pre=$('pre'); pre.innerHTML='';
   const caret=()=>{const c=document.createElement('span');c.className='caret';return c;};
   committed.forEach((tok,i)=>{
@@ -397,8 +400,16 @@ function render(){
       const pg=document.createElement('span'); pg.className='pg'; pg.textContent=(fixPage+1)+'/'+pages;
       stripEl.appendChild(pg); }
   }
-  if(ready) $('hint').textContent = fix>=0 ? '1-9 選字　←→ 移動　⏎ 確認　↑↓ 翻頁　Esc 取消'
-    : (committed.length||hasRun() ? '⏎ 上字　←→ 游標　↓ 選字　點字改字' : '直接打注音或英文，自動辨識；Shift+，。？！ 輸入標點');
+  // touch: when fixing one char, float the 字 single-char strip to the FRONT of
+  // the candidate bar (a syllable-tap wants char options, not 詞 phrases first).
+  const _bar=document.querySelector('.candbar');
+  if(_bar){ const _ph=$('phrases'), _cn=$('cands');
+    if(fix>=0 && uiMode()==='ios'){ if(_bar.firstElementChild!==_cn) _bar.insertBefore(_cn,_ph); }
+    else if(_bar.firstElementChild!==_ph) _bar.insertBefore(_ph,_cn); }
+  if(ready) $('hint').textContent = uiMode()==='ios'
+    ? (fix>=0 ? '點候選字換字　點其他注音移到那裡' : (committed.length||hasRun() ? '點整句上字　點注音可改該字' : '直接打注音，聲調可省略'))
+    : (fix>=0 ? '1-9 選字　←→ 移動　⏎ 確認　↑↓ 翻頁　Esc 取消'
+      : (committed.length||hasRun() ? '⏎ 上字　←→ 游標　↓ 選字　點字改字' : '直接打注音或英文，自動辨識；Shift+，。？！ 輸入標點'));
   schedulePreview();
 }
 
