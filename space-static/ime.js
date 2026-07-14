@@ -274,7 +274,7 @@ function render(){
     // iOS model (mobile): the FIELD shows the raw bopomofo you typed (space-
     // separated, verifiable); the conversion lives in the candidate bar. Desktop
     // keeps the eager 免選字 converted display.
-    if(uiMode==='ios' && tok.t==='zh'){ span.textContent=tok.v; span.classList.add('bopo'); }
+    if(uiMode()==='ios' && tok.t==='zh'){ span.textContent=tok.v; span.classList.add('bopo'); }
     else span.textContent=displayFor(i);   // faithful: no injected CJK-Latin spaces
     if(tok.t==='zh') span.onclick=()=>{ fix===i?(fix=-1,render()):openFix(i); };
     pre.appendChild(span);
@@ -303,7 +303,7 @@ function render(){
   const phEl=$('phrases'); phEl.innerHTML='';
   // iOS model (mobile): the candidate bar LEADS with the full-sentence
   // conversion (boxed) + shorter prefix fallbacks; tap to commit the whole run.
-  if(uiMode==='ios' && fix<0 && committed.some(t=>t.t==='zh') && pvKey===bufKey()){
+  if(uiMode()==='ios' && fix<0 && committed.some(t=>t.t==='zh') && pvKey===bufKey()){
     const disp = committed.map((t,i)=>displayFor(i));
     const full = disp.join('');
     const mk=(text,n,cls)=>{ const b=document.createElement('button');
@@ -618,17 +618,29 @@ if(touchDev) document.body.classList.add('touchdev');
 // touch / mouse-click  -> iOS (touch-screen) model  — bopomofo field + sentence bar
 // physical keystroke   -> Linux (keyboard) model    — eager 免選字 + key-driven select
 // (the on-screen keyboard LAYOUT stays device-based via .ioskb.)
-let uiMode = touchDev ? 'ios' : 'physical';
+// Interaction model with a testable override. modeOverride: null=AUTO (detect by
+// last input) | 'physical' (locked 桌面/keyboard) | 'ios' (locked 行動/touch).
+// Tap the indicator to cycle auto → 桌面 → 行動 → auto.
+let modeOverride = null, autoMode = touchDev ? 'ios' : 'physical';
+const uiMode = () => modeOverride || autoMode;
 function paintMode(){ const el=document.getElementById('modeind'); if(!el) return;
-  const ios = uiMode==='ios';
-  el.innerHTML = ios ? '📱 <b>行動</b>　觸控 · iOS 模式' : '⌨️ <b>桌面</b>　鍵盤 · Linux 模式';
-  el.classList.toggle('ios', ios); }
-function setMode(m){ if(uiMode===m) return; uiMode=m;
-  document.body.classList.toggle('iosmode', m==='ios'); paintMode(); if(ready) render(); }
-document.body.classList.toggle('iosmode', uiMode==='ios');
+  const ios = uiMode()==='ios';
+  el.innerHTML = modeOverride===null
+    ? '🔄 自動　偵測：'+(ios?'📱 行動 · iOS':'⌨️ 桌面 · Linux')
+    : (ios?'📱 <b>行動</b> · iOS（固定）':'⌨️ <b>桌面</b> · Linux（固定）');
+  el.classList.toggle('ios', ios); el.classList.toggle('locked', modeOverride!==null); }
+function applyMode(){ document.body.classList.toggle('iosmode', uiMode()==='ios');
+  paintMode(); if(ready) render(); }
+function setAuto(m){ if(autoMode!==m){ autoMode=m; if(!modeOverride) applyMode(); } }
+function cycleMode(){ modeOverride = modeOverride===null?'physical'
+  : modeOverride==='physical'?'ios' : null; applyMode(); }
+document.body.classList.toggle('iosmode', uiMode()==='ios');
 paintMode();
-// any pointer press (tapping a virtual key, clicking a candidate/output) = touch model
-document.addEventListener('pointerdown', ()=>setMode('ios'), true);
+const _mi=document.getElementById('modeind'); if(_mi){ _mi.style.cursor='pointer'; _mi.onclick=cycleMode; }
+// pointer press anywhere (except the indicator itself) = touch model detected
+document.addEventListener('pointerdown', e=>{
+  if(e.target && e.target.closest && e.target.closest('#modeind')) return;
+  setAuto('ios'); }, true);
 // iOS lesson: the candidate suggestions sit directly ON TOP of the keyboard.
 // Relocate the existing #phrases/#cands strips into a bar at the head of #kb
 // (the nodes just move — render()/renderSymbols() still address them by id).
@@ -727,7 +739,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Shift'){ shiftAlone=true; return; }        // track lone-Shift (微軟 English toggle)
   if(e.key!=='Shift') shiftAlone=false;
   if(e.ctrlKey||e.altKey||e.metaKey)return;const k=e.key;
-  setMode('physical');   // a real keystroke → Linux/keyboard model
+  setAuto('physical');   // a real keystroke → Linux/keyboard model
   flashKey(k===' '?sp : k==='Enter'?ent : k==='Backspace'?bs
            : k==='ArrowLeft'?bl : k==='ArrowRight'?br : keyByChar[k.toLowerCase()]);
   // Shift+Space toggles 全形/半形 (微軟/自然 convention)
