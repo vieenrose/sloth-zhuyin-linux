@@ -68,6 +68,8 @@ def main():
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--max-pairs", type=int, default=800000)
+    ap.add_argument("--lora", action="store_true", help="LoRA fine-tune (for big teachers like Breeze-7B)")
+    ap.add_argument("--lora-r", type=int, default=32)
     args = ap.parse_args()
 
     # DDP (torchrun --nproc_per_node=N): each rank owns one GPU.
@@ -95,15 +97,24 @@ def main():
     if tok.pad_token_id is None: tok.pad_token = tok.eos_token
     model = AutoModelForCausalLM.from_pretrained(args.base, dtype=torch.bfloat16,
                                                  trust_remote_code=True).to(dev)
+    if args.lora:
+        from peft import LoraConfig, get_peft_model
+        lc = LoraConfig(r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.05,
+                        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                                        "gate_proj", "up_proj", "down_proj"],
+                        task_type="CAUSAL_LM")
+        model = get_peft_model(model, lc)
+        if rank0: model.print_trainable_parameters()
     if rank0: print(f"{args.base}: {sum(p.numel() for p in model.parameters())/1e6:.0f}M params", file=sys.stderr)
     ds = GenDS(pairs, tok)
     if rank0: print(f"train examples (<=96 tok): {len(ds)}", file=sys.stderr)
     sampler = DistributedSampler(ds) if ddp else None
     dl = DataLoader(ds, batch_size=args.batch, sampler=sampler, shuffle=(sampler is None),
                     num_workers=4, drop_last=True, collate_fn=lambda b: collate(b, tok.pad_token_id))
-    train = DDP(model, device_ids=[lrank]) if ddp else model
+    train = DDP(model, device_ids=[lrank], find_unused_parameters=False) if ddp else model
     total = int(len(dl) * args.epochs)
-    opt = torch.optim.AdamW(train.parameters(), lr=args.lr, weight_decay=0.01)
+    params = [p for p in train.parameters() if p.requires_grad]
+    opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, args.lr, total_steps=total, pct_start=0.03)
     step = 0; train.train()
     for ep in range(math.ceil(args.epochs)):
@@ -120,7 +131,12 @@ def main():
             step += 1
     if rank0:
         os.makedirs(args.out, exist_ok=True)
-        model.save_pretrained(args.out); tok.save_pretrained(args.out)
+        if args.lora:
+            merged = model.merge_and_unload()          # standalone teacher (base+LoRA)
+            merged.save_pretrained(args.out)
+        else:
+            model.save_pretrained(args.out)
+        tok.save_pretrained(args.out)
         print(f"saved {args.out}", file=sys.stderr)
     if ddp:
         import torch.distributed as dist; dist.destroy_process_group()
