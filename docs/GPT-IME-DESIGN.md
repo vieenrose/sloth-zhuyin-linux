@@ -9,13 +9,13 @@
 
 One autoregressive Chinese+English LM owns the entire IME surface — full-sentence conversion, n‑best, char/word/phrase candidates, emoji, next‑word association, continuation, and zh‑EN code‑switch — produced in **one decode over one model** where the **decode position relative to the typed span is the only task switch** (inside the span → phonetic‑constrained conversion; outside → free generation). We adopt the maximalist thesis (Design A) but ship it on the pragmatic base and latency ramp (Design B), resolving the two designs' disagreements as follows:
 
-- **Base model: SmolLM‑Chinese‑180M ships; Qwen2.5‑0.5B is the permanent teacher / flagship upgrade rung.** The user ceiling is ~250M full precision; SmolLM‑180M is the only cached pretrained base under that ceiling, is warm‑startable, and is already the default in `gen_convert.py`. Qwen2.5‑0.5B (494M) is over budget, so it is *not* the ship target (Design A's weak point) but is retained as the accuracy‑ceiling teacher for distillation and as an optional flagship‑only model (Design B's stance, kept).
+- **Base model: gemma-3-270m ships (REVISED — see the audit blockquote below).** The original synthesis picked SmolLM‑180M as the only cached ≤250M base, but a tokenizer audit rejected it (4.6% Traditional single-token coverage — Simplified-trained). gemma-3-270m wins on 100% testset coverage. Qwen‑0.5B is a second-base cross-check, NOT a teacher; a real teacher (Qwen2.5‑7B/1.5B, cached) is only used if the student can't beat the encoder alone.
 - **Input serialization: whole‑syllable tokens** (Design B) over atomic bopomofo symbols (Design A) — 1 input token per syllable gives exact 1:1 input‑syllable ↔ output‑Han alignment (the pointer *is* the output‑char count), compact prefill, and a strong per‑syllable warm‑start (mean of the syllable's legal chars, the `bert_convert.py --warmstart` +3pt trick).
 - **Decode: KV‑cached constrained beam** inside the span (phonetic + tone‑union mask reused verbatim from `slothd_e.py`), free continuation outside; **one length‑normalized log‑prob scale** unifies char/word/phrase/sentence/emoji/prediction into the labelless iOS candidate stream.
 - **Latency ramp (accuracy first): bf16 → GGUF Q4_K → encoder‑as‑drafter speculative decoding → distillation.** The shipping 25M ternary SlothE encoder becomes the speculative *draft* proposer (never the answer); the GPT verifies. This is the shared centerpiece of both designs.
 - **Drop‑in behind the existing `decoder.h Decoder` seam** (`decode`/`decodeWithHints`/`phrasesScored`/`learn`) with zero UI change; segmenter, `assoc.h`, learn store, and `core.h ChoosingCore` are unchanged.
 
-Why this over the alternative: Design A's Qwen‑0.5B‑as‑ship bet violates the explicit ≤250M budget and rests on a distillation‑recovers‑quality gamble; Design B's SmolLM‑180M respects the budget today. But Design B under‑commits to the single‑model ambition (it hedges on the encoder). We take A's ambition (one model owns everything, outside‑span free generation is native prediction/emoji) with B's budget discipline and hybrid latency hedge — and keep Qwen‑0.5B as the teacher so the 180M student inherits the ceiling A was chasing.
+Why this over the alternatives: we take Design A's ambition (one model owns conversion + candidates + emoji + prediction via inside/outside decode) with Design B's budget discipline and hybrid latency hedge. The base choice was corrected empirically by the tokenizer audit (below): **gemma-3-270m** is the only budget-fitting base with the single-token Traditional coverage the constrained decode requires. **Teacher-free** (user decision): no distillation at all — the gemma student trains standalone; accuracy levers are data, training length, and base size.
 
 ---
 
@@ -23,13 +23,37 @@ Why this over the alternative: Design A's Qwen‑0.5B‑as‑ship bet violates t
 
 ### Base model
 
+> **REVISED 2026-07-14 by tokenizer audit — SmolLM-180M is REJECTED as ship base.**
+> A base is only usable if the Traditional-Chinese chars it must emit are **single
+> tokens** (the 1-char = 1-output-token invariant the constrained per-position mask
+> needs). Audited every base against `phonetic_table.tsv` chars and, more tellingly,
+> the **391 distinct chars in `eval/testset.tsv`** (real-usage coverage):
+>
+> | Base | Params | vocab | testset-char 1-token | 樹懶輸入法 (tok) | bopo/syl | emoji tok | Verdict |
+> |---|---|---|---|---|---|---|---|
+> | SmolLM-Chinese-180M | 180M | 64k | **4.6%** | 8 | 9.0 | 5 | ❌ Simplified-trained; Traditional fragments to bytes |
+> | Supra-1.5-50M | 50M | 32k | 0.3% | 14 | 8.5 | 3 | ❌ vocab too small for Chinese |
+> | Falcon-H1-Tiny-100M | 100M | 66k | 79.8% | 6 | 8.5 | 3 | ✅ smallest viable; hybrid mamba/attn (fast) |
+> | **LFM2.5-230M** | 230M | 64k | 76.7% | 5 | 8.5 | 3 | ✅ ≤budget; repo already has `finetune/` tooling |
+> | **gemma-3-270m** | 270M | 262k | **100.0%** | 4 | 3.5 | 1 | ✅✅ perfect coverage; **CHOSEN ship base** |
+> | Qwen2.5-0.5B | 494M | 152k | 97.4% | 6 | 4.5 | 1 | teacher/ceiling (over budget) |
+>
+> **Decision:** ship **gemma-3-270m** (100% testset coverage, `這是樹懶輸入法`→7 tok ≈
+> 1 char/token, emoji single-token, ~270M ≈ the budget); **LFM2.5-230M** / **Falcon-H1-100M**
+> are the smaller fallbacks if 270M is too big after quantization; **Qwen2.5-0.5B** stays
+> the teacher/ceiling. The whole-syllable-input-token + "add missing single-char tokens"
+> surgery below is now *lighter* (gemma needs ~0 added output chars vs thousands for SmolLM).
+
 | Role | Model | Params | Precision / footprint | Why |
 |---|---|---|---|---|
-| **Ship v1** | **SmolLM‑Chinese‑180M** | 180M | bf16 ≈ 360 MB → Q4_K ≈ 110 MB → ternary (libslothe) ≈ 60–70 MB | Only cached pretrained base ≤250M; Han+Latin tokenizer; `gen_convert.py` default; warm‑startable; fastest to phone. |
-| **Teacher / ceiling** | Qwen2.5‑0.5B | 494M | bf16 ≈ 1.0 GB → Q4_K_M ≈ 350 MB | Strongest TW‑zh + English + native BPE emoji tokens. Defines the accuracy ceiling, is the KD teacher, and is the **flagship‑only** upgrade rung (identical pipeline/seam). Over the ≤250M budget, so never the default ship model. |
-| Research ceiling | Qwen2.5‑1.5B | 1.5B | — | Out of phone budget; used only to sanity‑check how much headroom remains. |
+| **Ship v1 (CHOSEN)** | **gemma-3-270m** | 268M | bf16 ≈ 540 MB → Q4_K ≈ 180 MB → ternary ≈ 90 MB | 100% testset-char single-token coverage (the constrained-decode invariant); single-token emoji; multilingual (code-switch); base (not instruct). |
+| Ship fallback (smaller) | LFM2.5-230M / Falcon-H1-100M | 230M / 100M | smaller | 77–80% coverage (needs some added single-char tokens); LFM2.5 has existing `finetune/` tooling; Falcon-H1 is smallest + hybrid-fast. Use if gemma too big post-quant. |
+| Second-base cross-check | Qwen2.5‑0.5B | 494M | — | 97.4% coverage. Validates the paradigm on a non-gemma base. NOT a teacher (barely 2× the student, lower coverage than gemma) — mislabel corrected. |
+| ~~Teacher~~ (NOT USED) | — | — | — | **Teacher-free approach (user decision 2026-07-14): no distillation.** The gemma-270m student is trained standalone. If it falls short of the encoder, the levers are more/better data, longer training, or a bigger budget-fitting base — NOT KD. Qwen-0.5B/1.5B/7B are cross-checks/references only. |
 
-Warm‑start lesson from the encoder bake‑off is binding: *ranking accuracy tracks LM‑pretraining quality; from‑scratch scaling hurt toneless (136M cold → 74.2 vs 25M baseline 81); every warm‑start beat baseline (roberta‑base+warmstart 86.8 toned / 84.9 toneless).* We therefore **never cold‑train**; the 180M student is additionally KD‑supervised by the 0.5B teacher so it inherits quality the encoder can't reach on toneless.
+Warm‑start lesson from the encoder bake‑off is binding: *ranking accuracy tracks LM‑pretraining quality; from‑scratch scaling hurt toneless (136M cold → 74.2 vs 25M baseline 81); every warm‑start beat baseline (roberta‑base+warmstart 86.8 toned / 84.9 toneless).* We therefore **never cold‑train** (always warm-start from a pretrained base). **Teacher-free**: no distillation — the student learns directly from the data. If it can't beat the encoder, scale data/training/base, not KD.
+
+*Prototype status (2026-07-14):* gemma-3-270m + Qwen-0.5B both fine-tuning on the 230k gen_pairs snapshot (`gen_convert.py`); constrained-decode eval `model/gpt_ime_eval.py` ready (single-token mask MVP; trie for multi-token chars is the production upgrade). Kill criterion: beat warm-start encoder 86.8 toned / 84.9 toneless.
 
 ### Input serialization — whole‑syllable tokens (resolved)
 
@@ -178,7 +202,7 @@ Key format decisions vs current `gen_convert.py`: substitute syllable substrings
 **Objectives.**
 1. **Causal LM cross‑entropy on the output span only** (prompt masked) — the base conversion + code‑switch + emoji + continuation objective. This single objective, over the dataset above, already teaches inside‑conversion *and* outside‑free‑gen because the continuation/word→emoji pairs put targets on both sides of `⟨sep⟩`.
 2. **Preserve/reinforce outside‑span free generation:** the continuation pairs (§5) are the explicit signal; additionally interleave a small fraction of **pure‑LM sentences** (no `⟨sep⟩`, plain corpus text) so the base's pretrained continuation ability doesn't erode under conversion‑heavy FT. Ratio ~5–10%.
-3. **Distillation (student inherits the ceiling):** after the 0.5B teacher is trained, do **sequence‑level KD** (teacher‑forced 0.5B outputs as extra targets) **+ logit KD on the masked (constrained) distributions** into the 180M student. The masked‑distribution KD is what transfers homophone ranking quality; teacher‑forced sequences transfer fluency. Optionally distill 180M → ~60–70M ternary student (libslothe) for low‑end devices, keeping the encoder drafter.
+3. **No distillation (teacher-free, user decision).** The student learns homophone ranking directly from the constrained-decode objective on the data above. If it's short of the encoder, the levers are: (a) more/better data (CKIP word units, freq-weighting, more corpus), (b) longer training / more epochs, (c) a larger budget-fitting base — NOT a KD teacher. The Qwen-0.5B run is a second-base cross-check only.
 
 **Hyperparameters (Stage‑0 accuracy, bf16).** LR 2e‑4 (student full‑FT) / 5e‑5 (teacher LoRA); AdamW wd 0.01; OneCycle pct_start 0.03; batch 32 (accumulate to ~256 effective on 2×5090); ≤96 tokens; 1–3 epochs over the full corpus (scale `--max-pairs` up from the current 800k to the full ~1.1M×3 variants). Decode presets: beam B=8, phrase b=6 K=3, char top‑k=8 (`kLastCands`), free‑beam depth ≤4 — all runtime‑tunable per device tier.
 
@@ -201,7 +225,7 @@ Accuracy first, latency later — each stage measured before the next.
 - **Stage 0 — accuracy ceiling (bf16, no compromise).** Full‑precision constrained beam. Gate on the eval above. Ship nothing until Stage 0 ≥ warm‑start encoder (86.8/84.9) and clears 免選字 72–74. **If the AR model can't beat the encoder at bf16, the thesis is falsified cheaply** — kill early.
 - **Stage 1 — quantize.** GGUF **Q4_K_M** (180M ≈ 110 MB); re‑gate, accept ≤1–2 pt regression. One GGUF over **ggml/llama.cpp** serves all frontends, converging the 4 frontends off ORT (`slothing-libslothe-deploy` goal). Ternary (libslothe TQ, ≈60–70 MB) for low‑end.
 - **Stage 2 — encoder‑as‑drafter speculative decoding (the centerpiece, both designs).** The shipping **25M ternary SlothE encoder is the draft proposer**: its per‑position argmax (`slothd_e.py:245–256`) proposes the whole 1:1‑aligned sentence in **one non‑AR forward**; the GPT **verifies in a single batched forward**, accepting the longest matching masked prefix and resampling only from the first disagreement. Because the span is strictly 1:1 aligned and the encoder is already ~83–87% right, **acceptance is high → near‑encoder latency with GPT joint‑probability accuracy**. Reuses *all* encoder infra (the `decode()`/mask path is literally the drafter); no new model. Degrades gracefully to full GPT decode on hard toneless disagreements. Measure accept‑rate on the toneless slice specifically (the case AR is meant to fix, where drafter↔GPT most disagree); if low, train a **toneless‑tuned drafter**.
-- **Stage 3 — distill** (only if still short): 180M → ~60–70M student on the GPT's constrained outputs; keep the encoder drafter.
+- **Stage 3 — scale, don't distill** (only if still short): more/better data, more epochs, or a larger budget-fitting base; keep the encoder drafter. (Teacher-free — no KD.)
 
 **Per‑frontend:**
 - **Web (WASM / WebGPU):** llama.cpp‑WASM / WebGPU over the single GGUF; KV‑cache + per‑beam fork is the riskiest surface in‑browser — the encoder‑drafter hybrid is the hedge (draft in the 25M ONNX/WASM path already shipping, verify with a handful of GPT forwards). Falls back to the current encoder if WebGPU is unavailable.
