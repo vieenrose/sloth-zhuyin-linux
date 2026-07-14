@@ -637,6 +637,9 @@ function cycleMode(){ modeOverride = modeOverride===null?'physical'
 document.body.classList.toggle('iosmode', uiMode()==='ios');
 paintMode();
 const _mi=document.getElementById('modeind'); if(_mi){ _mi.style.cursor='pointer'; _mi.onclick=cycleMode; }
+// git version stamp: replaced with the deployed commit's short hash at deploy;
+// stays "dev" when run from an unstamped working tree.
+{ const _gv=document.querySelector('#gitver code'); if(_gv && _gv.textContent.includes('GITVER')) _gv.textContent='dev'; }
 // pointer press anywhere (except the indicator itself) = touch model detected
 document.addEventListener('pointerdown', e=>{
   if(e.target && e.target.closest && e.target.closest('#modeind')) return;
