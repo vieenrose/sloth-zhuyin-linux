@@ -70,41 +70,60 @@ def main():
     ap.add_argument("--max-pairs", type=int, default=800000)
     args = ap.parse_args()
 
+    # DDP (torchrun --nproc_per_node=N): each rank owns one GPU.
+    lrank = int(os.environ.get("LOCAL_RANK", -1))
+    ddp = lrank >= 0
+    if ddp:
+        import torch.distributed as dist
+        from torch.nn.parallel import DistributedDataParallel as DDP
+        from torch.utils.data.distributed import DistributedSampler
+        dist.init_process_group("nccl")
+        torch.cuda.set_device(lrank); dev = f"cuda:{lrank}"
+        rank0 = dist.get_rank() == 0
+    else:
+        dev = "cuda"; rank0 = True
+
     syl_vocab = json.load(open(args.vocab, encoding="utf-8"))
     id2syl = {v: k for k, v in syl_vocab.items()}
     our = AutoTokenizer.from_pretrained(args.our_tokenizer)
     id2char = {v: k for k, v in our.get_vocab().items() if len(k) == 1}
     pairs = reconstruct(args.data, id2syl, id2char, args.max_pairs)
     random.seed(0); random.shuffle(pairs)
-    print(f"pairs: {len(pairs)} e.g. {pairs[0]}", file=sys.stderr)
+    if rank0: print(f"pairs: {len(pairs)} e.g. {pairs[0]}", file=sys.stderr)
 
-    tok = AutoTokenizer.from_pretrained(args.base)
+    tok = AutoTokenizer.from_pretrained(args.base, trust_remote_code=True)
     if tok.pad_token_id is None: tok.pad_token = tok.eos_token
-    dev = "cuda"
-    model = AutoModelForCausalLM.from_pretrained(args.base, torch_dtype=torch.bfloat16).to(dev)
-    print(f"{args.base}: {sum(p.numel() for p in model.parameters())/1e6:.0f}M params", file=sys.stderr)
+    model = AutoModelForCausalLM.from_pretrained(args.base, dtype=torch.bfloat16,
+                                                 trust_remote_code=True).to(dev)
+    if rank0: print(f"{args.base}: {sum(p.numel() for p in model.parameters())/1e6:.0f}M params", file=sys.stderr)
     ds = GenDS(pairs, tok)
-    print(f"train examples (<=96 tok): {len(ds)}", file=sys.stderr)
-    dl = DataLoader(ds, batch_size=args.batch, shuffle=True, num_workers=4, drop_last=True,
-                    collate_fn=lambda b: collate(b, tok.pad_token_id))
+    if rank0: print(f"train examples (<=96 tok): {len(ds)}", file=sys.stderr)
+    sampler = DistributedSampler(ds) if ddp else None
+    dl = DataLoader(ds, batch_size=args.batch, sampler=sampler, shuffle=(sampler is None),
+                    num_workers=4, drop_last=True, collate_fn=lambda b: collate(b, tok.pad_token_id))
+    train = DDP(model, device_ids=[lrank]) if ddp else model
     total = int(len(dl) * args.epochs)
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
+    opt = torch.optim.AdamW(train.parameters(), lr=args.lr, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, args.lr, total_steps=total, pct_start=0.03)
-    step = 0; model.train()
+    step = 0; train.train()
     for ep in range(math.ceil(args.epochs)):
+        if sampler: sampler.set_epoch(ep)
         for ids, am, lab in dl:
             if step >= total: break
             ids, am, lab = ids.to(dev), am.to(dev), lab.to(dev)
-            out = model(input_ids=ids, attention_mask=am, labels=lab)
+            out = train(input_ids=ids, attention_mask=am, labels=lab)
             out.loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            nn.utils.clip_grad_norm_(train.parameters(), 1.0)
             opt.step(); sched.step(); opt.zero_grad(set_to_none=True)
-            if step % 100 == 0:
+            if step % 100 == 0 and rank0:
                 print(f"step {step}/{total} loss {out.loss.item():.3f}", flush=True)
             step += 1
-    os.makedirs(args.out, exist_ok=True)
-    model.save_pretrained(args.out); tok.save_pretrained(args.out)
-    print(f"saved {args.out}", file=sys.stderr)
+    if rank0:
+        os.makedirs(args.out, exist_ok=True)
+        model.save_pretrained(args.out); tok.save_pretrained(args.out)
+        print(f"saved {args.out}", file=sys.stderr)
+    if ddp:
+        import torch.distributed as dist; dist.destroy_process_group()
 
 
 if __name__ == "__main__":
