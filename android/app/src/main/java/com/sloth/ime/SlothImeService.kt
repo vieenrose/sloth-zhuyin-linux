@@ -341,7 +341,7 @@ class SlothImeService : InputMethodService(),
 
     override fun onPickLastWord(ch: String) {
         if (core.pickLastWord(ch)) {
-            ic()?.setComposingText(core.getLive(), 1)
+            ic()?.setComposingText(core.getComposingBopo(), 1)  // iOS model: field stays bopomofo
             showSuggestions()          // refresh the selected chip
         }
     }
@@ -567,16 +567,11 @@ class SlothImeService : InputMethodService(),
             Core.KeyOutcome.NEED_LIVE -> scope.launch {
                 setContextFromField()
                 if (!core.refreshLiveFast()) core.decodeLive()   // heavy: off-main inside Core
-                // Stale/failed decode returns "" from getLive — fall back to
-                // the raw preedit (stale-preserving) instead of blanking the
-                // composing region (a full flash on e-ink).
-                val live = core.getLive()
-                if (live.isNotEmpty() || core.getPreedit().text.isEmpty()) {
-                    ic()?.setComposingText(live, 1)
-                } else {
-                    paintComposingRaw()
-                }
-                showSuggestions()             // auto strip (Gboard/iOS convention)
+                // Touch/iOS model (matches iPhone 注音): the FIELD shows the raw
+                // space-separated bopomofo you typed (verifiable); the sentence
+                // CONVERSION lives in the candidate bar (getLiveSuggestions).
+                paintComposingRaw()
+                showSuggestions()
             }
             Core.KeyOutcome.CONSUMED -> paintComposingRaw()
             Core.KeyOutcome.COMMITTED -> commitDrain()
@@ -589,9 +584,12 @@ class SlothImeService : InputMethodService(),
      *  earlier chars by tapping them / the ↓ 字·詞 window — no whole-sentence 句. */
     private fun showSuggestions() {
         if (!::candidateBar.isInitialized) return
-        val shown = candidateBar.renderComposing(
-            core.getLastWordCands(), core.getLastWordCurrent(),
-        )
+        // Touch/iOS model: the candidate bar LEADS with whole-sentence
+        // conversions (getLiveSuggestions, [0] = best) — tap to commit. Falls
+        // back to last-word char candidates for a lone word / mixed input.
+        val sents = core.getLiveSuggestions()
+        val shown = if (sents.isNotEmpty()) candidateBar.renderSuggestions(sents)
+            else candidateBar.renderComposing(core.getLastWordCands(), core.getLastWordCurrent())
         candidateBar.visibility = if (shown) View.VISIBLE else View.INVISIBLE
     }
 
@@ -638,9 +636,8 @@ class SlothImeService : InputMethodService(),
     // ===== painting ========================================================
 
     private fun paintComposingRaw() {
-        ic()?.setComposingText(core.getPreedit().text, 1)
-        // keep the suggestion strip: mid-syllable keys don't change the
-        // finalized tokens the suggestions were computed for
+        // Touch/iOS model: field shows raw bopomofo, never the eager conversion.
+        ic()?.setComposingText(core.getComposingBopo(), 1)
     }
 
     private fun paintChoosing() {

@@ -233,6 +233,9 @@ JNI(jboolean, nativeDecodeLive)(JNIEnv *, jobject, jlong h) {
 JNI(jstring, nativeGetLive)(JNIEnv *env, jobject, jlong h) {
     return utf8ToJstr(env, sess(h)->getLive());
 }
+JNI(jstring, nativeGetComposingBopo)(JNIEnv *env, jobject, jlong h) {
+    return utf8ToJstr(env, sess(h)->getComposingBopo());
+}
 JNI(jobjectArray, nativeGetLiveSuggestions)(JNIEnv *env, jobject, jlong h) {
     return toStringArray(env, sess(h)->getLiveSuggestions());
 }

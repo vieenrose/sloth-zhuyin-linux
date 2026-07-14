@@ -362,6 +362,25 @@ public:
                                                                   : std::string();
     }
 
+    // Raw bopomofo of the WHOLE composing run — the touch/iOS model shows this
+    // in the field (verifiable phonetics), while the conversion lives in the
+    // candidate bar (getLiveSuggestions). zh syllables are space-separated; the
+    // still-unfinalized run is segmented live; English/number runs stay inline.
+    std::string getComposingBopo() {
+        std::lock_guard<std::mutex> lk(mu_);
+        std::string out;
+        auto add = [&](const SegTok &t) {
+            if (t.zh) { if (!out.empty() && out.back() != ' ') out += ' ';
+                        out += t.v; out += ' '; }
+            else out += t.v;
+        };
+        for (const auto &t : comp_.toks) add(t);
+        if (!comp_.rawKeys.empty() && segmenter_)
+            for (const auto &t : segmenter_->segment(comp_.rawKeys)) add(t);
+        while (!out.empty() && out.back() == ' ') out.pop_back();
+        return out;
+    }
+
     // n-best sentence suggestions for the always-visible strip (fresh only;
     // [0] is the sentence already shown inline in the preedit). Empty when the
     // buffer is empty, stale, or mixed zh/en.

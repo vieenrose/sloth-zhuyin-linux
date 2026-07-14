@@ -92,6 +92,10 @@ class Core {
     /** HEAVY. Returns true if a fresh live display landed (not stale/partial). */
     suspend fun decodeLive(): Boolean = withContext(Dispatchers.Default) { nativeDecodeLive(handle) }
     fun getLive(): String = nativeGetLive(handle)
+
+    /** Touch/iOS model: raw space-separated bopomofo of the whole composing run
+     *  (shown in the field; conversion goes to the candidate bar). */
+    fun getComposingBopo(): String = nativeGetComposingBopo(handle)
     /** n-best sentence suggestions for the always-visible strip ([0] = shown inline). */
     fun getLiveSuggestions(): Array<String> = nativeGetLiveSuggestions(handle)
     /** Auto candidates for the LAST word in the buffer (mobile convention). */
@@ -179,6 +183,7 @@ class Core {
     private external fun nativeRefreshLiveFast(handle: Long): Boolean
     private external fun nativeDecodeLive(handle: Long): Boolean
     private external fun nativeGetLive(handle: Long): String
+    private external fun nativeGetComposingBopo(handle: Long): String
     private external fun nativeGetLiveSuggestions(handle: Long): Array<String>
     private external fun nativeGetLastWordCands(handle: Long): Array<String>
     private external fun nativeGetLastWordCurrent(handle: Long): String
