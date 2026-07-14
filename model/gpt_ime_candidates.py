@@ -137,7 +137,7 @@ def main():
 
     print(f"input: {' '.join(syls)}  ({N} syllables)")
     print(f"\n=== n-best SENTENCES (constrained beam B={args.beam}) ===")
-    for s, txt in beam()[: args.nbest]:
+    for txt, s in beam()[: args.nbest]:
         print(f"  {txt}    ({s:.2f})")
     print(f"\n=== CHAR candidates for syllable 0 ({syls[0]}) ===")
     print("  " + "  ".join(f"{c}" for c, _ in char_cands(0)))
@@ -145,7 +145,7 @@ def main():
         print(f"=== CHAR candidates for syllable {N-1} ({syls[-1]}) ===")
         print("  " + "  ".join(f"{c}" for c, _ in char_cands(N - 1)))
     print(f"\n=== WORD/PHRASE from syllable 0 (constrained beam depth<={min(args.wordK,N)}) ===")
-    for s, txt in beam(depth_limit=min(args.wordK, N))[:6]:
+    for txt, s in beam(depth_limit=min(args.wordK, N))[:6]:
         print(f"  {txt}    ({s:.2f})")
 
 
