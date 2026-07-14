@@ -165,10 +165,15 @@ def main():
     else:
         teacher = AutoModelForCausalLM.from_pretrained(args.teacher, dtype=torch.bfloat16).to(dev).eval()
     for p in teacher.parameters(): p.requires_grad_(False)
-    tvocab = ttok.get_vocab()
-    def tid(c):                                  # teacher single-token id for a char (or None)
-        ids = ttok(c, add_special_tokens=False)["input_ids"]
-        return ids[0] if len(ids) == 1 else None
+    # context-aware char -> teacher-token-id (SentencePiece prefixes ▁ on isolated
+    # chars, so tokenize IN CONTEXT and take the last token). Cached.
+    _tid = {}
+    _prevlen = len(ttok("的", add_special_tokens=False)["input_ids"])
+    def tid(c):
+        if c not in _tid:
+            ids = ttok("的" + c, add_special_tokens=False)["input_ids"]
+            _tid[c] = ids[-1] if len(ids) == _prevlen + 1 else None
+        return _tid[c]
 
     student = TinyGPT(len(vocab), args.dim, args.depth, args.heads, args.kv, args.ffn).to(dev)
     if rank0: print(f"student {sum(p.numel() for p in student.parameters())/1e6:.1f}M params, vocab {len(vocab)}", file=sys.stderr)
@@ -194,25 +199,27 @@ def main():
             if step >= total: break
             # ---- build padded STUDENT sequences: [BOS syls SEP chars EOS] ----
             seqs, labels = [], []
-            tprompts, tfulls, tmaps = [], [], []   # teacher prompt ids, full ids, per-char (pos,legal_tids,legal_sidx)
+            tfulls, tmaps = [], []   # teacher full-seq ids, per-char (pos, legal_tids, legal_sidx)
             for sy, gold in batch:
                 sids = [vocab[s] for s in sy]; cids = [vocab[c] for c in gold]
                 seq = [BOS] + sids + [SEP] + cids + [EOS]
                 lab = [-100] * (len(sids) + 2) + cids + [EOS]   # predict char region + EOS
                 seqs.append(seq); labels.append(lab)
-                # teacher: "sy → gold", per-char legal target
-                tp = ttok(" ".join(sy) + " →", add_special_tokens=False)["input_ids"]
-                per = []; cur = list(tp)
-                ok = True
+                # teacher: "sy → gold" tokenized consistently; per-char legal target
+                # via incremental prefix tokenization (position predicting char i).
+                prompt_str = " ".join(sy) + " →"
+                full = ttok(prompt_str + "".join(gold), add_special_tokens=False)["input_ids"]
+                prev_len = len(ttok(prompt_str, add_special_tokens=False)["input_ids"])
+                acc = prompt_str; per = []
                 for i, c in enumerate(gold):
-                    ci = ttok(c, add_special_tokens=False)["input_ids"]
-                    if len(ci) == 1:
-                        lc = legal(sy[i]); ltids = [tid(x) for x in lc]
-                        keep = [(x, t) for x, t in zip(lc, ltids) if t is not None and x in vocab]
-                        if keep:
-                            per.append((len(cur) - 1, [t for _, t in keep], [vocab[x] for x, _ in keep]))
-                    cur += ci
-                tprompts.append(tp); tfulls.append(cur); tmaps.append(per)
+                    acc += c
+                    nlen = len(ttok(acc, add_special_tokens=False)["input_ids"])
+                    if nlen == prev_len + 1:           # char i is a single token in context
+                        lc = [x for x in legal(sy[i]) if x in vocab and tid(x) is not None]
+                        if lc:
+                            per.append((prev_len - 1, [tid(x) for x in lc], [vocab[x] for x in lc]))
+                    prev_len = nlen
+                tfulls.append(full); tmaps.append(per)
 
             T = max(len(s) for s in seqs)
             sarr = np.full((len(seqs), T), PAD, np.int64); larr = np.full((len(seqs), T), -100, np.int64)
