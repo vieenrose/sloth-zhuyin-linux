@@ -128,6 +128,21 @@ function backspace(){
   else if(cursor>0){ committed.splice(cursor-1,1); overrides.splice(cursor-1,1); cursor--; }
   render();
 }
+// Delete a char from the committed OUTPUT (the textarea) at its caret — so on a
+// touch device the soft-keyboard ⌫ can edit already-committed text (no physical
+// keyboard). Used when the composing buffer is empty.
+function backspaceOutput(){
+  const ta=$('out'); if(!ta) return;
+  let a=ta.selectionStart, b=ta.selectionEnd;
+  if(a==null){ a=b=ta.value.length; }
+  if(a!==b){ ta.value=ta.value.slice(0,a)+ta.value.slice(b); a=a; }
+  else if(a>0){ ta.value=ta.value.slice(0,a-1)+ta.value.slice(a); a=a-1; }
+  else return;
+  ta.selectionStart=ta.selectionEnd=a; ta.focus();
+}
+// Unified ⌫ for the on-screen key: edit the composing run/buffer first, then
+// fall through to editing the committed output text.
+function doBackspace(){ if(committed.length||hasRun()) backspace(); else backspaceOutput(); }
 function moveCursor(d){
   if(hasRun()) return;               // chewing: arrows ignored while composing a syllable
   fix=-1;
@@ -660,7 +675,7 @@ ROWS.forEach((row,ri)=>{const r=document.createElement('div');r.className='krow'
     // bottom bopomofo row, exactly like the native iPhone 注音 keyboard. Enter
     // (⏎上字) and punctuation (、？…) live in the rows below — never repeated.
     const fns=[ null, null, null,
-      {t:'⌫', f:()=>{ if(committed.length||hasRun()) backspace(); }},
+      {t:'⌫', f:()=>doBackspace()},
     ][ri];
     if(fns){ const b=document.createElement('button'); b.className='key fn';
       b.innerHTML='<span class="s">'+fns.t+'</span>'; b.onclick=fns.f; r.appendChild(b); }
@@ -720,7 +735,7 @@ sp.onclick=()=>{ if(hasRun()) feedKey(' '); };
 ent.onclick=()=>commitSentence();
   bs=document.createElement('button');bs.className='key';bs.style.width='56px';
 bs.innerHTML='<span class="s">⌫</span>';
-bs.onclick=()=>{ if(committed.length||hasRun()) backspace(); };
+bs.onclick=()=>doBackspace();
 // English-mode toggle: escape hatch for what auto-detection can't infer
 // (short English words that look like zhuyin, symbols, clean typo editing).
 const en=document.createElement('button');en.className='key';en.style.width='52px';
