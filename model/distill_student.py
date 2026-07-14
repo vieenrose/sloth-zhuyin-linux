@@ -154,9 +154,16 @@ def main():
         if syl not in legal_cache: legal_cache[syl] = legal_chars(syl)
         return legal_cache[syl]
 
-    # teacher (frozen)
+    # teacher (frozen). If it's a LoRA adapter dir, load base + adapter and merge
+    # in memory (no disk write).
     ttok = AutoTokenizer.from_pretrained(args.teacher)
-    teacher = AutoModelForCausalLM.from_pretrained(args.teacher, dtype=torch.bfloat16).to(dev).eval()
+    if os.path.exists(os.path.join(args.teacher, "adapter_config.json")):
+        from peft import PeftModel
+        base_name = json.load(open(os.path.join(args.teacher, "adapter_config.json")))["base_model_name_or_path"]
+        base_m = AutoModelForCausalLM.from_pretrained(base_name, dtype=torch.bfloat16)
+        teacher = PeftModel.from_pretrained(base_m, args.teacher).merge_and_unload().to(dev).eval()
+    else:
+        teacher = AutoModelForCausalLM.from_pretrained(args.teacher, dtype=torch.bfloat16).to(dev).eval()
     for p in teacher.parameters(): p.requires_grad_(False)
     tvocab = ttok.get_vocab()
     def tid(c):                                  # teacher single-token id for a char (or None)

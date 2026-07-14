@@ -131,11 +131,9 @@ def main():
             step += 1
     if rank0:
         os.makedirs(args.out, exist_ok=True)
-        if args.lora:
-            merged = model.merge_and_unload()          # standalone teacher (base+LoRA)
-            merged.save_pretrained(args.out)
-        else:
-            model.save_pretrained(args.out)
+        # LoRA: save the ADAPTER only (~160MB), not the 14GB merged model — the
+        # adapter_config records the base, so it loads as base+adapter later.
+        model.save_pretrained(args.out)
         tok.save_pretrained(args.out)
         print(f"saved {args.out}", file=sys.stderr)
     if ddp:
