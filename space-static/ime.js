@@ -619,9 +619,14 @@ if(touchDev) document.body.classList.add('touchdev');
 // physical keystroke   -> Linux (keyboard) model    — eager 免選字 + key-driven select
 // (the on-screen keyboard LAYOUT stays device-based via .ioskb.)
 let uiMode = touchDev ? 'ios' : 'physical';
+function paintMode(){ const el=document.getElementById('modeind'); if(!el) return;
+  const ios = uiMode==='ios';
+  el.innerHTML = ios ? '📱 <b>行動</b>　觸控 · iOS 模式' : '⌨️ <b>桌面</b>　鍵盤 · Linux 模式';
+  el.classList.toggle('ios', ios); }
 function setMode(m){ if(uiMode===m) return; uiMode=m;
-  document.body.classList.toggle('iosmode', m==='ios'); if(ready) render(); }
+  document.body.classList.toggle('iosmode', m==='ios'); paintMode(); if(ready) render(); }
 document.body.classList.toggle('iosmode', uiMode==='ios');
+paintMode();
 // any pointer press (tapping a virtual key, clicking a candidate/output) = touch model
 document.addEventListener('pointerdown', ()=>setMode('ios'), true);
 // iOS lesson: the candidate suggestions sit directly ON TOP of the keyboard.

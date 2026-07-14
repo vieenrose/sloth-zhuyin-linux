@@ -161,6 +161,14 @@
   /* iOS model: field shows space-separated bopomofo; headline sentence
      candidate is the prominent boxed pill that leads the bar. */
   .iosmode .pre .bopo{margin-right:.34em;letter-spacing:.01em}
+  /* live mode indicator: desktop(keyboard) vs mobile(touch), flips with input */
+  .modeind{display:inline-flex;align-items:center;gap:.3em;margin-top:.5rem;
+    padding:.2rem .7rem;border-radius:999px;font-size:.76rem;font-weight:500;
+    border:1px solid var(--border2);color:var(--ink2);background:var(--panel);
+    transition:background .15s,color .15s,border-color .15s}
+  .modeind b{font-weight:700}
+  .modeind.ios{background:linear-gradient(180deg,var(--brown2),var(--brown));
+    color:var(--hi);border-color:var(--brown)}
   .ioskb .candbar .cand.ph{font-weight:600}
   .ioskb .candbar .cand.ph.hlp{outline:2px solid var(--hi);outline-offset:1px}
   /* iPhone compact foot: fluid punctuation row + one function row (中 ← → 空白
@@ -199,6 +207,7 @@
   <header>
     <h1>樹<span class="sloth">懶</span>智慧輸入法</h1>
     <p class="tag">樹懶注音輸入法 Sloth IME · 模型：<a href="https://huggingface.co/Luigi/slothe-t-25m-zhuyin" target="_blank"><b>SlothE-T</b></a>（25M 三值 ternary・g2pW 標註）· ggml/TQ2_0 WASM 瀏覽器內解碼 · libchewing-free</p>
+    <div id="modeind" class="modeind" title="觸控/滑鼠 → 行動(iOS)；實體鍵盤 → 桌面(Linux)"></div>
   </header>
   <textarea class="out" id="out" rows="3" inputmode="none" autocapitalize="off"
     autocorrect="off" autocomplete="off" spellcheck="false"
@@ -221,6 +230,6 @@
     <a href="https://huggingface.co/Luigi/slothe-t-25m-zhuyin" target="_blank">SlothE-T 25M 三值</a>
   </footer>
 </main>
-<script type="module" src="./ime.js?v=20260714-adaptive"></script>
+<script type="module" src="./ime.js?v=20260714-modeind"></script>
 </body>
 </html>
