@@ -121,6 +121,7 @@ def main():
     ap.add_argument("--ffn", type=int, default=1536)
     ap.add_argument("--epochs", type=float, default=2.0); ap.add_argument("--batch", type=int, default=48)
     ap.add_argument("--lr", type=float, default=3e-4); ap.add_argument("--kd", type=float, default=1.0)
+    ap.add_argument("--no-teacher", action="store_true", help="pure CE, skip 7B teacher (fast size-curve test)")
     ap.add_argument("--maxlen", type=int, default=24); ap.add_argument("--max-pairs", type=int, default=1500000)
     args = ap.parse_args()
 
@@ -154,26 +155,30 @@ def main():
         if syl not in legal_cache: legal_cache[syl] = legal_chars(syl)
         return legal_cache[syl]
 
-    # teacher (frozen). If it's a LoRA adapter dir, load base + adapter and merge
-    # in memory (no disk write).
-    ttok = AutoTokenizer.from_pretrained(args.teacher)
-    if os.path.exists(os.path.join(args.teacher, "adapter_config.json")):
-        from peft import PeftModel
-        base_name = json.load(open(os.path.join(args.teacher, "adapter_config.json")))["base_model_name_or_path"]
-        base_m = AutoModelForCausalLM.from_pretrained(base_name, dtype=torch.bfloat16)
-        teacher = PeftModel.from_pretrained(base_m, args.teacher).merge_and_unload().to(dev).eval()
-    else:
-        teacher = AutoModelForCausalLM.from_pretrained(args.teacher, dtype=torch.bfloat16).to(dev).eval()
-    for p in teacher.parameters(): p.requires_grad_(False)
-    # context-aware char -> teacher-token-id (SentencePiece prefixes ▁ on isolated
-    # chars, so tokenize IN CONTEXT and take the last token). Cached.
-    _tid = {}
-    _prevlen = len(ttok("的", add_special_tokens=False)["input_ids"])
-    def tid(c):
-        if c not in _tid:
-            ids = ttok("的" + c, add_special_tokens=False)["input_ids"]
-            _tid[c] = ids[-1] if len(ids) == _prevlen + 1 else None
-        return _tid[c]
+    # teacher (frozen). --no-teacher / --kd 0 => pure-CE fast path (no 7B forward)
+    # for size-curve tests (isolates architecture vs size).
+    use_teacher = (not args.no_teacher) and args.kd > 0
+    teacher = None; ttok = None
+    def tid(c): return None
+    if use_teacher:
+        ttok = AutoTokenizer.from_pretrained(args.teacher)
+        if os.path.exists(os.path.join(args.teacher, "adapter_config.json")):
+            from peft import PeftModel
+            base_name = json.load(open(os.path.join(args.teacher, "adapter_config.json")))["base_model_name_or_path"]
+            base_m = AutoModelForCausalLM.from_pretrained(base_name, dtype=torch.bfloat16)
+            teacher = PeftModel.from_pretrained(base_m, args.teacher).merge_and_unload().to(dev).eval()
+        else:
+            teacher = AutoModelForCausalLM.from_pretrained(args.teacher, dtype=torch.bfloat16).to(dev).eval()
+        for p in teacher.parameters(): p.requires_grad_(False)
+        # context-aware char -> teacher-token-id (SentencePiece prefixes ▁ on
+        # isolated chars, so tokenize IN CONTEXT and take the last token). Cached.
+        _tid = {}
+        _prevlen = len(ttok("的", add_special_tokens=False)["input_ids"])
+        def tid(c):
+            if c not in _tid:
+                ids = ttok("的" + c, add_special_tokens=False)["input_ids"]
+                _tid[c] = ids[-1] if len(ids) == _prevlen + 1 else None
+            return _tid[c]
 
     student = TinyGPT(len(vocab), args.dim, args.depth, args.heads, args.kv, args.ffn).to(dev)
     if rank0: print(f"student {sum(p.numel() for p in student.parameters())/1e6:.1f}M params, vocab {len(vocab)}", file=sys.stderr)
@@ -205,6 +210,8 @@ def main():
                 seq = [BOS] + sids + [SEP] + cids + [EOS]
                 lab = [-100] * (len(sids) + 2) + cids + [EOS]   # predict char region + EOS
                 seqs.append(seq); labels.append(lab)
+                if not use_teacher:
+                    continue
                 # teacher: "sy → gold" tokenized consistently; per-char legal target
                 # via incremental prefix tokenization (position predicting char i).
                 prompt_str = " ".join(sy) + " →"
@@ -233,25 +240,25 @@ def main():
                                      lab_t[:, 1:].reshape(-1), ignore_index=-100)
             # ---- teacher forward (padded) + char-level KD ----
             kd = torch.zeros((), device=dev); ncmp = 0
-            TT = max(len(f) for f in tfulls)
-            tarr = np.full((len(tfulls), TT), ttok.pad_token_id or 0, np.int64)
-            tam = np.zeros((len(tfulls), TT), np.int64)
-            for i, f in enumerate(tfulls):
-                tarr[i, :len(f)] = f; tam[i, :len(f)] = 1
-            with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.bfloat16):
-                tlog = teacher(input_ids=torch.from_numpy(tarr).to(dev),
-                               attention_mask=torch.from_numpy(tam).to(dev)).logits
-            # student char-position logits: recompute in fp for KD stability
-            slog = logits.float()
-            for i, (sy, gold) in enumerate(batch):
-                base = len(sy) + 2 - 1                 # student pos predicting char_0 = BOS+syls+SEP index-1
-                for j, (tpos, ltids, lsidx) in enumerate(tmaps[i]):
-                    tdist = F.log_softmax(tlog[i, tpos].float()[ltids], -1).exp()
-                    spos = base + j                     # student pos predicting char_j
-                    sdist = F.log_softmax(slog[i, spos][lsidx], -1)
-                    kd = kd + F.kl_div(sdist, tdist, reduction="sum"); ncmp += 1
-            kd = kd / max(ncmp, 1)
-            loss = ce + args.kd * kd
+            if use_teacher:
+                TT = max(len(f) for f in tfulls)
+                tarr = np.full((len(tfulls), TT), ttok.pad_token_id or 0, np.int64)
+                tam = np.zeros((len(tfulls), TT), np.int64)
+                for i, f in enumerate(tfulls):
+                    tarr[i, :len(f)] = f; tam[i, :len(f)] = 1
+                with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                    tlog = teacher(input_ids=torch.from_numpy(tarr).to(dev),
+                                   attention_mask=torch.from_numpy(tam).to(dev)).logits
+                slog = logits.float()   # student char-position logits, fp for KD stability
+                for i, (sy, gold) in enumerate(batch):
+                    base = len(sy) + 2 - 1             # student pos predicting char_0
+                    for j, (tpos, ltids, lsidx) in enumerate(tmaps[i]):
+                        tdist = F.log_softmax(tlog[i, tpos].float()[ltids], -1).exp()
+                        spos = base + j
+                        sdist = F.log_softmax(slog[i, spos][lsidx], -1)
+                        kd = kd + F.kl_div(sdist, tdist, reduction="sum"); ncmp += 1
+                kd = kd / max(ncmp, 1)
+            loss = ce + (args.kd * kd if use_teacher else 0.0)
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             scaler.unscale_(opt); nn.utils.clip_grad_norm_(train.parameters(), 1.0)
