@@ -22,6 +22,22 @@ BOPO = set("ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄧ�
 
 
 # ======================= custom tiny causal decoder =======================
+# Q4 QAT: per-output-channel symmetric int4 fake-quant with straight-through
+# estimator, so the model trains robust to 4-bit deployment (~20MB for 79M).
+QAT = {"on": False}
+def q4(w):
+    if not QAT["on"]:
+        return w
+    s = w.abs().amax(dim=-1, keepdim=True).clamp_(min=1e-5) / 7.0   # int4: [-7,7]
+    wq = (w / s).round().clamp_(-7, 7) * s
+    return w + (wq - w).detach()                                    # STE
+
+
+class QLinear(nn.Linear):
+    def forward(self, x):
+        return F.linear(x, q4(self.weight), self.bias)
+
+
 class RMSNorm(nn.Module):
     def __init__(self, d, eps=1e-6):
         super().__init__(); self.w = nn.Parameter(torch.ones(d)); self.eps = eps
@@ -43,10 +59,10 @@ class Attn(nn.Module):
     def __init__(self, dim, heads, kv):
         super().__init__()
         self.h, self.kv, self.dh = heads, kv, dim // heads
-        self.q = nn.Linear(dim, heads * self.dh, bias=False)
-        self.k = nn.Linear(dim, kv * self.dh, bias=False)
-        self.v = nn.Linear(dim, kv * self.dh, bias=False)
-        self.o = nn.Linear(heads * self.dh, dim, bias=False)
+        self.q = QLinear(dim, heads * self.dh, bias=False)
+        self.k = QLinear(dim, kv * self.dh, bias=False)
+        self.v = QLinear(dim, kv * self.dh, bias=False)
+        self.o = QLinear(heads * self.dh, dim, bias=False)
         self.qn = RMSNorm(self.dh); self.kn = RMSNorm(self.dh)
     def forward(self, x, pos):
         B, T, _ = x.shape
@@ -65,8 +81,8 @@ class Block(nn.Module):
         super().__init__()
         self.n1 = RMSNorm(dim); self.attn = Attn(dim, heads, kv)
         self.n2 = RMSNorm(dim)
-        self.w1 = nn.Linear(dim, ffn, bias=False); self.w3 = nn.Linear(dim, ffn, bias=False)
-        self.w2 = nn.Linear(ffn, dim, bias=False)
+        self.w1 = QLinear(dim, ffn, bias=False); self.w3 = QLinear(dim, ffn, bias=False)
+        self.w2 = QLinear(ffn, dim, bias=False)
     def forward(self, x, pos):
         x = x + self.attn(self.n1(x), pos)
         h = self.n2(x)
@@ -79,7 +95,7 @@ class TinyGPT(nn.Module):
         self.embed = nn.Embedding(vocab, dim)
         self.blocks = nn.ModuleList([Block(dim, heads, kv, ffn) for _ in range(depth)])
         self.norm = RMSNorm(dim)
-        self.head = nn.Linear(dim, vocab, bias=False)
+        self.head = QLinear(dim, vocab, bias=False)
         self.head.weight = self.embed.weight            # tied
         self.apply(lambda m: nn.init.normal_(m.weight, std=0.02)
                    if isinstance(m, (nn.Linear, nn.Embedding)) else None)
@@ -124,9 +140,11 @@ def main():
     ap.add_argument("--ffn", type=int, default=1536)
     ap.add_argument("--epochs", type=float, default=2.0); ap.add_argument("--batch", type=int, default=48)
     ap.add_argument("--lr", type=float, default=3e-4); ap.add_argument("--kd", type=float, default=1.0)
+    ap.add_argument("--qat", action="store_true", help="4-bit QAT (deploy-ready Q4)")
     ap.add_argument("--no-teacher", action="store_true", help="pure CE, skip 7B teacher (fast size-curve test)")
     ap.add_argument("--maxlen", type=int, default=24); ap.add_argument("--max-pairs", type=int, default=1500000)
     args = ap.parse_args()
+    QAT["on"] = args.qat
 
     lrank = int(os.environ.get("LOCAL_RANK", -1)); ddp = lrank >= 0
     if ddp:
@@ -224,10 +242,12 @@ def main():
                 for i, c in enumerate(gold):
                     acc += c
                     nlen = len(ttok(acc, add_special_tokens=False)["input_ids"])
-                    if nlen == prev_len + 1:           # char i is a single token in context
+                    # KD only on the INSIDE span (i < len(sy), aligned to a
+                    # syllable's legal set); outside chars get CE only.
+                    if i < len(sy) and nlen == prev_len + 1:
                         lc = [x for x in legal(sy[i]) if x in vocab and tid(x) is not None]
                         if lc:
-                            per.append((prev_len - 1, [tid(x) for x in lc], [vocab[x] for x in lc]))
+                            per.append((i, prev_len - 1, [tid(x) for x in lc], [vocab[x] for x in lc]))
                     prev_len = nlen
                 tfulls.append(full); tmaps.append(per)
 
@@ -255,9 +275,9 @@ def main():
                 slog = logits.float()   # student char-position logits, fp for KD stability
                 for i, (sy, gold) in enumerate(batch):
                     base = len(sy) + 2 - 1             # student pos predicting char_0
-                    for j, (tpos, ltids, lsidx) in enumerate(tmaps[i]):
+                    for (ci, tpos, ltids, lsidx) in tmaps[i]:
                         tdist = F.log_softmax(tlog[i, tpos].float()[ltids], -1).exp()
-                        spos = base + j
+                        spos = base + ci               # student pos predicting char ci
                         sdist = F.log_softmax(slog[i, spos][lsidx], -1)
                         kd = kd + F.kl_div(sdist, tdist, reduction="sum"); ncmp += 1
                 kd = kd / max(ncmp, 1)
@@ -274,7 +294,7 @@ def main():
         os.makedirs(args.out, exist_ok=True)
         torch.save({"model": student.state_dict(),
                     "config": {"vocab": len(vocab), "dim": args.dim, "depth": args.depth,
-                               "heads": args.heads, "kv": args.kv, "ffn": args.ffn}},
+                               "heads": args.heads, "kv": args.kv, "ffn": args.ffn, "qat": args.qat}},
                    os.path.join(args.out, "student.pt"))
         import shutil; shutil.copy(args.vocab, os.path.join(args.out, "student_vocab.json"))
         print(f"saved {args.out}", file=sys.stderr)
