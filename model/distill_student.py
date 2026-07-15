@@ -100,9 +100,12 @@ class DS(Dataset):
             d = json.loads(line)
             sy = [s for s in d["in"].split() if s and s[0] in BOPO]
             gold = [c for c in d["out"] if "一" <= c <= "鿿"]
-            if not sy or len(sy) != len(gold):        # keep clean 1:1 all-zh pairs
+            # allow continuation pairs: len(gold) >= len(sy) (prefix syllables ->
+            # full sentence). KD (1:1 alignment) only used when --kd/teacher on.
+            if not sy or len(gold) < len(sy):
                 continue
-            if all(s in vocab for s in sy) and all(c in vocab for c in gold) and len(sy) <= maxlen:
+            if all(s in vocab for s in sy) and all(c in vocab for c in gold) \
+                    and len(sy) <= maxlen and len(gold) <= maxlen + 8:
                 self.ex.append((sy, gold))
             if len(self.ex) >= max_pairs: break
     def __len__(self): return len(self.ex)
