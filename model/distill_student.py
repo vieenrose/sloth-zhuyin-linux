@@ -95,8 +95,8 @@ class TinyGPT(nn.Module):
         self.embed = nn.Embedding(vocab, dim)
         self.blocks = nn.ModuleList([Block(dim, heads, kv, ffn) for _ in range(depth)])
         self.norm = RMSNorm(dim)
-        self.head = QLinear(dim, vocab, bias=False)
-        self.head.weight = self.embed.weight            # tied
+        self.head = nn.Linear(dim, vocab, bias=False)   # fp (tied to embed; embeds
+        self.head.weight = self.embed.weight            # kept full-precision in Q4)
         self.apply(lambda m: nn.init.normal_(m.weight, std=0.02)
                    if isinstance(m, (nn.Linear, nn.Embedding)) else None)
     def forward(self, ids):
