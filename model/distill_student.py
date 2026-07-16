@@ -135,7 +135,9 @@ def make_ssm(dim):
                               state_size=128, expand=2, conv_kernel=4))
     if t == "gdn":
         from fla.layers import GatedDeltaNet
-        return FLAWrap(GatedDeltaNet(hidden_size=dim, head_dim=128,
+        # expand_v=1 => head_v_dim == head_k_dim (square heads) so the weights map
+        # onto llama.cpp's qwen3next DeltaNet (which requires head_k==head_v==d_state).
+        return FLAWrap(GatedDeltaNet(hidden_size=dim, head_dim=128, expand_v=1.0,
                                      num_heads=max(1, dim // 128), mode="chunk"))
     raise ValueError(t)
 
