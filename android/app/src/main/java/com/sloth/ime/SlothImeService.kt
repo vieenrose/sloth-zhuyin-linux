@@ -95,9 +95,15 @@ class SlothImeService : InputMethodService(),
     private fun selfTest() = scope.launch(Dispatchers.Default) {
         // debuggable builds only, off the UI thread: 230 ONNX forwards would
         // ANR the service, and the staged commits must not race live typing
+        // debug builds, OR release when `settings put global sloth_bench 1` is set
+        // (adb-only global) — lets us capture BENCH_LAT on real hardware without a
+        // debug build (which ANRs the BOOX on model extraction).
         val debuggable = (applicationInfo.flags and
             android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-        if (!debuggable) return@launch
+        val benchFlag = try {
+            android.provider.Settings.Global.getInt(contentResolver, "sloth_bench", 0) == 1
+        } catch (_: Exception) { false }
+        if (!debuggable && !benchFlag) return@launch
         val cases = listOf(
             "su3cl3" to "你好",   // ㄋㄧˇ ㄏㄠˇ
             "ji3y94" to "我在",   // ㄨㄛˇ ㄗㄞˋ
