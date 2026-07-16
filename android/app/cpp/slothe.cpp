@@ -170,9 +170,11 @@ static ggml_tensor * slothe_block(ggml_context * ctx, const slothe_model & m, in
     snprintf(buf, sizeof(buf), "blk.%d.attn_norm.weight", il);
     ggml_tensor * h = mul_w(ctx, ggml_rms_norm(ctx, x, eps), m.get(buf));
 
-    ggml_tensor * q = slothe_lin(ctx, m, il, "attn_q", h, is_fp, hp.dim, 512); // [352,T]
-    ggml_tensor * k = slothe_lin(ctx, m, il, "attn_k", h, is_fp, hp.dim, 512); // [88,T]
-    ggml_tensor * v = slothe_lin(ctx, m, il, "attn_v", h, is_fp, hp.dim, 512); // [88,T]
+    const int padd = ((hp.dim + hp.pad_to - 1)/hp.pad_to)*hp.pad_to;
+    const int padf = ((hp.ffn + hp.pad_to - 1)/hp.pad_to)*hp.pad_to;
+    ggml_tensor * q = slothe_lin(ctx, m, il, "attn_q", h, is_fp, hp.dim, padd); // [352,T]
+    ggml_tensor * k = slothe_lin(ctx, m, il, "attn_k", h, is_fp, hp.dim, padd); // [88,T]
+    ggml_tensor * v = slothe_lin(ctx, m, il, "attn_v", h, is_fp, hp.dim, padd); // [88,T]
 
     q = ggml_reshape_3d(ctx, q, hd, nh,  T);
     k = ggml_reshape_3d(ctx, k, hd, nkv, T);
@@ -204,16 +206,16 @@ static ggml_tensor * slothe_block(ggml_context * ctx, const slothe_model & m, in
     kqv = ggml_permute(ctx, kqv, 0, 2, 1, 3);     // [hd, nh, T]
     ggml_tensor * o = ggml_cont_2d(ctx, kqv, hd * nh, T); // [352, T]
 
-    o = slothe_lin(ctx, m, il, "attn_output", o, is_fp, hp.dim, 512);
+    o = slothe_lin(ctx, m, il, "attn_output", o, is_fp, hp.dim, padd);
     x = ggml_add(ctx, x, o);
 
     // ---- ffn (pre-norm, SwiGLU) ----
     snprintf(buf, sizeof(buf), "blk.%d.ffn_norm.weight", il);
     ggml_tensor * h2 = mul_w(ctx, ggml_rms_norm(ctx, x, eps), m.get(buf));
-    ggml_tensor * g = slothe_lin(ctx, m, il, "ffn_gate", h2, is_fp, hp.dim, 512);  // [960,T]
-    ggml_tensor * u = slothe_lin(ctx, m, il, "ffn_up",   h2, is_fp, hp.dim, 512);  // [960,T]
+    ggml_tensor * g = slothe_lin(ctx, m, il, "ffn_gate", h2, is_fp, hp.dim, padd);  // [960,T]
+    ggml_tensor * u = slothe_lin(ctx, m, il, "ffn_up",   h2, is_fp, hp.dim, padd);  // [960,T]
     ggml_tensor * ff = ggml_mul(ctx, ggml_silu(ctx, g), u);
-    ff = slothe_lin(ctx, m, il, "ffn_down", ff, is_fp, hp.ffn, 1024);              // [352,T]
+    ff = slothe_lin(ctx, m, il, "ffn_down", ff, is_fp, hp.ffn, padf);              // [352,T]
     x = ggml_add(ctx, x, ff);
     return x;
 }

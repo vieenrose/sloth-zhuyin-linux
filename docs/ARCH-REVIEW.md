@@ -5,13 +5,16 @@
 
 ## The single most important finding
 
-**Latency is not the bottleneck — there is ~100× headroom.** A 3B ternary model runs at
-11 tok/s (~90ms/tok) on a Raspberry Pi 5 (T-MAC, arXiv 2407.00088); our models are 25–33M,
-30–120× smaller. The measured ~9ms/forward is already near the floor. **Optimize for quality,
-not speed** — the ≤20ms budget can absorb a bigger/better model.
-
-Corollary: the current app's 40ms encoder decode is an *implementation* gap (unoptimized
-release path), not an architectural ceiling.
+**LATENCY CORRECTION (2026-07-17, measured on real BOOX):** the "~9ms encoder" figure used
+below was a *projection* (the HF model card marks it `projected, not measured`); the review's
+"100× headroom" premise inherited it. Real numbers, single 6-syl forward on BOOX SD662:
+- 25M ternary @ old 8-thread default: **40.6ms** (the "40ms release gap" was thread
+  oversubscription onto the A53 little cores, not an implementation gap)
+- 25M ternary @ 4 threads: **18.5ms** (fixed default, commit fdaadc8)
+- 25M ternary @ 2 threads: **31.9ms**
+Latency is real but manageable: headroom is ~2×, not 100×. Quality levers below remain valid;
+the speculative-decoding/kernel-swap dismissals hold for the opposite reason (no headroom to
+need them at current size).
 
 ## Encoder (conversion) — keep the shape, improve the training
 
@@ -154,3 +157,40 @@ pretraining-limited classification (encoder).
 **Encoder distillation — DONE, WIN:** RoBERTa→SlothE-T soft-label KD = 84.3→86.8 toned (+2.5, free),
 toneless flat 79.2. The deployable-encoder-accuracy lever confirmed for the toned axis; toneless still
 needs `.bin` augmentation. Sweep complete.
+
+---
+
+# BOOX 2-thread latency sweep (2026-07-17, measured on device 800D1C1B)
+
+Goal: best IME at ≤20ms e2e on BOOX with ONLY 2 threads (leave cores for system/app).
+Method: synthetic random-weight models of candidate shapes (latency is shape-dependent,
+value-independent), timed via the cached slothe_logits path, T=6, on the real device.
+
+| Encoder shape (ternary) | params | median @2t | fits 20ms? |
+|---|---|---|---|
+| 352×16 ffn960 (current 25M) | 23M | 31.9ms | NO |
+| 352×8 ffn960 | 17M | 21.1ms | borderline |
+| 256×14 ffn1024 | 16M | 19.1ms | no headroom |
+| **256×12 ffn768** | **11.6M** | **15.4ms** | **YES** |
+| 256×8 ffn768 | 8.6M | 12.7ms | YES |
+| 192×8 ffn512 | 5.6M | 9.0ms | YES |
+
+| Predictor (Q4, llama-bench) | @2t ms/word |
+|---|---|
+| 60M | 13.1 |
+| **33M** | **7.7** |
+
+Findings:
+- **dim=256 is free speed**: exactly TQ2_0 256-aligned → zero pad tax. The current dim=352
+  pads to 512 = 31% wasted attention MACs (the model card's "256-alignment note" confirmed).
+- Latency ~linear in T: 256×12 = 15.4ms @T6 but 29.7ms @T12. Budgets are per-6-syllable.
+- Thread default fixed to 4 (was 8; little cores dragged 2.7×). SLOTHE_THREADS overrides.
+
+**Candidate 2-thread solution: encoder 256×12 ternary (15.4ms) + predictor 33M Q4 (7.7ms).**
+Conversion and prediction are separate input events, so each fits ≤20ms; even summed = 23.1ms
+(or 256×8 + 33M = 20.4ms for a strict-sum budget). OPEN: accuracy of an 11.6M SlothE-T with
+RoBERTa-KD vs the 25M's 86.8/79.2 — needs the two KD trainings (256×12, 256×8) on the
+workstation. Old 12M int8 shipped at 72% 免選字; this is its ternary+KD successor.
+
+ARM references if BOOX unavailable: rpi4 `ssh raspberrypi` (Cortex-A72, no-dotprod — closest
+proxy to the BOOX big cores), Jetson `ssh picard@picard-desktop` (CPU-only mode).
