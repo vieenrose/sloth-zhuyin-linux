@@ -1,4 +1,5 @@
 import sys, json, torch
+import distill_student as D
 from distill_student import TinyGPT, QAT
 TONES="ˊˇˋ˙"; VAR=str.maketrans({"臺":"台","箇":"個"})
 mdir=sys.argv[1]
@@ -6,6 +7,7 @@ ck=torch.load(f"{mdir}/student.pt",map_location="cuda"); c=ck["config"]
 vocab=json.load(open(f"{mdir}/student_vocab.json",encoding="utf-8"))
 id2=  {v:k for k,v in vocab.items()}
 QAT["on"]=c.get("qat",False)
+D.SSM_TYPE["t"]=c.get("ssm_type","mamba1")
 m=TinyGPT(c["vocab"],c["dim"],c["depth"],c["heads"],c["kv"],c["ffn"],c.get("pattern")).cuda()
 sd=ck["model"]
 try:
