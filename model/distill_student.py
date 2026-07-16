@@ -64,7 +64,7 @@ class Attn(nn.Module):
         self.v = QLinear(dim, kv * self.dh, bias=False)
         self.o = QLinear(heads * self.dh, dim, bias=False)
         self.qn = RMSNorm(self.dh); self.kn = RMSNorm(self.dh)
-    def forward(self, x, pos):
+    def forward(self, x, pos, attn_mask=None):
         B, T, _ = x.shape
         q = self.qn(self.q(x).view(B, T, self.h, self.dh).transpose(1, 2))
         k = self.kn(self.k(x).view(B, T, self.kv, self.dh).transpose(1, 2))
@@ -72,7 +72,10 @@ class Attn(nn.Module):
         q, k = rope(q, pos, self.dh), rope(k, pos, self.dh)
         rep = self.h // self.kv
         k = k.repeat_interleave(rep, 1); v = v.repeat_interleave(rep, 1)
-        o = F.scaled_dot_product_attention(q, k, v, is_causal=True)   # CAUSAL
+        if attn_mask is None:
+            o = F.scaled_dot_product_attention(q, k, v, is_causal=True)   # CAUSAL
+        else:   # PREFIX-LM: bidirectional over the input span, causal after
+            o = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
         return self.o(o.transpose(1, 2).reshape(B, T, -1))
 
 
@@ -155,15 +158,15 @@ class Block(nn.Module):
         self.n2 = RMSNorm(dim)
         self.w1 = QLinear(dim, ffn, bias=False); self.w3 = QLinear(dim, ffn, bias=False)
         self.w2 = QLinear(ffn, dim, bias=False)
-    def forward(self, x, pos):
+    def forward(self, x, pos, attn_mask=None):
         h1 = self.n1(x)
         if self.kind == "attn":
-            mixed = self.mix(h1, pos)
+            mixed = self.mix(h1, pos, attn_mask)
         elif self.kind == "ssm":
             mixed = self.mix(h1)
         else:  # parallel: normalize each branch, learnable-weighted sum
             b = torch.softmax(self.beta, 0)
-            a = self.na(self.attn(h1, pos)).to(h1.dtype)   # cast branches to a
+            a = self.na(self.attn(h1, pos, attn_mask)).to(h1.dtype)  # cast branches
             s = self.nm(self.ssm(h1)).to(h1.dtype)         # common dtype (fla vs Attn)
             mixed = b[0] * a + b[1] * s
         x = x + mixed
@@ -187,10 +190,21 @@ class TinyGPT(nn.Module):
             self.head.weight = self.embed.weight        # tied (fp; embeds high-prec in Q4)
         self.apply(lambda m: nn.init.normal_(m.weight, std=0.02)
                    if isinstance(m, (nn.Linear, nn.Embedding)) else None)
-    def forward(self, ids):
+    def forward(self, ids, prefix_len=None):
+        # prefix_len: (B,) length of the INPUT span per row. Positions < prefix_len
+        # attend BIDIRECTIONALLY (encoder-quality syllable reps); positions >=
+        # prefix_len are CAUSAL (generation). None => fully causal (decoder-only).
         pos = torch.arange(ids.shape[1], device=ids.device)
+        mask = None
+        if prefix_len is not None:
+            T = ids.shape[1]
+            causal = torch.ones(T, T, dtype=torch.bool, device=ids.device).tril()
+            j = torch.arange(T, device=ids.device)
+            # key j is in the prefix -> visible to every query
+            inpref = (j[None, :] < prefix_len[:, None])                  # (B,T)
+            mask = causal[None, None] | inpref[:, None, None, :]         # (B,1,T,T)
         x = self.embed(ids)
-        for b in self.blocks: x = b(x, pos)
+        for b in self.blocks: x = b(x, pos, mask)
         return self.head(self.norm(x))
 
 
@@ -228,6 +242,7 @@ def main():
     ap.add_argument("--ffn", type=int, default=1536)
     ap.add_argument("--epochs", type=float, default=2.0); ap.add_argument("--batch", type=int, default=48)
     ap.add_argument("--lr", type=float, default=3e-4); ap.add_argument("--kd", type=float, default=1.0)
+    ap.add_argument("--prefix-lm", action="store_true", help="bidirectional over input span (encoder-quality reps), causal after")
     ap.add_argument("--ssm-type", default="mamba1", choices=["mamba1","mamba2","gdn"])
     ap.add_argument("--untie", action="store_true", help="untie embed/head (research: untied even at 0.5B)")
     ap.add_argument("--hybrid", default="", help="repeating block pattern e.g. ssm,ssm,attn (empty=all attn)")
@@ -349,9 +364,12 @@ def main():
             for i, (s, l) in enumerate(zip(seqs, labels)):
                 sarr[i, :len(s)] = s; larr[i, :len(l)] = l
             sids_t = torch.from_numpy(sarr).to(dev); lab_t = torch.from_numpy(larr).to(dev)
+            # prefix span = [BOS syls SEP] -> len(sy)+2 per row
+            plen = torch.tensor([len(sy) + 2 for sy, _ in batch], device=dev) \
+                   if args.prefix_lm else None
 
             with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-                logits = train(sids_t)
+                logits = train(sids_t, plen)
                 ce = F.cross_entropy(logits[:, :-1].reshape(-1, len(vocab)),
                                      lab_t[:, 1:].reshape(-1), ignore_index=-100)
             # ---- teacher forward (padded) + char-level KD ----
@@ -387,7 +405,7 @@ def main():
         os.makedirs(args.out, exist_ok=True)
         torch.save({"model": student.state_dict(),
                     "config": {"vocab": len(vocab), "dim": args.dim, "depth": args.depth,
-                               "heads": args.heads, "kv": args.kv, "ffn": args.ffn, "qat": args.qat, "untie": args.untie, "ssm_type": args.ssm_type, "pattern": (args.hybrid.split(",") if args.hybrid else None)}},
+                               "heads": args.heads, "kv": args.kv, "ffn": args.ffn, "qat": args.qat, "untie": args.untie, "prefix_lm": args.prefix_lm, "ssm_type": args.ssm_type, "pattern": (args.hybrid.split(",") if args.hybrid else None)}},
                    os.path.join(args.out, "student.pt"))
         import shutil; shutil.copy(args.vocab, os.path.join(args.out, "student_vocab.json"))
         print(f"saved {args.out}", file=sys.stderr)

@@ -8,6 +8,7 @@ vocab=json.load(open(f"{mdir}/student_vocab.json",encoding="utf-8"))
 id2=  {v:k for k,v in vocab.items()}
 QAT["on"]=c.get("qat",False)
 D.SSM_TYPE["t"]=c.get("ssm_type","mamba1")
+PLM=c.get("prefix_lm",False)
 m=TinyGPT(c["vocab"],c["dim"],c["depth"],c["heads"],c["kv"],c["ffn"],c.get("pattern")).cuda()
 sd=ck["model"]
 try:
@@ -37,7 +38,9 @@ def legal_ids(syl):
 def convert(syls):  # INSIDE constrained
     inp=[BOS]+[vocab.get(s,UNK) for s in syls]+[SEP]; gen=[]
     for syl in syls:
-        lg=m(torch.tensor([inp+gen],device="cuda"))[0,-1]
+        _t=torch.tensor([inp+gen],device="cuda")
+        _p=torch.tensor([len(syls)+2],device="cuda") if PLM else None
+        lg=m(_t,_p)[0,-1]
         lids=legal_ids(syl)
         if not lids: gen.append(UNK); continue
         mask=torch.full_like(lg,float("-inf")); lt=torch.tensor(lids,device="cuda"); mask[lt]=lg[lt]
@@ -48,13 +51,17 @@ def predict(syls,extra=8):  # OUTSIDE free continuation past the span
     inp=[BOS]+[vocab.get(s,UNK) for s in syls]+[SEP]; gen=[]
     # first convert inside (constrained), then free-generate
     for syl in syls:
-        lg=m(torch.tensor([inp+gen],device="cuda"))[0,-1]
+        _t=torch.tensor([inp+gen],device="cuda")
+        _p=torch.tensor([len(syls)+2],device="cuda") if PLM else None
+        lg=m(_t,_p)[0,-1]
         lids=legal_ids(syl); 
         if lids:
             mask=torch.full_like(lg,float("-inf")); lt=torch.tensor(lids,device="cuda"); mask[lt]=lg[lt]; gen.append(int(mask.argmax()))
     prev=None
     for _ in range(extra):
-        lg=m(torch.tensor([inp+gen],device="cuda"))[0,-1]
+        _t=torch.tensor([inp+gen],device="cuda")
+        _p=torch.tensor([len(syls)+2],device="cuda") if PLM else None
+        lg=m(_t,_p)[0,-1]
         nx=int(lg.argmax())
         if nx==vocab["<eos>"] or nx==prev: break
         gen.append(nx); prev=nx
