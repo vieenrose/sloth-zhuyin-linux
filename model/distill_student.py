@@ -24,8 +24,12 @@ BOPO = set("ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄧ�
 # ======================= custom tiny causal decoder =======================
 # Q4 QAT: per-output-channel symmetric int4 fake-quant with straight-through
 # estimator, so the model trains robust to 4-bit deployment (~20MB for 79M).
-QAT = {"on": False}
+QAT = {"on": False, "mode": "q4"}
 def q4(w):
+    if QAT["on"] and QAT.get("mode") == "ternary":
+        s = w.abs().mean(dim=-1, keepdim=True).clamp_(min=1e-5)
+        wq = (w / s).round().clamp_(-1, 1) * s
+        return w + (wq - w).detach()
     if not QAT["on"]:
         return w
     s = w.abs().amax(dim=-1, keepdim=True).clamp_(min=1e-5) / 7.0   # int4: [-7,7]

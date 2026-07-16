@@ -34,17 +34,22 @@ def main():
     ap.add_argument("--heads", type=int, default=8); ap.add_argument("--kv", type=int, default=2)
     ap.add_argument("--ffn", type=int, default=2048); ap.add_argument("--seqlen", type=int, default=64)
     ap.add_argument("--epochs", type=float, default=3); ap.add_argument("--batch", type=int, default=64)
-    ap.add_argument("--lr", type=float, default=3e-4); ap.add_argument("--qat", action="store_true")
+    ap.add_argument("--lr", type=float, default=3e-4); ap.add_argument("--qat", action="store_true"); ap.add_argument("--ternary", action="store_true")
     ap.add_argument("--ssm-type", default="mamba1"); ap.add_argument("--hybrid", default="")
+    ap.add_argument("--holdout", type=int, default=20000)
     args = ap.parse_args()
-    D.QAT["on"] = args.qat; D.SSM_TYPE["t"] = args.ssm_type
+    D.QAT["on"] = args.qat or args.ternary
+    D.QAT["mode"] = "ternary" if args.ternary else "q4"
+    D.SSM_TYPE["t"] = args.ssm_type
     dev = "cuda"
     tok = Tokenizer.from_file(args.tok)
     V = tok.get_vocab_size(); BOS = tok.token_to_id("<bos>")
     # tokenize corpus into one stream, BOS between lines
     print("tokenizing corpus...", file=sys.stderr)
     stream = []
-    for enc in tok.encode_batch([l.rstrip("\n") for l in open(args.corpus, encoding="utf-8")]):
+    _lines = [l.rstrip("\n") for l in open(args.corpus, encoding="utf-8")]
+    if args.holdout: _lines = _lines[:-args.holdout]   # reserve tail as held-out
+    for enc in tok.encode_batch(_lines):
         stream.append(BOS); stream.extend(enc.ids)
     print(f"vocab={V} stream={len(stream)} tokens", file=sys.stderr)
     ds = LMDS(stream, args.seqlen, BOS)
