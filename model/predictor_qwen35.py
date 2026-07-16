@@ -28,12 +28,15 @@ def main():
     ap.add_argument("--seqlen", type=int, default=64); ap.add_argument("--epochs", type=float, default=3)
     ap.add_argument("--batch", type=int, default=48); ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--holdout", type=int, default=20000)
+    ap.add_argument("--dim", type=int, default=512)
+    ap.add_argument("--depth", type=int, default=6)
+    ap.add_argument("--ffn", type=int, default=2048)
     args = ap.parse_args()
     dev = "cuda"
     tok = Tokenizer.from_file(args.tok)
     V = tok.get_vocab_size(); BOS = tok.token_to_id("<bos>")
     cfg = Qwen3_5TextConfig(
-        vocab_size=V, hidden_size=512, num_hidden_layers=6, intermediate_size=2048,
+        vocab_size=V, hidden_size=args.dim, num_hidden_layers=args.depth, intermediate_size=args.ffn,
         num_attention_heads=8, num_key_value_heads=2, head_dim=64,
         linear_key_head_dim=128, linear_value_head_dim=128,
         linear_num_key_heads=2, linear_num_value_heads=4, linear_conv_kernel_dim=4,
