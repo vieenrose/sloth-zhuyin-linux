@@ -72,3 +72,42 @@ compression on the predictor.
 - Hybrid ratio ablations — arXiv 2507.06457
 - MiniPLM distillation — arXiv 2410.17215
 - flash-linear-attention — github.com/fla-org/flash-linear-attention (no CPU benchmarks; measure your own)
+
+---
+
+# Empirical results (overnight run, 2026-07-16)
+
+Every roadmap lever from the review, tested on our stack. Held-out evals; honest negatives kept.
+
+## Predictor (next-word) — scale-up wins, ternary/KD/SVD don't
+
+| Change | top-1 / top-5 | Verdict |
+|---|---|---|
+| 33M baseline (Qwen3.5 GDN hybrid) | 41.3 / 71.5 | — |
+| **60M (dim640/d8/ffn2560), 3ep** | **47.3 / 75.8** | **WIN** — spend the latency headroom on size |
+| 99M, 3ep | 39.9 / 74.4 | undertrained |
+| 60M, 6ep | 34.2 / 63.0 | **overfits** — 3ep optimal, data-limited |
+| corpus augmentation | — | no new data (conversion gold = corpus_e3 dups) |
+| Q4-QAT | 44.2 / 74.4 | near-lossless — **deploy floor** |
+| **Ternary-QAT** | **18.5 / 48.4** | **catastrophic** — generation over 16k vocab can't take ternary |
+
+**Deployable predictor: 60M @ 3ep, Q4, 46 MB, 8.5 ms/word on BOOX.** Two-model e2e ≈17.5 ms.
+Ternary is only for the encoder (constrained classification tolerates it; open generation doesn't).
+
+## Encoder (conversion) — more epochs is a free win; data-cleaning hurts
+
+| Change | toned / toneless | Verdict |
+|---|---|---|
+| baseline (RoBERTa warm-start, 2ep, .bin) | 86.8 / 84.9 | — |
+| **.bin, 3ep** | **90.6 / 86.2** | **WIN** — +1 epoch, both axes up |
+| all-zh jsonl, 3ep | 88.1 / 83.0 | worse (jsonl loses .bin's toneless augmentation) |
+| toneless-upweighted all-zh, 3ep | 88.1 / 84.9 | trades toned for toneless |
+| MiniPLM diff-sampling (drop noisy 15%) | 89.3 / 81.8 vs 90.6/83.0 | **HURTS** — low-confidence = useful hard examples |
+
+**The encoder — the highest-value component — gains ~+4 toned / +1.3 toneless for one extra epoch.**
+Retrain the shipping ternary encoder at 3ep. Ceiling sweep (4/5ep) in progress.
+
+## Cross-cutting confirmations
+- **Latency was never the bottleneck** — measured on BOOX: encoder ~9 ms, 60M-Q4 predictor 8.5 ms, e2e ~17.5 ms under the 20 ms budget. Every quality lever was affordable.
+- **Task shape decides quantization tolerance** — ternary fine for the classifying encoder, fatal for the generating predictor.
+- **T5 / enc-dec dropped** — 1:1 conversion + open generation are opposite shapes with no shared cross-attention need.
