@@ -123,10 +123,24 @@ Retrain the shipping ternary encoder at 3ep. Ceiling sweep (4/5ep) in progress.
 
 Unlike the predictor, **encoder scale-up barely helps** — the gap to the RoBERTa is **pretraining +
 float precision, not size**. From-scratch int4 is capped ~84/79; the RoBERTa reaches 90.6/86.2 but at
-102M float it would be ~30–40 ms on BOOX (over budget). **The one untested high-value encoder lever:
-distill the pretrained-RoBERTa teacher into the small int4 SlothE-T (soft-label KD) — transfer the
-pretraining knowledge to a fast small model.** Encoders tolerate quantization, so this is the path to a
-deployable encoder approaching 90/86.
+102M float it would be ~30–40 ms on BOOX (over budget).
+
+**RoBERTa→SlothE-T soft-label distillation — TESTED, WIN on toned (added 2026-07-17).** Clean
+same-harness ablation (eval_arch.py, n=159), int4 SlothE-T 16.4M, 2ep, teacher = RoBERTa 3ep (90.6/86.2):
+
+| int4 SlothE-T (16.4M, 2ep) | toned / toneless |
+|---|---|
+| baseline (CE only) | 84.3 / 79.2 |
+| **+ RoBERTa soft-label KD (kd=1.0)** | **86.8 / 79.2** |
+
+KD adds `args.kd·KL(student ‖ teacher-softmax)` over the 5433/8342 shared single-Han-char columns at
+non-ignore positions (`train_slothlm_e_kd.py`). Result: **+2.5 toned at zero inference cost** (identical
+int4 model/latency) — the first lever to lift the from-scratch int4 toned ceiling toward the teacher's
+90.6. **Toneless did not move** (79.2): the teacher's toneless edge (86.2) doesn't transfer through
+char-space KD — likely because the teacher's own toneless strength comes from its `.bin` toned/toneless
+augmentation, not from per-char logit shape the student can absorb. Net: distillation is a real,
+deployable encoder lever for the toned axis; toneless still needs the `.bin` augmentation path (3ep
+`.bin` teacher itself = 90.6/86.2). **Deploy: SlothE-T int4 + RoBERTa-KD for +2.5 toned free.**
 
 ## Overnight sweep — the complete map
 
@@ -137,4 +151,6 @@ diff-sampling (hard examples are useful), SVD (embedding not low-rank), encoder-
 **Laws that held:** latency was never the bottleneck; 3 epochs optimal for both models; ternary suits
 classifiers not generators; scale-up helps generation-with-headroom (predictor) but not
 pretraining-limited classification (encoder).
-**Next:** RoBERTa→SlothE-T soft-label distillation (the deployable-encoder-accuracy lever).
+**Encoder distillation — DONE, WIN:** RoBERTa→SlothE-T soft-label KD = 84.3→86.8 toned (+2.5, free),
+toneless flat 79.2. The deployable-encoder-accuracy lever confirmed for the toned axis; toneless still
+needs `.bin` augmentation. Sweep complete.
