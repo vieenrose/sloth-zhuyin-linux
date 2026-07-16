@@ -43,6 +43,30 @@ class BinDS(Dataset):
     def __getitem__(self, i): return self.recs[i]
 
 
+
+class JsonlDS(Dataset):
+    """Same (syl_ids, char_bert_labels) records but from a scored jsonl, with an
+    optional teacher-confidence floor (MiniPLM difference-sampling)."""
+    _BOPO = set("ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄧㄨㄩㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦ" + "ˊˇˋ˙")
+    def __init__(self, path, syl_vocab, bvocab, maxlen=48, min_score=None):
+        self.recs = []
+        for line in open(path, encoding="utf-8"):
+            d = json.loads(line)
+            if min_score is not None and d.get("score", 0.0) < min_score:
+                continue
+            sy = [x for x in d["in"].split() if x and x[0] in self._BOPO]
+            gold = [c for c in d["out"] if "一" <= c <= "鿿"]
+            if not sy or len(sy) != len(gold) or len(sy) > maxlen:
+                continue
+            if not all(x in syl_vocab for x in sy):
+                continue
+            syl = np.array([syl_vocab[x] for x in sy], dtype=np.int64)
+            lab = np.array([bvocab.get(c, -100) for c in gold], dtype=np.int64)
+            if (lab != -100).any():
+                self.recs.append((syl, lab))
+    def __len__(self): return len(self.recs)
+    def __getitem__(self, i): return self.recs[i]
+
 def collate(batch, pad_syl=0):
     T = max(len(s) for s, _ in batch)
     B = len(batch)
@@ -68,6 +92,7 @@ def main():
                     help="init each syllable embed = mean of its candidate chars' "
                          "PRETRAINED char embeddings (keeps the encoder's synergy)")
     ap.add_argument("--table", default="phonetic_table.tsv")
+    ap.add_argument("--min-score", type=float, default=None)
     args = ap.parse_args()
 
     syl_vocab = json.load(open(args.vocab, encoding="utf-8"))
@@ -84,7 +109,10 @@ def main():
             char_remap[cid] = bvocab[ch]
     print(f"char remap: {len(char_remap)}/{len(id2char)} our-chars -> BERT vocab", file=sys.stderr)
 
-    ds = BinDS(args.data, char_remap)
+    if args.data.endswith(".jsonl"):
+        ds = JsonlDS(args.data, syl_vocab, bvocab, min_score=args.min_score)
+    else:
+        ds = BinDS(args.data, char_remap)
     print(f"records: {len(ds)}; n_syl={n_syl}", file=sys.stderr)
 
     dev = "cuda"
