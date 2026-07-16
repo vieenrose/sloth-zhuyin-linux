@@ -6,8 +6,19 @@ ck=torch.load(f"{mdir}/student.pt",map_location="cuda"); c=ck["config"]
 vocab=json.load(open(f"{mdir}/student_vocab.json",encoding="utf-8"))
 id2=  {v:k for k,v in vocab.items()}
 QAT["on"]=c.get("qat",False)
-m=TinyGPT(c["vocab"],c["dim"],c["depth"],c["heads"],c["kv"],c["ffn"]).cuda()
-m.load_state_dict(ck["model"]); m.eval()
+m=TinyGPT(c["vocab"],c["dim"],c["depth"],c["heads"],c["kv"],c["ffn"],c.get("pattern")).cuda()
+sd=ck["model"]
+try:
+    m.load_state_dict(sd)
+except Exception:
+    import re
+    # backward-compat: old Block used .attn.; new attn-block uses .mix.
+    rem={}
+    for k,v in sd.items():
+        nk=re.sub(r'\.attn\.(q|k|v|o|qn|kn)\.', r'.mix.\1.', k)
+        rem[nk]=v
+    m.load_state_dict(rem)
+m.eval()
 BOS,SEP,UNK=vocab["<bos>"],vocab["<sep>"],vocab.get("<unk>",1)
 tonal={}
 for line in open("phonetic_table.tsv",encoding="utf-8"):

@@ -76,27 +76,90 @@ class Attn(nn.Module):
         return self.o(o.transpose(1, 2).reshape(B, T, -1))
 
 
-class Block(nn.Module):
-    def __init__(self, dim, heads, kv, ffn):
+# Pure-PyTorch Mamba (selective SSM) block — no custom CUDA kernels. Sequential
+# scan is cheap for our short sequences (<=34). Faithful Mamba-1 core.
+class MambaBlock(nn.Module):
+    def __init__(self, dim, d_state=16, d_conv=4, expand=2, dt_rank=None):
         super().__init__()
-        self.n1 = RMSNorm(dim); self.attn = Attn(dim, heads, kv)
+        self.di = expand * dim; self.ds = d_state
+        self.dt_rank = dt_rank or max(16, dim // 16)
+        self.in_proj = QLinear(dim, 2 * self.di, bias=False)
+        self.conv1d = nn.Conv1d(self.di, self.di, d_conv, groups=self.di,
+                                padding=d_conv - 1, bias=True)
+        self.x_proj = QLinear(self.di, self.dt_rank + 2 * self.ds, bias=False)
+        self.dt_proj = nn.Linear(self.dt_rank, self.di, bias=True)
+        self.A_log = nn.Parameter(torch.log(torch.arange(1, self.ds + 1).float()
+                                             .repeat(self.di, 1)))
+        self.D = nn.Parameter(torch.ones(self.di))
+        self.out_proj = QLinear(self.di, dim, bias=False)
+    def forward(self, x):
+        B, T, _ = x.shape
+        xz = self.in_proj(x)
+        xi, z = xz.chunk(2, dim=-1)
+        xi = self.conv1d(xi.transpose(1, 2))[:, :, :T].transpose(1, 2)
+        xi = F.silu(xi)
+        dbl = self.x_proj(xi)
+        dt, Bm, Cm = dbl.split([self.dt_rank, self.ds, self.ds], dim=-1)
+        dt = F.softplus(self.dt_proj(dt))                 # (B,T,di)
+        A = -torch.exp(self.A_log.float())                # (di,ds)
+        dA = torch.exp(dt.unsqueeze(-1) * A)              # (B,T,di,ds)
+        dBx = dt.unsqueeze(-1) * Bm.unsqueeze(2) * xi.unsqueeze(-1)  # (B,T,di,ds)
+        h = torch.zeros(B, self.di, self.ds, device=x.device, dtype=dA.dtype)
+        ys = []
+        for t in range(T):
+            h = dA[:, t] * h + dBx[:, t]
+            ys.append((h * Cm[:, t].unsqueeze(1)).sum(-1))
+        y = torch.stack(ys, 1) + self.D * xi
+        return self.out_proj(y * F.silu(z))
+
+
+class Block(nn.Module):
+    # kind: "attn" (transformer), "ssm" (mamba), or "par" (PARALLEL Hymba-style:
+    # attention + Mamba on the same input, per-branch RMSNorm + learnable-beta
+    # weighted sum — the intra-layer hybrid the research found best at small scale).
+    def __init__(self, dim, heads, kv, ffn, kind="attn"):
+        super().__init__()
+        self.kind = kind
+        self.n1 = RMSNorm(dim)
+        if kind == "attn":
+            self.mix = Attn(dim, heads, kv)
+        elif kind == "ssm":
+            self.mix = MambaBlock(dim)
+        else:  # par
+            self.attn = Attn(dim, heads, kv); self.ssm = MambaBlock(dim)
+            self.na = RMSNorm(dim); self.nm = RMSNorm(dim)
+            self.beta = nn.Parameter(torch.ones(2))
         self.n2 = RMSNorm(dim)
         self.w1 = QLinear(dim, ffn, bias=False); self.w3 = QLinear(dim, ffn, bias=False)
         self.w2 = QLinear(ffn, dim, bias=False)
     def forward(self, x, pos):
-        x = x + self.attn(self.n1(x), pos)
+        h1 = self.n1(x)
+        if self.kind == "attn":
+            mixed = self.mix(h1, pos)
+        elif self.kind == "ssm":
+            mixed = self.mix(h1)
+        else:  # parallel: normalize each branch, learnable-weighted sum
+            b = torch.softmax(self.beta, 0)
+            mixed = b[0] * self.na(self.attn(h1, pos)) + b[1] * self.nm(self.ssm(h1))
+        x = x + mixed
         h = self.n2(x)
         return x + self.w2(F.silu(self.w1(h)) * self.w3(h))
 
 
 class TinyGPT(nn.Module):
-    def __init__(self, vocab, dim, depth, heads, kv, ffn):
+    # hybrid via `pattern` (repeating cycle of "attn"/"ssm"/"par"). Default all-attn.
+    # Research: parallel(intra) > sequential(inter); ~1:5 attn:ssm; never attn-first;
+    # distribute evenly / middle. Untied embed/head; depth>width for hybrids.
+    def __init__(self, vocab, dim, depth, heads, kv, ffn, pattern=None, untie=False):
         super().__init__()
+        if pattern is None: pattern = ["attn"] * depth
+        pattern = [pattern[i % len(pattern)] for i in range(depth)]
         self.embed = nn.Embedding(vocab, dim)
-        self.blocks = nn.ModuleList([Block(dim, heads, kv, ffn) for _ in range(depth)])
+        self.blocks = nn.ModuleList([Block(dim, heads, kv, ffn, k) for k in pattern])
         self.norm = RMSNorm(dim)
-        self.head = nn.Linear(dim, vocab, bias=False)   # fp (tied to embed; embeds
-        self.head.weight = self.embed.weight            # kept full-precision in Q4)
+        self.head = nn.Linear(dim, vocab, bias=False)
+        if not untie:
+            self.head.weight = self.embed.weight        # tied (fp; embeds high-prec in Q4)
         self.apply(lambda m: nn.init.normal_(m.weight, std=0.02)
                    if isinstance(m, (nn.Linear, nn.Embedding)) else None)
     def forward(self, ids):
@@ -140,6 +203,8 @@ def main():
     ap.add_argument("--ffn", type=int, default=1536)
     ap.add_argument("--epochs", type=float, default=2.0); ap.add_argument("--batch", type=int, default=48)
     ap.add_argument("--lr", type=float, default=3e-4); ap.add_argument("--kd", type=float, default=1.0)
+    ap.add_argument("--untie", action="store_true", help="untie embed/head (research: untied even at 0.5B)")
+    ap.add_argument("--hybrid", default="", help="repeating block pattern e.g. ssm,ssm,attn (empty=all attn)")
     ap.add_argument("--qat", action="store_true", help="4-bit QAT (deploy-ready Q4)")
     ap.add_argument("--no-teacher", action="store_true", help="pure CE, skip 7B teacher (fast size-curve test)")
     ap.add_argument("--maxlen", type=int, default=24); ap.add_argument("--max-pairs", type=int, default=1500000)
@@ -201,7 +266,8 @@ def main():
                 _tid[c] = ids[-1] if len(ids) == _prevlen + 1 else None
             return _tid[c]
 
-    student = TinyGPT(len(vocab), args.dim, args.depth, args.heads, args.kv, args.ffn).to(dev)
+    pattern = args.hybrid.split(",") if args.hybrid else None
+    student = TinyGPT(len(vocab), args.dim, args.depth, args.heads, args.kv, args.ffn, pattern, args.untie).to(dev)
     if rank0: print(f"student {sum(p.numel() for p in student.parameters())/1e6:.1f}M params, vocab {len(vocab)}", file=sys.stderr)
     train = DDP(student, device_ids=[lrank]) if ddp else student
 
@@ -294,7 +360,7 @@ def main():
         os.makedirs(args.out, exist_ok=True)
         torch.save({"model": student.state_dict(),
                     "config": {"vocab": len(vocab), "dim": args.dim, "depth": args.depth,
-                               "heads": args.heads, "kv": args.kv, "ffn": args.ffn, "qat": args.qat}},
+                               "heads": args.heads, "kv": args.kv, "ffn": args.ffn, "qat": args.qat, "untie": args.untie, "pattern": (args.hybrid.split(",") if args.hybrid else None)}},
                    os.path.join(args.out, "student.pt"))
         import shutil; shutil.copy(args.vocab, os.path.join(args.out, "student_vocab.json"))
         print(f"saved {args.out}", file=sys.stderr)
