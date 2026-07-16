@@ -113,10 +113,33 @@ class MambaBlock(nn.Module):
         return self.out_proj(y * F.silu(z))
 
 
+# SSM factory: mamba1 (pure-torch, no kernels), or fla's mamba2 / gdn (Gated
+# DeltaNet — Triton, sm_120-ok, recall-fixing). fla layers return a tuple; wrap.
+SSM_TYPE = {"t": "mamba1"}
+class FLAWrap(nn.Module):
+    def __init__(self, layer): super().__init__(); self.layer = layer
+    def forward(self, x):
+        out = self.layer(x)
+        return out[0] if isinstance(out, tuple) else out
+def make_ssm(dim):
+    t = SSM_TYPE["t"]
+    if t == "mamba1":
+        return MambaBlock(dim)
+    if t == "mamba2":
+        from fla.layers import Mamba2
+        # constraint: num_heads*head_dim == expand*hidden_size (=2*dim)
+        return FLAWrap(Mamba2(hidden_size=dim, num_heads=(2 * dim) // 64, head_dim=64,
+                              state_size=128, expand=2, conv_kernel=4))
+    if t == "gdn":
+        from fla.layers import GatedDeltaNet
+        return FLAWrap(GatedDeltaNet(hidden_size=dim, head_dim=128,
+                                     num_heads=max(1, dim // 128), mode="chunk"))
+    raise ValueError(t)
+
+
 class Block(nn.Module):
-    # kind: "attn" (transformer), "ssm" (mamba), or "par" (PARALLEL Hymba-style:
-    # attention + Mamba on the same input, per-branch RMSNorm + learnable-beta
-    # weighted sum — the intra-layer hybrid the research found best at small scale).
+    # kind: "attn" (transformer), "ssm" (SSM per SSM_TYPE), or "par" (PARALLEL
+    # Hymba-style: attention + SSM same input, per-branch RMSNorm + learnable-beta).
     def __init__(self, dim, heads, kv, ffn, kind="attn"):
         super().__init__()
         self.kind = kind
@@ -124,9 +147,9 @@ class Block(nn.Module):
         if kind == "attn":
             self.mix = Attn(dim, heads, kv)
         elif kind == "ssm":
-            self.mix = MambaBlock(dim)
+            self.mix = make_ssm(dim)
         else:  # par
-            self.attn = Attn(dim, heads, kv); self.ssm = MambaBlock(dim)
+            self.attn = Attn(dim, heads, kv); self.ssm = make_ssm(dim)
             self.na = RMSNorm(dim); self.nm = RMSNorm(dim)
             self.beta = nn.Parameter(torch.ones(2))
         self.n2 = RMSNorm(dim)
@@ -140,7 +163,9 @@ class Block(nn.Module):
             mixed = self.mix(h1)
         else:  # parallel: normalize each branch, learnable-weighted sum
             b = torch.softmax(self.beta, 0)
-            mixed = b[0] * self.na(self.attn(h1, pos)) + b[1] * self.nm(self.ssm(h1))
+            a = self.na(self.attn(h1, pos)).to(h1.dtype)   # cast branches to a
+            s = self.nm(self.ssm(h1)).to(h1.dtype)         # common dtype (fla vs Attn)
+            mixed = b[0] * a + b[1] * s
         x = x + mixed
         h = self.n2(x)
         return x + self.w2(F.silu(self.w1(h)) * self.w3(h))
@@ -203,6 +228,7 @@ def main():
     ap.add_argument("--ffn", type=int, default=1536)
     ap.add_argument("--epochs", type=float, default=2.0); ap.add_argument("--batch", type=int, default=48)
     ap.add_argument("--lr", type=float, default=3e-4); ap.add_argument("--kd", type=float, default=1.0)
+    ap.add_argument("--ssm-type", default="mamba1", choices=["mamba1","mamba2","gdn"])
     ap.add_argument("--untie", action="store_true", help="untie embed/head (research: untied even at 0.5B)")
     ap.add_argument("--hybrid", default="", help="repeating block pattern e.g. ssm,ssm,attn (empty=all attn)")
     ap.add_argument("--qat", action="store_true", help="4-bit QAT (deploy-ready Q4)")
@@ -210,6 +236,7 @@ def main():
     ap.add_argument("--maxlen", type=int, default=24); ap.add_argument("--max-pairs", type=int, default=1500000)
     args = ap.parse_args()
     QAT["on"] = args.qat
+    SSM_TYPE["t"] = args.ssm_type
 
     lrank = int(os.environ.get("LOCAL_RANK", -1)); ddp = lrank >= 0
     if ddp:
@@ -360,7 +387,7 @@ def main():
         os.makedirs(args.out, exist_ok=True)
         torch.save({"model": student.state_dict(),
                     "config": {"vocab": len(vocab), "dim": args.dim, "depth": args.depth,
-                               "heads": args.heads, "kv": args.kv, "ffn": args.ffn, "qat": args.qat, "untie": args.untie, "pattern": (args.hybrid.split(",") if args.hybrid else None)}},
+                               "heads": args.heads, "kv": args.kv, "ffn": args.ffn, "qat": args.qat, "untie": args.untie, "ssm_type": args.ssm_type, "pattern": (args.hybrid.split(",") if args.hybrid else None)}},
                    os.path.join(args.out, "student.pt"))
         import shutil; shutil.copy(args.vocab, os.path.join(args.out, "student_vocab.json"))
         print(f"saved {args.out}", file=sys.stderr)
