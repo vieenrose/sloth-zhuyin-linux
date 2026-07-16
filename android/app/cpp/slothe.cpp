@@ -76,8 +76,14 @@ slothe_model * slothe_load(const char * path) {
     // parallelize the decode across the device's cores (capped); matches the
     // engine/slothd copy. Android/NDK has real pthreads.
     {
+        // Default cap 4, not 8: on big.LITTLE SoCs (BOOX SD662 = 4xA73+4xA53) the
+        // little cores DRAG the matmul — measured on-device 6-syl decode: 8 threads
+        // 49.6ms / 6t 40.2ms / 4t 18.4ms / 3t 22.5ms. 4 big-core threads is 2.7x
+        // faster than the old min(cores,8) default and matches the predictor bench.
         unsigned hc = std::thread::hardware_concurrency();
-        ggml_backend_cpu_set_n_threads(m->backend, hc ? (int) (hc < 8u ? hc : 8u) : 4);
+        int nt = hc ? (int) (hc < 4u ? hc : 4u) : 4;
+        if (const char * e = getenv("SLOTHE_THREADS")) { int v = atoi(e); if (v > 0 && v <= 16) nt = v; }
+        ggml_backend_cpu_set_n_threads(m->backend, nt);
     }
 
     struct gguf_init_params gp = { /*no_alloc=*/true, /*ctx=*/&m->ctx_w };
