@@ -47,6 +47,17 @@ struct slothe_model {
     ggml_backend_buffer_t buf_w = nullptr;
     std::map<std::string, ggml_tensor*> tensors;
 
+    // compute-graph cache — reused across slothe_logits() calls of the same T so the
+    // hot conversion path avoids a fresh 64MB ggml_init + graph rebuild + allocator
+    // alloc/free every keystroke. Rebuilt only when the sequence length changes.
+    ggml_context * ctx_c   = nullptr;
+    ggml_gallocr_t galloc  = nullptr;
+    ggml_cgraph  * gf      = nullptr;
+    ggml_tensor  * c_syl   = nullptr;
+    ggml_tensor  * c_pos   = nullptr;
+    ggml_tensor  * c_logits= nullptr;
+    int            cached_T = -1;
+
     ggml_tensor * get(const std::string & name) const {
         auto it = tensors.find(name);
         if (it == tensors.end()) {
@@ -102,6 +113,8 @@ slothe_model * slothe_load(const char * path) {
 
 void slothe_free(slothe_model * m) {
     if (!m) return;
+    if (m->galloc) ggml_gallocr_free(m->galloc);
+    if (m->ctx_c)  ggml_free(m->ctx_c);
     if (m->buf_w) ggml_backend_buffer_free(m->buf_w);
     if (m->ctx_w) ggml_free(m->ctx_w);
     if (m->backend) ggml_backend_free(m->backend);
@@ -254,25 +267,29 @@ static ggml_cgraph * build_block_graph(ggml_context * ctx, const slothe_model & 
 
 // ---------------- public logits API ----------------
 void slothe_logits(slothe_model * m, const int32_t * syl_ids, int T, float * out_logits) {
-    size_t mem = (size_t)64*1024*1024 + (size_t)T*m->hp.n_char*8;
-    ggml_init_params ip = { mem, nullptr, true };
-    ggml_context * ctx = ggml_init(ip);
-    fwd_nodes nd;
-    ggml_cgraph * gf = build_forward_graph(ctx, *m, T, nd);
-
-    ggml_gallocr_t galloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(m->backend));
-    ggml_gallocr_alloc_graph(galloc, gf);
+    // (Re)build the graph only when T changes. Metadata-only context (no_alloc=true),
+    // so this is graph structs, not the compute buffer — the galloc owns that and is
+    // reused across calls of the same length.
+    if (m->cached_T != T || !m->gf) {
+        if (m->galloc) { ggml_gallocr_free(m->galloc); m->galloc = nullptr; }
+        if (m->ctx_c)  { ggml_free(m->ctx_c); m->ctx_c = nullptr; }
+        ggml_init_params ip = { (size_t)16*1024*1024, nullptr, /*no_alloc=*/true };
+        m->ctx_c = ggml_init(ip);
+        fwd_nodes nd;
+        m->gf = build_forward_graph(m->ctx_c, *m, T, nd);
+        m->c_syl = nd.syl_in; m->c_pos = nd.pos_in; m->c_logits = nd.logits;
+        m->galloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(m->backend));
+        ggml_gallocr_alloc_graph(m->galloc, m->gf);
+        m->cached_T = T;
+    }
 
     std::vector<int32_t> pos(T);
     for (int i = 0; i < T; ++i) pos[i] = i;
-    ggml_backend_tensor_set(nd.syl_in, syl_ids, 0, T*sizeof(int32_t));
-    ggml_backend_tensor_set(nd.pos_in, pos.data(), 0, T*sizeof(int32_t));
+    ggml_backend_tensor_set(m->c_syl, syl_ids, 0, T*sizeof(int32_t));
+    ggml_backend_tensor_set(m->c_pos, pos.data(), 0, T*sizeof(int32_t));
 
-    ggml_backend_graph_compute(m->backend, gf);
-    ggml_backend_tensor_get(nd.logits, out_logits, 0, (size_t)T*m->hp.n_char*sizeof(float));
-
-    ggml_gallocr_free(galloc);
-    ggml_free(ctx);
+    ggml_backend_graph_compute(m->backend, m->gf);
+    ggml_backend_tensor_get(m->c_logits, out_logits, 0, (size_t)T*m->hp.n_char*sizeof(float));
 }
 
 // ================= validation harness =================
