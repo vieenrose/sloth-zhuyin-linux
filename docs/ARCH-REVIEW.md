@@ -111,3 +111,30 @@ Retrain the shipping ternary encoder at 3ep. Ceiling sweep (4/5ep) in progress.
 - **Latency was never the bottleneck** — measured on BOOX: encoder ~9 ms, 60M-Q4 predictor 8.5 ms, e2e ~17.5 ms under the 20 ms budget. Every quality lever was affordable.
 - **Task shape decides quantization tolerance** — ternary fine for the classifying encoder, fatal for the generating predictor.
 - **T5 / enc-dec dropped** — 1:1 conversion + open generation are opposite shapes with no shared cross-attention need.
+
+## Encoder scale-up — pretraining, not size (added)
+
+| int4 SlothE-T | toned / toneless | Verdict |
+|---|---|---|
+| 25M (shipping) | ~82 / ~80 | — |
+| 50M | 82.4 / 78.6 | flat |
+| 75M | 84.9 / 78.6 | +2 toned, −toneless |
+| *RoBERTa float 102M (ref)* | *90.6 / 86.2* | too big for budget |
+
+Unlike the predictor, **encoder scale-up barely helps** — the gap to the RoBERTa is **pretraining +
+float precision, not size**. From-scratch int4 is capped ~84/79; the RoBERTa reaches 90.6/86.2 but at
+102M float it would be ~30–40 ms on BOOX (over budget). **The one untested high-value encoder lever:
+distill the pretrained-RoBERTa teacher into the small int4 SlothE-T (soft-label KD) — transfer the
+pretraining knowledge to a fast small model.** Encoders tolerate quantization, so this is the path to a
+deployable encoder approaching 90/86.
+
+## Overnight sweep — the complete map
+
+**Wins:** predictor 60M/3ep (47.3/75.8, 8.5 ms Q4 on BOOX, e2e ~17.5 ms); encoder-float 3ep (90.6/86.2).
+**Negatives, dropped with reasons:** ternary-predictor (generation can't take ternary), MiniPLM
+diff-sampling (hard examples are useful), SVD (embedding not low-rank), encoder-scale-up (pretraining
+> size), >3 epochs (overfit), T5/enc-dec (wrong shape), kernel-swaps (<1.4× over ternary).
+**Laws that held:** latency was never the bottleneck; 3 epochs optimal for both models; ternary suits
+classifiers not generators; scale-up helps generation-with-headroom (predictor) but not
+pretraining-limited classification (encoder).
+**Next:** RoBERTa→SlothE-T soft-label distillation (the deployable-encoder-accuracy lever).
