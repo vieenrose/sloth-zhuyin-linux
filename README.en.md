@@ -91,8 +91,10 @@ masked per position to legal readings.
 takes over: a dense-Qwen3.5 block (Gated DeltaNet linear attention + full
 attention every 4th layer — recurrent O(1)/step, no KV cache) with a word-piece
 vocab so *next word = one forward* (measured 8.5 ms/word on BOOX). Deploys via
-the official llama.cpp qwen35 GGUF path; honest fresh-corpus next-word 34 top-1 / 46 top-5 (the older 47.3/75.8
-held-out figure was leak-inflated; see docs/ARCH-REVIEW.md). Live in the desktop daemon (`slothd -p`); frontend candidate-bar wiring
+the official llama.cpp qwen35 GGUF path. Currently **v2.1 (Taiwan-chat register
+fine-tune: PTT/Dcard)** — chat held-out next-word 18.3 top-1 / 31.2 top-5 (v2:
+10.9/21.2, +68% relative), general text 33.5/45.2 unchanged. (The original
+47.3/75.8 was leak-inflated; history in docs/ARCH-REVIEW.md.) Live in the desktop daemon (`slothd -p`); frontend candidate-bar wiring
 is in progress (today's 聯想 is served by the shared bigram engine).
 
 The split mirrors the latency budget: conversion sits on the **per-keystroke**
@@ -116,6 +118,7 @@ checks against PyTorch.
 - [x] **25M ternary shipped to all four frontends**: 76 / 86, all sharing `libslothe` (ggml/TQ2_0), replacing ONNX Runtime
 - [x] **12M ternary (256×12) is the new default**: same accuracy class, half the latency and download; `libslothe` now reads hparams from the GGUF; meets the ≤20 ms budget at 2 threads on BOOX (15.8 ms)
 - [x] **Neural next-word (desktop daemon)**: 60M Q4 predictor serves `slothd`'s `{"predict": …}` op; frontend UI wiring pending
+- [x] **Predictor v2.1**: 6.1M-line retrain (exposed a second benchmark leak — the old 47.3 was memorization; honest new model is 7× better) + PTT/Dcard register fine-tune (+68% relative chat top-1); shipped drop-in
 - [x] **v0.2.0 released**: `.apk` (12M bundled) + `.deb`; full two-model weights (enc 12M/25M + dec 60M, GGUF+fp32) on [HF](https://huggingface.co/Luigi/sloth-ime-models); README/model card now measured-numbers-only
 - [x] ~~KD-on-ternary~~: tested, **not shipped** — homophone +5 (89%, best recorded) but 免選字 −6 (78%, a stable ceiling even +12ep); KD overlaps label smoothing as a regularizer. See docs/ARCH-REVIEW.md
 - [ ] **Char-hints v2 (document context)**: the hinted model is trained and validated on clean held-out — document context *does* help (**+2.4%** whole-sentence), but the win is small and only for long-form, so it's deferred (not worth plumbing through all 4 frontends yet)
