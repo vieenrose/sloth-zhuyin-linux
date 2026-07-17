@@ -103,8 +103,10 @@ ggml 前向:桌面走 native daemon、Android 走 NDK arm64、瀏覽器走多執
 - [x] **25M 三值上線四前端**:免選字 76 / 同音 86,共用 `libslothe`(ggml/TQ2_0)取代 ONNX Runtime
 - [x] **12M 三值(256×12)成為預設**:同準確度級距、延遲與下載减半;`libslothe` 改讀 GGUF 超參數,BOOX 2 執行緒 15.8ms 達標 ≤20ms
 - [x] **神經聯想(桌面 daemon)**:60M Q4 次詞預測模型上線 `slothd` `{"predict":…}` 口;前端 UI 接線進行中
+- [x] **v0.2.0 發佈**:`.apk`(12M 內建)+ `.deb`;雙模型權重(enc 12M/25M + dec 60M,GGUF+fp32)齊上 [HF](https://huggingface.co/Luigi/slothe-t-25m-zhuyin);README/模型卡全面改為實測數據
+- [ ] **KD-on-ternary**:RoBERTa 軟標籤蒸餾進 12M 三值訓練(int4 消融 +2.5 有聲調;32ep 訓練中)——若勝 84 即免費升級
 - [ ] **字提示 v2(文件語境)**:帶字提示模型已訓練並在乾淨 held-out 驗證——文件語境確實有用(整句 **+2.4%**),但幅度小、僅長文受益,暫緩接線至四前端
-- [ ] 前端 UI 接上神經聯想(fcitx5/IBus/Android 候選列)
+- [ ] 前端 UI 接上神經聯想(fcitx5/IBus/Android 候選列;Android 需捆 llama.cpp JNI + 60M Q4)
 - [ ] Android 實體鍵盤完善;桌面套件常態發佈
 - [ ] [銀髮族鍵盤佈局](docs/SENIOR-KEYBOARD.md):標準佈局＋按鍵容錯解碼
 
