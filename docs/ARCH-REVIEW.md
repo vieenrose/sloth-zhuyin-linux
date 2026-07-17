@@ -251,3 +251,8 @@ generalizes, and is ~7× better on honest data. Qualitative: 今天天氣→好/
 size, latency; no code change). Also fixed: daemon predict op now skips partial-UTF-8 BPE
 pieces (byte-level BPE splits multi-byte chars across tokens; they broke the JSON reply).
 99M retrain on the big corpus in flight — judge on the fresh-C4 eval only.
+
+**99M addendum (2026-07-18):** 99M on the same 6.1M lines = 34.2/46.3 fresh — statistically
+tied with the 60M (34.0/46.0) at +65% params/+50% latency. The 34-top-1 plateau at both sizes
+means the predictor remains DATA-limited at 6.1M lines; parameters are not the lever. 60M
+stays the shipping predictor. Future gains: more conversational/register-matched corpus.
