@@ -14,7 +14,7 @@ Description=Sloth IME zhuyin decode daemon (SlothLM-E-T 25M ternary)
 Type=simple
 # REPO_DIR is substituted by the install script.
 ExecStart=@REPO_DIR@/engine/slothd/build_slothe/slothd_slothe \
-    -m @REPO_DIR@/model/slothe_t_25m/slothe-t-25m.gguf \
+    -m @REPO_DIR@/model/slothe_t_12m/slothe-t-12m-256x12.gguf \
     -t @REPO_DIR@/model/phonetic_table.tsv \
     -v @REPO_DIR@/model/slothe_t_25m/syl_vocab.json \
     -j @REPO_DIR@/model/slothe_t_25m/char2id.json

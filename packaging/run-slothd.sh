@@ -22,7 +22,7 @@ else
     SOCKET="/tmp/slothd.sock"
 fi
 
-MODEL="$REPO_DIR/model/slothe_t_25m/slothe-t-25m.gguf"
+MODEL="$REPO_DIR/model/slothe_t_12m/slothe-t-12m-256x12.gguf"
 TABLE="$REPO_DIR/model/phonetic_table.tsv"
 VOCAB="$REPO_DIR/model/slothe_t_25m/syl_vocab.json"
 CHAR2ID="$REPO_DIR/model/slothe_t_25m/char2id.json"

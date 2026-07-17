@@ -43,7 +43,7 @@ SOCK="${XDG_RUNTIME_DIR:-/tmp}/slothd.sock"
 if [ -S "$SOCK" ] || systemctl --user is-active --quiet slothd 2>/dev/null; then
     echo "   slothd already running."
 else
-    if [ ! -f model/slothe_t_25m/slothe-t-25m.gguf ]; then
+    if [ ! -f model/slothe_t_12m/slothe-t-12m-256x12.gguf ]; then
         say "fetching model (18 MB ternary GGUF)"
         packaging/fetch-model.sh
     fi
