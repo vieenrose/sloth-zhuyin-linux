@@ -92,6 +92,7 @@ def main():
     print(f"=== {os.path.basename(args.model)} ({npar/1e6:.0f}M, ternary) ===")
     run(args.testset, "homophone-hard (12M int8: 84%)")
     run(args.mspy, "免選字 230      (12M int8: 84%)")
+    run(args.testset, "toneless       (12M int8: 70%)", toneless=True)
 
 
 if __name__ == "__main__":

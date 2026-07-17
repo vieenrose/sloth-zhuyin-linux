@@ -441,6 +441,8 @@ def main():
     ap.add_argument("--label-smoothing", type=float, default=0.0, help="teacher-free soft targets for direct (pure-CE) training")
     ap.add_argument("--context", type=float, default=0.0)
     ap.add_argument("--save-every", type=int, default=0, help="snapshot {out}_ep{N} every N epochs (for accuracy-vs-epoch curve)")
+    ap.add_argument("--rb-teacher", default="", help="RoBERTa conversion teacher dir (adapt.json + syl_embed.pt) for soft-label KD over shared chars")
+    ap.add_argument("--rb-kd", type=float, default=1.0)
     args = ap.parse_args()
 
     from transformers import AutoTokenizer
@@ -479,6 +481,25 @@ def main():
           f"wq={args.weight_quant} fp_boundary={args.fp_boundary} pre_norm={args.pre_norm}")
 
     teacher = load_teacher(args.teacher, dev) if args.teacher else None
+    rb_teacher = None
+    if args.rb_teacher:
+        from transformers import AutoModelForMaskedLM
+        tad = json.load(open(os.path.join(args.rb_teacher, "adapt.json")))
+        rb_teacher = AutoModelForMaskedLM.from_pretrained(args.rb_teacher).to(dev).eval()
+        rb_syl = torch.nn.Embedding(tad["n_syl"], rb_teacher.config.hidden_size)
+        rb_syl.load_state_dict(torch.load(os.path.join(args.rb_teacher, "syl_embed.pt"), map_location="cpu"))
+        rb_syl = rb_syl.to(dev).eval()
+        for p in rb_teacher.parameters(): p.requires_grad_(False)
+        bt = AutoTokenizer.from_pretrained(tad["base"]); bv = bt.get_vocab()
+        id2c = {v: k for k, v in tok.get_vocab().items()}
+        rb_gather = torch.zeros(len(tok), dtype=torch.long)
+        rb_valid = torch.zeros(len(tok), dtype=torch.bool)
+        for cid in range(len(tok)):
+            ch = id2c.get(cid, "")
+            if len(ch) == 1 and ch in bv:
+                rb_gather[cid] = bv[ch]; rb_valid[cid] = True
+        rb_gather = rb_gather.to(dev); rb_valid = rb_valid.to(dev)
+        if is_main: print(f"RB-KD teacher loaded; {int(rb_valid.sum())}/{len(tok)} chars aligned", flush=True)
     legal_mask = (torch.from_numpy(np.load(args.legal_mask)["mask"]).to(dev)
                   if args.legal_mask else None)
     raw_model = model
@@ -525,6 +546,17 @@ def main():
                                            chr_.reshape(-1), ignore_index=-100,
                                            label_smoothing=args.label_smoothing)
                     ce = kl = loss.detach()
+                    if rb_teacher is not None:
+                        with torch.no_grad():
+                            tl = rb_teacher(inputs_embeds=rb_syl(syl), attention_mask=mask).logits
+                            tc = tl[..., rb_gather].float()
+                            tc = tc.masked_fill(~rb_valid.view(1, 1, -1), float("-inf"))
+                            tp = F.softmax(tc, -1)
+                        pm = (chr_ != -100)
+                        kd = F.kl_div(F.log_softmax(logits.float(), -1)[pm], tp[pm],
+                                      reduction="batchmean")
+                        kl = kd.detach()
+                        loss = loss + args.rb_kd * kd
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

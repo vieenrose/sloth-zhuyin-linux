@@ -256,3 +256,17 @@ pieces (byte-level BPE splits multi-byte chars across tokens; they broke the JSO
 tied with the 60M (34.0/46.0) at +65% params/+50% latency. The 34-top-1 plateau at both sizes
 means the predictor remains DATA-limited at 6.1M lines; parameters are not the lever. 60M
 stays the shipping predictor. Future gains: more conversational/register-matched corpus.
+
+## Register fine-tune — WIN, shipped as predictor v2.1 (2026-07-18)
+
+Fine-tuned v2 (`--init-from`, new trainer flag) on 1.44M lines = 149k TW chat sentences
+(PTT Gossiping comments + Dcard, the actual IME typing register) ×5 + balanced C4, 2ep lr 1e-4:
+
+| eval | v2 | **v2.1 (chat-FT)** |
+|---|---|---|
+| TW chat held-out (5k, n=3000) | 10.9 / 21.2 | **18.3 / 31.2** (+68% rel. top-1) |
+| fresh-C4 regression | 34.0 / 46.0 | 33.5 / 45.2 (−0.5, negligible) |
+
+Register-matching is the predictor's real lever confirmed: +7.4 top-1 where users type, at
+~zero general-text cost. Shipped as the drop-in pred_q35_60m-q4.gguf. Remaining data levers:
+larger TW-native chat sources (all HF sets are ≤100k; PTT full crawl would be next).
