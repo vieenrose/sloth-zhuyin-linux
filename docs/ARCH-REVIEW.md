@@ -206,3 +206,24 @@ one size down.** Gate accuracy 84%/84% (230-sent). Remaining: bundle into app as
 
 ARM references if BOOX unavailable: rpi4 `ssh raspberrypi` (Cortex-A72, no-dotprod — closest
 proxy to the BOOX big cores), Jetson `ssh picard@picard-desktop` (CPU-only mode).
+
+## KD-on-ternary — tested, NEGATIVE for shipping (2026-07-17/18)
+
+RoBERTa soft-label KD (the int4 ablation's +2.5-toned winner) added to the shipping
+ternary recipe (CE+LS 0.1, 32ep + 12ep extension, dim256×12):
+
+| 12M ternary | homophone | 免選字 230 |
+|---|---|---|
+| shipping (no KD) | 84% | **84%** |
+| + RoBERTa-KD, 32ep | **89%** | 78% |
+| + 12ep extension (lr 8e-4) | 88% | 78% (stable ceiling — not undertraining) |
+
+The teacher's per-char homophone ranking transfers (**89% — best deployable encoder
+score recorded**), but whole-sentence exactness caps at 78: the KL term pulls
+per-position marginals toward the teacher at the cost of joint sentence consistency
+that CE+label-smoothing alone optimizes. The extension run proves it's a stable
+trade, not undertraining. **免選字 is the product metric → no ship; the no-KD 12M
+stays the default.** Lesson: KD helps the *classification* axis, hurts the
+*sequence-exactness* axis in ternary QAT — opposite of the int4 2ep ablation where
+both recipes were CE-only (no LS) and KD's +2.5 came free. Label smoothing and KD
+appear to overlap as regularizers here.

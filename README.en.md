@@ -117,7 +117,7 @@ checks against PyTorch.
 - [x] **12M ternary (256×12) is the new default**: same accuracy class, half the latency and download; `libslothe` now reads hparams from the GGUF; meets the ≤20 ms budget at 2 threads on BOOX (15.8 ms)
 - [x] **Neural next-word (desktop daemon)**: 60M Q4 predictor serves `slothd`'s `{"predict": …}` op; frontend UI wiring pending
 - [x] **v0.2.0 released**: `.apk` (12M bundled) + `.deb`; full two-model weights (enc 12M/25M + dec 60M, GGUF+fp32) on [HF](https://huggingface.co/Luigi/sloth-ime-models); README/model card now measured-numbers-only
-- [ ] **KD-on-ternary**: RoBERTa soft-label distillation into the 12M ternary recipe (+2.5 toned in the int4 ablation; 32ep run in progress) — a free upgrade if it beats 84
+- [x] ~~KD-on-ternary~~: tested, **not shipped** — homophone +5 (89%, best recorded) but 免選字 −6 (78%, a stable ceiling even +12ep); KD overlaps label smoothing as a regularizer. See docs/ARCH-REVIEW.md
 - [ ] **Char-hints v2 (document context)**: the hinted model is trained and validated on clean held-out — document context *does* help (**+2.4%** whole-sentence), but the win is small and only for long-form, so it's deferred (not worth plumbing through all 4 frontends yet)
 - [ ] Wire neural next-word into the frontend candidate bars (fcitx5/IBus/Android; Android needs llama.cpp JNI + the 60M Q4 bundled)
 - [ ] Android hardware-keyboard polish; regular desktop packages
