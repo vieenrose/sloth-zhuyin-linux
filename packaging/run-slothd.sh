@@ -41,7 +41,12 @@ fails=0
 while :; do
     start=$(date +%s)
     echo "$(date '+%F %T') starting slothd on $SOCKET" >&2
-    "$DAEMON" -m "$MODEL" -t "$TABLE" -v "$VOCAB" -j "$CHAR2ID" -s "$SOCKET"
+    PRED="$REPO_DIR/model/pred_q35_60m-q4.gguf"   # optional 60M next-word predictor
+    if [ -f "$PRED" ]; then
+        "$DAEMON" -m "$MODEL" -t "$TABLE" -v "$VOCAB" -j "$CHAR2ID" -s "$SOCKET" -p "$PRED"
+    else
+        "$DAEMON" -m "$MODEL" -t "$TABLE" -v "$VOCAB" -j "$CHAR2ID" -s "$SOCKET"
+    fi
     code=$?
     end=$(date +%s)
 

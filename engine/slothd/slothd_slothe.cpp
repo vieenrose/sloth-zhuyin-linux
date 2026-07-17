@@ -26,6 +26,7 @@
 // the older 11.6M hinted ONNX model). Sending it is not an error.
 
 #include "slothe.h"
+#include "llama.h"
 #include "nlohmann/json.hpp"
 
 #include <algorithm>
@@ -58,7 +59,7 @@ constexpr int kClientReadTimeoutSec = 5;
 void print_usage(const char * argv0) {
     fprintf(stderr,
             "usage: %s -m model.gguf -t phonetic_table.tsv -v syl_vocab.json\n"
-            "          -j char2id.json [-s /path/to/socket]\n",
+            "          -j char2id.json [-s /path/to/socket] [-p predictor.gguf]\n",
             argv0);
 }
 
@@ -233,6 +234,7 @@ int main(int argc, char ** argv) {
     std::string table_path;
     std::string vocab_path;
     std::string char2id_path;
+    std::string predictor_path;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-m") == 0 && i + 1 < argc) {
@@ -245,6 +247,8 @@ int main(int argc, char ** argv) {
             vocab_path = argv[++i];
         } else if (strcmp(argv[i], "-j") == 0 && i + 1 < argc) {
             char2id_path = argv[++i];
+        } else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
+            predictor_path = argv[++i];
         } else {
             print_usage(argv[0]);
             return 1;
@@ -284,6 +288,28 @@ int main(int argc, char ** argv) {
             n_char, table.tonal.size(), table.toneless.size(), syl_vocab.size(),
             char2id.size());
 
+    // Optional next-word predictor (qwen35 GGUF via llama.cpp). Serves the
+    // {"predict": "<context>"} op — top-n next words after a commit.
+    llama_model * pred_model = nullptr;
+    llama_context * pred_ctx = nullptr;
+    const llama_vocab * pred_vocab = nullptr;
+    if (!predictor_path.empty()) {
+        llama_backend_init();
+        llama_model_params mp = llama_model_default_params();
+        mp.n_gpu_layers = 0;
+        pred_model = llama_model_load_from_file(predictor_path.c_str(), mp);
+        if (!pred_model) {
+            fprintf(stderr, "warning: failed to load predictor '%s' — predict op disabled\n",
+                    predictor_path.c_str());
+        } else {
+            pred_vocab = llama_model_get_vocab(pred_model);
+            llama_context_params cp = llama_context_default_params();
+            cp.n_ctx = 64; cp.n_batch = 64;
+            pred_ctx = llama_init_from_model(pred_model, cp);
+            fprintf(stderr, "slothd_slothe: predictor loaded (%s)\n", predictor_path.c_str());
+        }
+    }
+
     unlink(socket_path.c_str());
     int listen_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (listen_fd < 0) {
@@ -321,6 +347,44 @@ int main(int argc, char ** argv) {
         std::string resp_str;
         try {
             json req = json::parse(req_str);
+            if (req.contains("predict")) {
+                if (!pred_ctx) throw std::runtime_error("no predictor loaded (-p)");
+                std::string ctx_text = req.at("predict").get<std::string>();
+                int n_words = std::min(std::max(req.value("n", 5), 1), 16);
+                // tokenize context (BOS + text), full re-decode each call: the
+                // context is a committed IME sentence (short), ~10ms at 60M-Q4.
+                std::vector<llama_token> toks(ctx_text.size() + 8);
+                int nt = llama_tokenize(pred_vocab, ctx_text.c_str(), ctx_text.size(),
+                                        toks.data(), toks.size(), /*add_bos=*/true, true);
+                if (nt < 0) throw std::runtime_error("predict: tokenize failed");
+                toks.resize(nt);
+                llama_memory_clear(llama_get_memory(pred_ctx), true);
+                llama_batch batch = llama_batch_get_one(toks.data(), (int) toks.size());
+                if (llama_decode(pred_ctx, batch) != 0)
+                    throw std::runtime_error("predict: decode failed");
+                const float * lg = llama_get_logits_ith(pred_ctx, -1);
+                const int nv = llama_vocab_n_tokens(pred_vocab);
+                std::vector<int> idx(nv);
+                for (int i2 = 0; i2 < nv; ++i2) idx[i2] = i2;
+                std::partial_sort(idx.begin(), idx.begin() + std::min(nv, n_words * 4), idx.end(),
+                                  [&](int a, int b) { return lg[a] > lg[b]; });
+                json words = json::array();
+                char piece[64];
+                for (int r = 0; r < nv && (int) words.size() < n_words; ++r) {
+                    int t = idx[r];
+                    if (llama_vocab_is_eog(pred_vocab, t) || llama_vocab_is_control(pred_vocab, t))
+                        continue;
+                    int pl = llama_token_to_piece(pred_vocab, t, piece, sizeof(piece), 0, false);
+                    if (pl <= 0) continue;
+                    std::string w(piece, pl);
+                    if (w.empty() || w == " " || w[0] == '\n') continue;
+                    words.push_back(w);
+                }
+                resp_str = json{{"words", words}}.dump() + "\n";
+                (void) write(fd, resp_str.data(), resp_str.size());
+                close(fd);
+                continue;
+            }
             if (!req.contains("syllables")) {
                 throw std::runtime_error("request needs a 'syllables' array");
             }

@@ -19,3 +19,13 @@ cp "$REPO_DIR/space-static/enc/syl_vocab.json" "$DEST/"
 cp "$REPO_DIR/space-static/enc/char2id.json" "$DEST/"
 ls -la "$DEST"
 echo "model ready at $DEST (phonetic table: model/phonetic_table.tsv)"
+
+# Optional 60M next-word predictor (enables slothd's {"predict": ...} op)
+if [ ! -f "$REPO_DIR/model/pred_q35_60m-q4.gguf" ]; then
+    echo "downloading pred_q35_60m-q4.gguf (46 MB, optional next-word predictor) ..."
+    if command -v curl >/dev/null; then
+        curl -sL "$URL/pred_q35_60m-q4.gguf" -o "$REPO_DIR/model/pred_q35_60m-q4.gguf" || true
+    else
+        wget -q "$URL/pred_q35_60m-q4.gguf" -O "$REPO_DIR/model/pred_q35_60m-q4.gguf" || true
+    fi
+fi

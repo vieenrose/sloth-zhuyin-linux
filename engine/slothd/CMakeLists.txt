@@ -22,7 +22,7 @@ set_target_properties(slothd PROPERTIES
 
 # slothd_slothe: same socket protocol, but served by the validated ternary
 # IME encoder (slothe.{h,cpp} ggml forward) instead of a generative llama.cpp
-# model. Links only ggml (NOT llama). slothe.cpp carries its own validation
+# model. Links ggml + llama (llama for the optional -p next-word predictor).
 # main(), compiled out here with -DSLOTHE_NO_MAIN.
 add_executable(slothd_slothe slothd_slothe.cpp slothe.cpp)
 target_compile_features(slothd_slothe PRIVATE cxx_std_17)
@@ -35,7 +35,7 @@ target_include_directories(slothd_slothe PRIVATE
 )
 target_link_directories(slothd_slothe PRIVATE "${LLAMA_CPP_DIR}/build/bin")
 target_link_libraries(slothd_slothe PRIVATE
-    ggml ggml-cpu ggml-base ${CMAKE_THREAD_LIBS_INIT})
+    llama ggml ggml-cpu ggml-base ${CMAKE_THREAD_LIBS_INIT})
 set_target_properties(slothd_slothe PROPERTIES
     BUILD_RPATH "${LLAMA_CPP_DIR}/build/bin"
 )
