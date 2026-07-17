@@ -291,6 +291,8 @@ public:
         }
         std::vector<std::string> disp;
         std::vector<std::string> nbest; // whole-buffer alternatives (pure zh)
+        std::vector<std::string> tailSents; // alternates for a trailing zh run (mixed buffer)
+        size_t tailStart = 0;
         std::vector<std::string> lastCands; // ranked chars for the LAST zh token
         int lastIdx = -1;
         std::string runCtx = ctx;
@@ -305,11 +307,16 @@ public:
             const size_t start = i;
             while (i < toks.size() && toks[i].zh) run.push_back(toks[i++].v);
             const bool wholeBuffer = (start == 0 && i == toks.size());
-            auto res = dec_->decode(run, wholeBuffer ? kLiveNBest : 1, runCtx);
+            // n-best for any run that ENDS the buffer, not just a pure-zh
+            // buffer — otherwise one English token permanently demotes the
+            // bar from sentence alternates to the 字 char strip.
+            const bool tailRun = (i == toks.size());
+            auto res = dec_->decode(run, tailRun ? kLiveNBest : 1, runCtx);
             if (!res.sentences.empty() &&
                 utf8Length(res.sentences[0]) == run.size()) {
                 const std::string &s = res.sentences[0];
                 if (wholeBuffer) nbest = res.sentences;
+                else if (tailRun) { tailSents = res.sentences; tailStart = start; }
                 // mobile convention (Gboard/iOS/Rime): candidates for the last
                 // word in the buffer show AUTOMATICALLY — capture the ranked
                 // chars of the final zh token from the same decode reply
@@ -329,6 +336,22 @@ public:
                 allOk = false;
                 for (size_t k = start; k < start + run.size(); k++)
                     disp.push_back(toks[k].v);
+            }
+        }
+        // Mixed buffer ending in a zh run: present the tail alternates as
+        // full-buffer sentences (decoded prefix + English verbatim + tail
+        // alternate) so the bar and commitSentence keep whole-buffer
+        // semantics identical to the pure-zh case.
+        if (nbest.empty() && !tailSents.empty() && allOk) {
+            for (const auto &alt : tailSents) {
+                if (utf8Length(alt) != toks.size() - tailStart) continue;
+                std::vector<std::string> d2 = disp;
+                for (size_t k = tailStart, off = 0; k < toks.size(); k++) {
+                    size_t len = utf8SeqLen(alt[off]);
+                    d2[k] = alt.substr(off, len);
+                    off += len;
+                }
+                nbest.push_back(joinDisplay(toks, d2, -1, std::string()).text);
             }
         }
         std::lock_guard<std::mutex> lk(mu_);
