@@ -17,7 +17,6 @@ models.
 
 <p align="center"><img src="docs/demo-web-v14.gif" width="470" alt="Web demo: typing 晚上熬夜看world cup,白天在louisa key-by-key — whole sentence correct, auto zh/en, each keypress highlighted"></p>
 <p align="center"><img src="docs/android-boox-demo-v13.gif" width="470" alt="Native Android IME (BOOX e-ink): typing 晚上熬夜看world cup,白天在louisa key-by-key — whole sentence correct, auto zh/en switch"></p>
-<p align="center"><img src="docs/demo-lianxiang.gif" width="360" alt="Next-word 聯想: after committing 我, the 聯 row predicts 們/的/國/要…, ⇧1-9 or tap to chain"><br><sub>Next-word 聯想: after you commit, the 聯 row predicts the next word — ⇧1-9 or tap to chain</sub></p>
 
 ## What you get
 
