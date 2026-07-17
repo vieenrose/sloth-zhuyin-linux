@@ -2,9 +2,10 @@
 
 **打注音，一顆本機小模型幫你整句轉成正確的中文——免選字。**
 
-樹懶注音輸入法（Sloth IME）用一顆從零訓練的 **12M 三值（ternary）語言模型**，
-在你的裝置上把注音解碼成繁體中文。不靠 libchewing、不連雲端，每個字都保證
-「音對得上」。桌面（fcitx5、IBus）、Android、瀏覽器四種前端共用同一顆模型。
+樹懶注音輸入法（Sloth IME）用**兩顆從零訓練的本機語言模型**：一顆 **12M 三值
+（ternary）編碼器**把注音整句解碼成繁體中文（免選字），一顆 **60M 次詞預測解碼器**
+在上字後預測你接下來要打的詞（神經聯想）。不靠 libchewing、不連雲端，每個字都保證
+「音對得上」。桌面（fcitx5、IBus）、Android、瀏覽器四種前端共用同一套模型。
 
 **▶ [線上試用（免安裝）](https://huggingface.co/spaces/Luigi/slothing-web)** ·
 [English](README.en.md) ·
@@ -61,7 +62,7 @@ cd sloth-zhuyin-linux
 
 ## 為什麼是「三值」模型
 
-<p align="center"><img src="docs/score_vs_latency.png" width="600" alt="品質 vs 裝置端延遲(BOOX SD662):歷史投影圖;實測值見下文(12M 三值 9.3ms@4t/15.8ms@2t)"></p>
+<p align="center"><img src="docs/score_vs_latency.png" width="600" alt="品質 vs 裝置端延遲(BOOX SD662),全部實測:12M 三值 9.3ms 同音84,勝 12M int8(13.3ms/82)與 4M int8;25M 三值 18.5ms/86"></p>
 
 從零訓練的 **SlothE-T 三值（W1.58A8）雙向編碼器**。出貨版 **12M（dim256×12 層,
 維度恰為 TQ2_0 的 256 對齊,零填充稅）在 BOOX(SD662)實測:單次 6 音節前向
@@ -69,11 +70,23 @@ cd sloth-zhuyin-linux
 85.7%、18.5ms(4 執行緒)。速度上 TQ2_0 三值核心約是 int8 的 2.3×(主線 ggml
 kernel),不需要 bitnet.cpp。(舊版 README 的「約 9ms」是投影值;上面是實測。)
 
-## 它怎麼運作
+## 它怎麼運作 — 一顆編碼器 + 一顆解碼器
 
-注音→中文是「對齊的序列標註」(N 音節 → N 字,各自限於同音字集),所以用
-**雙向編碼器**(非自回歸、一次前向)而非因果 LM。鍵流由零相依的切分器解析
-(中英自動判斷),解碼時每個位置只在合法讀音裡選字。
+**編碼器(轉換,12M 三值)**:注音→中文是「對齊的序列標註」(N 音節 → N 字,
+各自限於同音字集),所以用**雙向編碼器**(非自回歸、一次前向)而非因果 LM——
+這是 CPU 上最快的形狀:無 KV cache、無逐字迴圈,每鍵一次前向(BOOX 實測
+9.3ms/4 執行緒)。鍵流由零相依的切分器解析(中英自動判斷),解碼時每個位置
+只在合法讀音裡選字。
+
+**解碼器(預測,60M Q4)**:上字之後換**自回歸解碼器**接手——dense-Qwen3.5
+架構(Gated DeltaNet 線性注意力 + 每 4 層一層全注意力,遞迴 O(1)/步、免
+KV cache),詞片詞表讓「下一個詞 = 一次前向」(BOOX 實測 8.5ms/詞)。經
+llama.cpp 官方 qwen35 GGUF 路徑部署,held-out 次詞 top-1 47.3 / top-5 75.8。
+桌面 daemon 已上線(`slothd -p`);前端候選列接線中,現行聯想由共用 bigram
+引擎供應。
+
+兩顆模型分工正好對應延遲預算:轉換在**每個按鍵**的關鍵路徑上(預算最緊),
+預測在上字後的空檔執行(可預取、可隱藏)。
 
 四個前端都是 `engine/common` 共用核心的薄介接層,共用同一份 **`libslothe`**
 ggml 前向:桌面走 native daemon、Android 走 NDK arm64、瀏覽器走多執行緒 WASM

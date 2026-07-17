@@ -3,10 +3,13 @@
 **Type bopomofo; a small on-device model turns the whole sentence into correct
 Chinese — no candidate-picking.**
 
-Sloth IME decodes Zhuyin to Traditional Chinese with a from-scratch **12M ternary
-language model** that runs on your device — no libchewing, no cloud, and every
-character guaranteed to be a legal reading of what you typed. Four frontends —
-desktop (fcitx5, IBus), Android, and the browser — share one model.
+Sloth IME runs **two from-scratch on-device language models**: a **12M ternary
+encoder** that decodes the whole Zhuyin keystream into Traditional Chinese
+(candidate-free conversion), and a **60M next-word decoder** that predicts what
+you'll type next after each commit (neural 聯想). No libchewing, no cloud, and
+every character guaranteed to be a legal reading of what you typed. Four
+frontends — desktop (fcitx5, IBus), Android, and the browser — share the same
+models.
 
 **▶ [Try it now (no install)](https://huggingface.co/spaces/Luigi/slothing-web)** ·
 [中文說明](README.md) ·
@@ -74,13 +77,27 @@ forward**, 84% whole-sentence on the 230-sentence on-device set. The 25M referen
 bitnet.cpp is needed. (Earlier READMEs quoted "~9 ms" for the 25M — that was a
 projection; the numbers above are measured.)
 
-## How it works
+## How it works — one encoder + one decoder
 
-Zhuyin→Chinese is *aligned sequence labeling* (N syllables → N characters, each
-constrained to its homophone set), so Sloth IME uses a **bidirectional encoder**
-(non-autoregressive, one forward pass) rather than a causal LM. A dependency-free
-segmenter parses the keystream (auto zh/en) and decoding is masked per position to
-legal readings.
+**Encoder (conversion, 12M ternary).** Zhuyin→Chinese is *aligned sequence
+labeling* (N syllables → N characters, each constrained to its homophone set), so
+conversion uses a **bidirectional encoder** (non-autoregressive, one forward pass)
+rather than a causal LM — the fastest possible shape on CPU: no KV cache, no
+per-token loop, one forward per keystroke (measured 9.3 ms @4 threads on BOOX).
+A dependency-free segmenter parses the keystream (auto zh/en) and decoding is
+masked per position to legal readings.
+
+**Decoder (prediction, 60M Q4).** After a commit, an **autoregressive decoder**
+takes over: a dense-Qwen3.5 block (Gated DeltaNet linear attention + full
+attention every 4th layer — recurrent O(1)/step, no KV cache) with a word-piece
+vocab so *next word = one forward* (measured 8.5 ms/word on BOOX). Deploys via
+the official llama.cpp qwen35 GGUF path; held-out next-word 47.3 top-1 / 75.8
+top-5. Live in the desktop daemon (`slothd -p`); frontend candidate-bar wiring
+is in progress (today's 聯想 is served by the shared bigram engine).
+
+The split mirrors the latency budget: conversion sits on the **per-keystroke**
+critical path (tightest budget); prediction runs in the after-commit gap where
+latency can be prefetched and hidden.
 
 All four frontends are thin adapters over the shared core in `engine/common` and
 share one **`libslothe`** ggml forward pass: a native daemon on desktop, NDK arm64
