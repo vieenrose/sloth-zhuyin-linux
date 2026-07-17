@@ -3,7 +3,7 @@
 **Type bopomofo; a small on-device model turns the whole sentence into correct
 Chinese — no candidate-picking.**
 
-Sloth IME decodes Zhuyin to Traditional Chinese with a from-scratch **25M ternary
+Sloth IME decodes Zhuyin to Traditional Chinese with a from-scratch **12M ternary
 language model** that runs on your device — no libchewing, no cloud, and every
 character guaranteed to be a legal reading of what you typed. Four frontends —
 desktop (fcitx5, IBus), Android, and the browser — share one model.
@@ -24,7 +24,7 @@ desktop (fcitx5, IBus), Android, and the browser — share one model.
 | **Auto zh/en** | No mode key: type `我用python寫程式` straight through — a segmenter decides |
 | **Typo repair** | Impossible syllables get fixed by the model |
 | **Next-word suggestions** | After you commit (tap-to-chain on mobile, ⇧1-9 on desktop) |
-| **Fully offline** | 18 MB model runs on-device — no cloud, no telemetry |
+| **Fully offline** | 9.7 MB model runs on-device — no cloud, no telemetry |
 
 ## Install
 
@@ -47,26 +47,32 @@ asks for `sudo`.)
 
 ## Accuracy
 
-Honest held-out (500 c4-zh-TW sentences, excluded from training):
+Honest held-out (500 c4-zh-TW sentences, excluded from training; 25M reference model):
 
-| Benchmark | Score |
-|---|---|
-| Whole-sentence exact (免選字) | **76%** |
-| Tonal per-char (homophone-hard) | **86%** (libchewing 71%) |
+| Benchmark | 25M (reference) | **12M (shipping default)** |
+|---|---|---|
+| Whole-sentence exact, 500-sent held-out | **76%** | — |
+| Whole-sentence exact, 230-sent on-device | 85.7% | **84%** |
+| Tonal per-char (homophone-hard) | **86%** (libchewing 71%) | 84% |
+
+The 12M trades ~2 points for **half the latency and half the download**; both models
+live in the [HF repo](https://huggingface.co/Luigi/slothe-t-25m-zhuyin) and `libslothe`
+reads hyperparameters from the GGUF, so swapping the file swaps the model.
 
 Ceiling = 微軟新注音 / 自然輸入法; floor = libchewing. Method and sourcing in
 [docs/COMPARISON.md](docs/COMPARISON.md), [docs/EVAL.md](docs/EVAL.md).
 
 ## Why ternary
 
-<p align="center"><img src="docs/score_vs_latency.png" width="600" alt="Quality vs on-device latency (BOOX SD662): the 25M ternary hits 76% at ~9ms — both faster and better than the 12M int8"></p>
+<p align="center"><img src="docs/score_vs_latency.png" width="600" alt="Quality vs on-device latency (BOOX SD662): historical projection chart; measured numbers in the text below (12M ternary 9.3ms@4t / 15.8ms@2t)"></p>
 
-A from-scratch **SlothE-T 25M ternary (W1.58A8) bidirectional encoder**. At
-on-device latency (BOOX SD662) it is **Pareto-optimal**: **76%** whole-sentence at
-~**9 ms / 6-syllable decode** — the same speed as a tiny 4M int8 but far more
-accurate — and both faster and better than the 12M int8 (13 ms, 72%). **At this
-scale, ternary beats int8.** The TQ2_0 kernel is ~2.3× int8 on x86 (mainline ggml),
-so no bitnet.cpp is needed.
+A from-scratch **SlothE-T ternary (W1.58A8) bidirectional encoder**. The shipping
+**12M (dim 256 × 12 layers — dims exactly 256-aligned for TQ2_0, zero padding tax)**
+measures on the BOOX (SD662): **9.3 ms @4 threads / 15.8 ms @2 threads per 6-syllable
+forward**, 84% whole-sentence on the 230-sentence on-device set. The 25M reference:
+85.7%, 18.5 ms @4t. The TQ2_0 kernel is ~2.3× int8 on x86 (mainline ggml), so no
+bitnet.cpp is needed. (Earlier READMEs quoted "~9 ms" for the 25M — that was a
+projection; the numbers above are measured.)
 
 ## How it works
 
@@ -91,8 +97,10 @@ checks against PyTorch.
 ## Roadmap
 
 - [x] **25M ternary shipped to all four frontends**: 76 / 86, all sharing `libslothe` (ggml/TQ2_0), replacing ONNX Runtime
+- [x] **12M ternary (256×12) is the new default**: same accuracy class, half the latency and download; `libslothe` now reads hparams from the GGUF; meets the ≤20 ms budget at 2 threads on BOOX (15.8 ms)
+- [x] **Neural next-word (desktop daemon)**: 60M Q4 predictor serves `slothd`'s `{"predict": …}` op; frontend UI wiring pending
 - [ ] **Char-hints v2 (document context)**: the hinted model is trained and validated on clean held-out — document context *does* help (**+2.4%** whole-sentence), but the win is small and only for long-form, so it's deferred (not worth plumbing through all 4 frontends yet)
-- [ ] Model-based next-word head; word-list filtering
+- [ ] Wire neural next-word into the frontend candidate bars (fcitx5/IBus/Android)
 - [ ] Android hardware-keyboard polish; regular desktop packages
 - [ ] [Senior-friendly keyboard layout](docs/SENIOR-KEYBOARD.md): standard layout + key-error-tolerant decoding
 
