@@ -36,3 +36,13 @@ web), ~2.3× the throughput of int8.
 Demo of [Sloth IME](https://github.com/vieenrose/sloth-zhuyin-linux), a
 libchewing-free IME. **No server, no cloud** — a static Space; all inference
 runs client-side.
+
+
+## Models & reproducibility
+
+This demo runs the **12M ternary conversion encoder** fully in your browser (ggml/TQ2_0
+WASM). The full Sloth IME system also includes a **60M next-word decoder (v2.1,
+TW-chat register fine-tuned)** used by the desktop/Android frontends. All weights
+(GGUF + fp32 masters) and training/eval scripts: 
+[Luigi/sloth-ime-models](https://huggingface.co/Luigi/sloth-ime-models) · 
+[reproducibility guide](https://github.com/vieenrose/sloth-zhuyin-linux#reproducibility)
