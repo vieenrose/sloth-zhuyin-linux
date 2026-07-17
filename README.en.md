@@ -113,6 +113,19 @@ checks against PyTorch.
 - Architecture & design: [`ARCHITECTURE.md`](ARCHITECTURE.md), `model/DESIGN-E.md`
 - 4-frontend UI logic matrix: [docs/UI-MATRIX.md](docs/UI-MATRIX.md)
 
+## Reproducibility
+
+Both models are fully reproducible from public materials; every number maps to a script:
+
+| step | material |
+|---|---|
+| corpus | `model/build_corpus_big.py` (streams `erhwenkuo/c4-chinese-zhtw`, sentence-split + filter); chat register = PTT/Dcard HF datasets (see docs/ARCH-REVIEW.md) |
+| encoder training | `train_slothe_ternary.py` (bundled in the HF repo) — ternary QAT + CE + label-smoothing 0.1, 32ep early-stopped; recipe history & all negative results: `docs/ARCH-REVIEW.md` |
+| predictor training | `predictor_qwen35.py` (transformers Qwen3.5) + `--init-from` register fine-tune |
+| evaluation | encoder: `gate_slothe_ternary.py` (免選字/homophone/toneless); predictor: **always fresh-corpus** (the lesson of two benchmark leaks, `docs/ARCH-REVIEW.md`) |
+| packaging | encoder: `extract_slothe.py` + `pack_gguf.py` → TQ2_0 GGUF; predictor: official `convert_hf_to_gguf.py` (pre-tokenizer `default`) + `llama-quantize Q4_K_M` |
+| weights | everything (GGUF + fp32 masters) at [Luigi/sloth-ime-models](https://huggingface.co/Luigi/sloth-ime-models), incl. `REPRODUCE.md` |
+
 ## Roadmap
 
 - [x] **25M ternary shipped to all four frontends**: 76 / 86, all sharing `libslothe` (ggml/TQ2_0), replacing ONNX Runtime

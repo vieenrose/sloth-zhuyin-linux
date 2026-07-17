@@ -98,6 +98,19 @@ ggml 前向:桌面走 native daemon、Android 走 NDK arm64、瀏覽器走多執
 - 架構與設計:[`ARCHITECTURE.md`](ARCHITECTURE.md)、`model/DESIGN-E.md`
 - 四前端 UI 邏輯對照:[docs/UI-MATRIX.md](docs/UI-MATRIX.md)
 
+## 重現（Reproducibility）
+
+兩顆模型都可從公開材料完整重現;所有數字都有腳本可對應:
+
+| 步驟 | 材料 |
+|---|---|
+| 語料 | `model/build_corpus_big.py`(串流 `erhwenkuo/c4-chinese-zhtw`,句切+過濾);聊天語域 = PTT/Dcard HF 資料集(見 docs/ARCH-REVIEW.md) |
+| 編碼器訓練 | `train_slothe_ternary.py`(HF repo 內附)——ternary QAT + CE + label-smoothing 0.1、32ep 早停;配方沿革與所有負結果:`docs/ARCH-REVIEW.md` |
+| 預測器訓練 | `predictor_qwen35.py`(transformers Qwen3.5)+ `--init-from` 語域微調 |
+| 評測 | 編碼器:`gate_slothe_ternary.py`(免選字/同音/無聲調);預測器:**務必用新鮮語料**(兩次基準沾染的教訓,`docs/ARCH-REVIEW.md`) |
+| 打包部署 | 編碼器:`extract_slothe.py` + `pack_gguf.py` → TQ2_0 GGUF;預測器:官方 `convert_hf_to_gguf.py`(pre-tokenizer 用 `default`)+ `llama-quantize Q4_K_M` |
+| 權重 | 全部(GGUF + fp32 master)在 [Luigi/sloth-ime-models](https://huggingface.co/Luigi/sloth-ime-models),含 `REPRODUCE.md` |
+
 ## 藍圖
 
 - [x] **25M 三值上線四前端**:免選字 76 / 同音 86,共用 `libslothe`(ggml/TQ2_0)取代 ONNX Runtime
