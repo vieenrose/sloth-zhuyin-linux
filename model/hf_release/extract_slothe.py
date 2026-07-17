@@ -15,14 +15,16 @@ import numpy as np
 import torch
 from safetensors.torch import save_file
 
-CKPT = "/home/luigi/sloth-zhuyin-linux/model/slothe_t_25m_ce_ls32_ep24/slothe.pt"
-OUT_NPZ = "/home/luigi/slothe_tensors.npz"
-OUT_CFG = "/home/luigi/slothe_config.json"
-OUT_ROLES = "/home/luigi/roles.json"
-OUT_ST = "/home/luigi/model.safetensors"
+import os as _os
+CKPT = _os.environ.get("SLOTHE_CKPT", "/home/luigi/sloth-zhuyin-linux/model/slothe_t_25m_ce_ls32_ep24/slothe.pt")
+OUT_DIR = _os.environ.get("SLOTHE_OUT", "/home/luigi")
+OUT_NPZ = OUT_DIR + "/slothe_tensors.npz"
+OUT_CFG = OUT_DIR + "/slothe_config.json"
+OUT_ROLES = OUT_DIR + "/roles.json"
+OUT_ST = OUT_DIR + "/model.safetensors"
 
 FP_BOUNDARY = 1
-DEPTH = 16
+DEPTH = int(_os.environ.get("SLOTHE_DEPTH", "16"))
 # the 7 linear leaf names inside a block that carry weights
 LINEAR_SUFFIXES = ["attn.q", "attn.o", "attn.k", "attn.v", "ffn.w1", "ffn.w2", "ffn.w3"]
 

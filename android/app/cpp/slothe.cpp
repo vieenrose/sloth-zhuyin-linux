@@ -90,6 +90,24 @@ slothe_model * slothe_load(const char * path) {
     struct gguf_context * gguf = gguf_init_from_file(path, gp);
     if (!gguf) { fprintf(stderr, "failed to open gguf %s\n", path); exit(1); }
 
+    // hparams from the GGUF (pack_gguf.py writes them); fall back to the struct
+    // defaults (the original 25M shape) when a key is absent.
+    {
+        auto u32 = [&](const char * key, int dflt) {
+            int64_t i = gguf_find_key(gguf, key);
+            return i < 0 ? dflt : (int) gguf_get_val_u32(gguf, i);
+        };
+        m->hp.dim       = u32("slothe.embedding_length",      m->hp.dim);
+        m->hp.n_layer   = u32("slothe.block_count",           m->hp.n_layer);
+        m->hp.ffn       = u32("slothe.feed_forward_length",   m->hp.ffn);
+        m->hp.n_head    = u32("slothe.attention.head_count",  m->hp.n_head);
+        m->hp.n_head_kv = u32("slothe.attention.head_count_kv", m->hp.n_head_kv);
+        m->hp.fp_boundary = u32("slothe.fp_boundary",         m->hp.fp_boundary);
+        m->hp.n_syl     = u32("slothe.vocab_syl",             m->hp.n_syl);
+        m->hp.n_char    = u32("slothe.vocab_char",            m->hp.n_char);
+        m->hp.head_dim  = m->hp.dim / m->hp.n_head;
+    }
+
     // register all tensors by name
     for (ggml_tensor * t = ggml_get_first_tensor(m->ctx_w); t != nullptr; t = ggml_get_next_tensor(m->ctx_w, t)) {
         m->tensors[ggml_get_name(t)] = t;
