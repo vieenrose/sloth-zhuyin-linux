@@ -98,15 +98,18 @@ sendDaemonRequest(const std::string &req, std::atomic<int> &fdSlot,
     }
     try {
         json parsed = json::parse(resp);
-        if (parsed.contains("sentences")) {
+        const char *key = parsed.contains("sentences") ? "sentences"
+                          : parsed.contains("words")   ? "words"
+                                                       : nullptr;
+        if (key) {
             if (fullOut) {
                 *fullOut = parsed;
             }
-            auto sentences = parsed["sentences"].get<std::vector<std::string>>();
-            if (!sentences.empty()) {
+            auto items = parsed[key].get<std::vector<std::string>>();
+            if (!items.empty()) {
                 err = DaemonError::None;
             }
-            return finish(std::move(sentences));
+            return finish(std::move(items));
         }
     } catch (const std::exception &) {
     }
@@ -134,6 +137,23 @@ queryDecoder(const std::vector<std::string> &syllables, int n,
     }
     return sendDaemonRequest(buildDecodeRequest(syllables, n, context), fdSlot,
                              err, fullOut);
+}
+
+// Neural next-word: {"predict": "<committed context>", "n": N} -> {"words":
+// [...]}. Served by slothd_slothe when launched with -p predictor.gguf; a
+// daemon without a predictor (or a dead daemon) returns empty — callers fall
+// back to the bigram assoc list.
+inline std::vector<std::string> queryPredictor(const std::string &context,
+                                               int n) {
+    if (context.empty()) {
+        return {};
+    }
+    json req;
+    req["predict"] = context;
+    req["n"] = n;
+    std::atomic<int> fd{-1};
+    DaemonError err = DaemonError::None;
+    return sendDaemonRequest(req.dump() + "\n", fd, err);
 }
 
 // Decode conditioned on user picks: {"hints": {"2": "在"}}. Synchronous but

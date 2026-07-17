@@ -377,7 +377,9 @@ int main(int argc, char ** argv) {
                     int pl = llama_token_to_piece(pred_vocab, t, piece, sizeof(piece), 0, false);
                     if (pl <= 0) continue;
                     std::string w(piece, pl);
-                    if (w.empty() || w == " " || w[0] == '\n') continue;
+                    while (!w.empty() && (w[0] == ' ' || w[0] == '\n'))
+                        w.erase(0, 1);   // BPE code-switch pieces lead with ' '
+                    if (w.empty()) continue;
                     words.push_back(w);
                 }
                 resp_str = json{{"words", words}}.dump() + "\n";

@@ -12,6 +12,7 @@
 #define _SLOTHING_COMMON_ASSOC_H_
 
 #include <algorithm>
+#include <functional>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -42,6 +43,7 @@ public:
         for (const auto &cp : splitCps(s)) {
             if (!isCjk(cp)) {
                 prev.clear();
+                context_.clear();
                 continue;
             }
             if (!prev.empty()) {
@@ -49,9 +51,20 @@ public:
                 dirty = true;
             }
             prev = cp;
+            context_ += cp;
         }
         tail_ = prev;
+        trimContext();
         if (dirty) saveUser();
+    }
+
+    // Optional neural next-word source (e.g. the slothd predictor). Called
+    // with the recent committed CJK context; its words are merged after the
+    // user's own bigrams and before dictionary completions. Keep it fast or
+    // empty — it runs synchronously on the commit path.
+    void setNeuralHook(
+        std::function<std::vector<std::string>(const std::string &)> hook) {
+        neural_ = std::move(hook);
     }
 
     // Predictions for what follows the tail: personal (count-ranked) first,
@@ -69,6 +82,13 @@ public:
             if (out.size() >= kPredictions) break;
             out.push_back(p.second);
         }
+        if (neural_ && !context_.empty()) {
+            for (const auto &w : neural_(context_)) {
+                if (out.size() >= kPredictions) break;
+                if (std::find(out.begin(), out.end(), w) == out.end())
+                    out.push_back(w);
+            }
+        }
         auto it = dict_.find(tail_);
         if (it != dict_.end())
             for (const auto &c : it->second) {
@@ -82,9 +102,23 @@ public:
     bool hasTail() const { return !tail_.empty(); }
 
     // Field/application switch: predictions must not carry over.
-    void clearTail() { tail_.clear(); }
+    void clearTail() {
+        tail_.clear();
+        context_.clear();
+    }
 
 private:
+    // Keep at most the last 16 codepoints of committed-CJK context for the
+    // neural hook (the predictor conditions on a short recent window).
+    void trimContext() {
+        auto cps = splitCps(context_);
+        if (cps.size() > 16) {
+            context_.clear();
+            for (size_t i = cps.size() - 16; i < cps.size(); ++i)
+                context_ += cps[i];
+        }
+    }
+
     static std::vector<std::string> splitCps(const std::string &s) {
         std::vector<std::string> out;
         for (size_t i = 0; i < s.size();) {
@@ -157,6 +191,8 @@ private:
     std::map<std::pair<std::string, std::string>, int> user_;
     std::string userFile_;
     std::string tail_;
+    std::string context_;
+    std::function<std::vector<std::string>(const std::string &)> neural_;
 };
 
 } // namespace sloth

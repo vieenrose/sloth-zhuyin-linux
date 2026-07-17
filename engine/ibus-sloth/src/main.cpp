@@ -217,6 +217,15 @@ struct SlothImpl {
                           "/sloth";
         g_mkdir_with_parents(dir.c_str(), 0700);
         assoc.load(dictTsv, dir + "/assoc_user.tsv");
+    // Neural next-word via the daemon's predictor (slothd -p); disable with
+    // SLOTHING_NEURAL_ASSOC=0. Empty reply falls back to bigrams+dict.
+    {
+        const char *e = std::getenv("SLOTHING_NEURAL_ASSOC");
+        if (!e || std::string(e) != "0")
+            assoc.setNeuralHook([](const std::string &ctx) {
+                return queryPredictor(ctx, 5);
+            });
+    }
     }
 
     // ---- painting ---------------------------------------------------------

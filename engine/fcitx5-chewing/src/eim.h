@@ -81,7 +81,11 @@ FCITX_CONFIGURATION(
         IntConstrain(1, 8)};
     Option<bool> Association{this, "Association",
                              _("Suggest next words after commit (聯想)"),
-                             true};);
+                             true};
+    Option<bool> NeuralAssociation{
+        this, "NeuralAssociation",
+        _("Neural next-word suggestions (needs slothd -p predictor)"),
+        true};);
 
 class ChewingEngine final : public InputMethodEngine {
 public:

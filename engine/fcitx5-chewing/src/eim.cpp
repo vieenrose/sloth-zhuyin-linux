@@ -185,6 +185,12 @@ void ChewingEngine::loadAssoc() {
                       "/sloth";
     // same per-user store the daemon's learn.tsv lives beside
     assoc_.load(dictTsv, dir + "/assoc_user.tsv");
+    // Neural next-word via the daemon's predictor (slothd -p). Empty reply
+    // (no predictor / daemon down / toggled off) falls back to bigrams+dict.
+    assoc_.setNeuralHook([this](const std::string &ctx) {
+        return *config_.NeuralAssociation ? sloth::queryPredictor(ctx, 5)
+                                          : std::vector<std::string>{};
+    });
 }
 
 // Every commit feeds 聯想 (personal bigrams + the prediction tail).
