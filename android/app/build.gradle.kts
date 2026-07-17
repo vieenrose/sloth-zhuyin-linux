@@ -135,8 +135,8 @@ val copyModelAssets by tasks.registering(Copy::class) {
     description = "Stage vocab + phonetic table + 聯想 dict into src/main/assets/sloth"
     into(layout.projectDirectory.dir("src/main/assets/sloth"))
 
-    // NB: the model itself is now the ternary GGUF (slothe-t-25m.gguf), committed
-    // directly under src/main/assets/sloth/ (18 MB, built by the slothe port).
+    // NB: the model itself is now the ternary GGUF (slothe-t-12m-256x12.gguf), staged
+    // directly under src/main/assets/sloth/ (9.65 MB, ternary 256x12; master in model/slothe_t_12m/).
     // The old model_quantized.onnx is no longer staged or loaded.
     from(encDir) {
         include("syl_vocab.json")

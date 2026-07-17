@@ -46,7 +46,7 @@ class SlothImeService : InputMethodService(),
 
     private companion object {
         const val TAG = "SlothIME"
-        const val MODEL = "sloth/slothe-t-25m.gguf"   // ternary GGUF encoder (ggml/libslothe)
+        const val MODEL = "sloth/slothe-t-12m-256x12.gguf" // ternary GGUF encoder (ggml/libslothe; 12M 256x12, hparams read from GGUF)
         const val SYL_VOCAB = "sloth/syl_vocab.json"
         const val CHAR2ID = "sloth/char2id.json"
         const val TABLE = "sloth/phonetic_table.tsv"
