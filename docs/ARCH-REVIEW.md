@@ -186,11 +186,20 @@ Findings:
 - Latency ~linear in T: 256×12 = 15.4ms @T6 but 29.7ms @T12. Budgets are per-6-syllable.
 - Thread default fixed to 4 (was 8; little cores dragged 2.7×). SLOTHE_THREADS overrides.
 
-**Candidate 2-thread solution: encoder 256×12 ternary (15.4ms) + predictor 33M Q4 (7.7ms).**
-Conversion and prediction are separate input events, so each fits ≤20ms; even summed = 23.1ms
-(or 256×8 + 33M = 20.4ms for a strict-sum budget). OPEN: accuracy of an 11.6M SlothE-T with
-RoBERTa-KD vs the 25M's 86.8/79.2 — needs the two KD trainings (256×12, 256×8) on the
-workstation. Old 12M int8 shipped at 72% 免選字; this is its ternary+KD successor.
+**RESOLVED — the 2-thread stack (trained + evaluated 2026-07-17):**
+
+| Encoder (KD, 2ep) | params | @2t | toned | toneless |
+|---|---|---|---|---|
+| 25M (352×16) reference | 23M | 31.9ms | 86.8 | 79.2 |
+| **256×12 ffn768 — WINNER** | **11.6M** | **15.4ms** | **86.2** | **79.2** |
+| 256×8 ffn768 | 8.6M | 12.7ms | 84.9 | 73.6 |
+
+The 256×12 matches the 25M within noise (−0.6 toned, toneless identical) at half the params
+and half the latency — dim-256 zero-pad-tax + RoBERTa-KD fully paid for the shrink. 256×8
+marks the floor (toneless collapses). **SHIP: SlothE-T 256×12 KD (15.4ms) + 60M-Q4 predictor
+(13.1ms/word, separate event; 33M @7.7ms for strict-sum). Both events ≤20ms @2 threads on
+BOOX, measured.** Remaining: pack 256×12 to GGUF (no padding needed), on-device accuracy +
+BENCH_LAT validation, wire into the app.
 
 ARM references if BOOX unavailable: rpi4 `ssh raspberrypi` (Cortex-A72, no-dotprod — closest
 proxy to the BOOX big cores), Jetson `ssh picard@picard-desktop` (CPU-only mode).
