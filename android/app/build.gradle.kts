@@ -22,8 +22,8 @@ android {
         applicationId = "com.sloth.ime"
         minSdk = 30            // Android 11, BOOX Tab Mini C
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.1"
 
         // arm64-v8a ONLY — the only ABI the Tab Mini C needs.
         ndk {
