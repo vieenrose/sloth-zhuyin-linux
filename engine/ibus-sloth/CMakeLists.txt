@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.6)
-project(ibus-sloth VERSION 0.1.0)
+project(ibus-sloth VERSION 0.2.0)
 
 # Sloth IME IBus engine: the same libchewing-free LLM zhuyin IME as the fcitx5
 # addon, built on the shared frontend-free core in ../common. Requires
