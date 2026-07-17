@@ -91,8 +91,8 @@ masked per position to legal readings.
 takes over: a dense-Qwen3.5 block (Gated DeltaNet linear attention + full
 attention every 4th layer — recurrent O(1)/step, no KV cache) with a word-piece
 vocab so *next word = one forward* (measured 8.5 ms/word on BOOX). Deploys via
-the official llama.cpp qwen35 GGUF path; held-out next-word 47.3 top-1 / 75.8
-top-5. Live in the desktop daemon (`slothd -p`); frontend candidate-bar wiring
+the official llama.cpp qwen35 GGUF path; honest fresh-corpus next-word 34 top-1 / 46 top-5 (the older 47.3/75.8
+held-out figure was leak-inflated; see docs/ARCH-REVIEW.md). Live in the desktop daemon (`slothd -p`); frontend candidate-bar wiring
 is in progress (today's 聯想 is served by the shared bigram engine).
 
 The split mirrors the latency budget: conversion sits on the **per-keystroke**

@@ -233,3 +233,21 @@ recovers 免選字 78→84 but monotonically washes out the KD gains (89/78/84 �
 the CE solution). No snapshot dominates shipping. **Shipping (84/84/81) vs KD (89/78/84)
 is a real Pareto frontier** — per-char vs whole-sentence is a fundamental trade in this
 recipe. Encoder training levers are exhausted; the 12M no-KD model is final.
+
+## Predictor data-scaling — WIN, and another benchmark leak exposed (2026-07-18)
+
+Retrained the 60M predictor on 6.1M lines (old 1.08M + 5M fresh C4 zh-TW, same held-out tail):
+
+| 60M predictor | e3-tail held-out | fresh-C4 (n=3000, never seen) |
+|---|---|---|
+| old (1.1M lines) | 47.3 / 75.8 | **4.6 / 12.0** — collapses |
+| **new (6.1M lines)** | 35.6 / 64.1 | **34.0 / 46.0** |
+
+The celebrated 47.3/75.8 was distribution-narrow memorization (the e3-tail is saturated with
+near-duplicates of the small training set) — the prediction-side twin of the 免選字 leak found
+on 2026-07-12. The new model scores consistently across both evals (~34-36 top-1): it actually
+generalizes, and is ~7× better on honest data. Qualitative: 今天天氣→好/很好/不好;
+晚上熬夜看→病/書/電視/電影. SHIPPED as the drop-in pred_q35_60m-q4.gguf (same file name,
+size, latency; no code change). Also fixed: daemon predict op now skips partial-UTF-8 BPE
+pieces (byte-level BPE splits multi-byte chars across tokens; they broke the JSON reply).
+99M retrain on the big corpus in flight — judge on the fresh-C4 eval only.

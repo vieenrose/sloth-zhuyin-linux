@@ -380,6 +380,21 @@ int main(int argc, char ** argv) {
                     while (!w.empty() && (w[0] == ' ' || w[0] == '\n'))
                         w.erase(0, 1);   // BPE code-switch pieces lead with ' '
                     if (w.empty()) continue;
+                    // byte-level BPE can split a multi-byte char across tokens;
+                    // a partial UTF-8 piece would break the JSON reply — skip it.
+                    {
+                        bool ok = true;
+                        for (size_t bi = 0; bi < w.size() && ok;) {
+                            unsigned char c = w[bi];
+                            size_t n2 = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2
+                                        : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 0;
+                            if (n2 == 0 || bi + n2 > w.size()) { ok = false; break; }
+                            for (size_t k = 1; k < n2; ++k)
+                                if ((static_cast<unsigned char>(w[bi + k]) >> 6) != 0x2) { ok = false; break; }
+                            bi += n2;
+                        }
+                        if (!ok) continue;
+                    }
                     words.push_back(w);
                 }
                 resp_str = json{{"words", words}}.dump() + "\n";
