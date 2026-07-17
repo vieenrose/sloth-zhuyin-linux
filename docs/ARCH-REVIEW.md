@@ -198,8 +198,11 @@ The 256×12 matches the 25M within noise (−0.6 toned, toneless identical) at h
 and half the latency — dim-256 zero-pad-tax + RoBERTa-KD fully paid for the shrink. 256×8
 marks the floor (toneless collapses). **SHIP: SlothE-T 256×12 KD (15.4ms) + 60M-Q4 predictor
 (13.1ms/word, separate event; 33M @7.7ms for strict-sum). Both events ≤20ms @2 threads on
-BOOX, measured.** Remaining: pack 256×12 to GGUF (no padding needed), on-device accuracy +
-BENCH_LAT validation, wire into the app.
+BOOX, measured.**
+
+**DEVICE-VALIDATED (2026-07-17, real GGUF slothe-t-12m-256x12.gguf 9.65MB on BOOX):
+15.8ms @2t (projection said 15.4) / 9.3ms @4t — the once-projected "9ms encoder" is now real,
+one size down.** Gate accuracy 84%/84% (230-sent). Remaining: bundle into app assets + selfTest.
 
 ARM references if BOOX unavailable: rpi4 `ssh raspberrypi` (Cortex-A72, no-dotprod — closest
 proxy to the BOOX big cores), Jetson `ssh picard@picard-desktop` (CPU-only mode).
