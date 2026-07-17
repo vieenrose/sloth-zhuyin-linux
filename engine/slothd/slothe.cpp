@@ -47,6 +47,17 @@ struct slothe_model {
     ggml_backend_buffer_t buf_w = nullptr;
     std::map<std::string, ggml_tensor*> tensors;
 
+    // compute-graph cache — reused across slothe_logits() calls of the same T so the
+    // hot conversion path avoids a fresh 64MB ggml_init + graph rebuild + allocator
+    // alloc/free every keystroke. Rebuilt only when the sequence length changes.
+    ggml_context * ctx_c   = nullptr;
+    ggml_gallocr_t galloc  = nullptr;
+    ggml_cgraph  * gf      = nullptr;
+    ggml_tensor  * c_syl   = nullptr;
+    ggml_tensor  * c_pos   = nullptr;
+    ggml_tensor  * c_logits= nullptr;
+    int            cached_T = -1;
+
     ggml_tensor * get(const std::string & name) const {
         auto it = tensors.find(name);
         if (it == tensors.end()) {
@@ -62,17 +73,40 @@ struct slothe_model {
 slothe_model * slothe_load(const char * path) {
     slothe_model * m = new slothe_model();
     m->backend = ggml_backend_cpu_init();
-    // Use the available cores (capped) so the decode parallelizes — matters for
-    // the threaded WASM build and the desktop daemon; a no-op on single-thread
-    // WASM (ggml forces 1 thread when built without pthreads).
+    // parallelize the decode across the device's cores (capped); matches the
+    // engine/slothd copy. Android/NDK has real pthreads.
     {
+        // Default cap 4, not 8: on big.LITTLE SoCs (BOOX SD662 = 4xA73+4xA53) the
+        // little cores DRAG the matmul — measured on-device 6-syl decode: 8 threads
+        // 49.6ms / 6t 40.2ms / 4t 18.4ms / 3t 22.5ms. 4 big-core threads is 2.7x
+        // faster than the old min(cores,8) default and matches the predictor bench.
         unsigned hc = std::thread::hardware_concurrency();
-        ggml_backend_cpu_set_n_threads(m->backend, hc ? (int) (hc < 8u ? hc : 8u) : 4);
+        int nt = hc ? (int) (hc < 4u ? hc : 4u) : 4;
+        if (const char * e = getenv("SLOTHE_THREADS")) { int v = atoi(e); if (v > 0 && v <= 16) nt = v; }
+        ggml_backend_cpu_set_n_threads(m->backend, nt);
     }
 
     struct gguf_init_params gp = { /*no_alloc=*/true, /*ctx=*/&m->ctx_w };
     struct gguf_context * gguf = gguf_init_from_file(path, gp);
     if (!gguf) { fprintf(stderr, "failed to open gguf %s\n", path); exit(1); }
+
+    // hparams from the GGUF (pack_gguf.py writes them); fall back to the struct
+    // defaults (the original 25M shape) when a key is absent.
+    {
+        auto u32 = [&](const char * key, int dflt) {
+            int64_t i = gguf_find_key(gguf, key);
+            return i < 0 ? dflt : (int) gguf_get_val_u32(gguf, i);
+        };
+        m->hp.dim       = u32("slothe.embedding_length",      m->hp.dim);
+        m->hp.n_layer   = u32("slothe.block_count",           m->hp.n_layer);
+        m->hp.ffn       = u32("slothe.feed_forward_length",   m->hp.ffn);
+        m->hp.n_head    = u32("slothe.attention.head_count",  m->hp.n_head);
+        m->hp.n_head_kv = u32("slothe.attention.head_count_kv", m->hp.n_head_kv);
+        m->hp.fp_boundary = u32("slothe.fp_boundary",         m->hp.fp_boundary);
+        m->hp.n_syl     = u32("slothe.vocab_syl",             m->hp.n_syl);
+        m->hp.n_char    = u32("slothe.vocab_char",            m->hp.n_char);
+        m->hp.head_dim  = m->hp.dim / m->hp.n_head;
+    }
 
     // register all tensors by name
     for (ggml_tensor * t = ggml_get_first_tensor(m->ctx_w); t != nullptr; t = ggml_get_next_tensor(m->ctx_w, t)) {
@@ -103,6 +137,8 @@ slothe_model * slothe_load(const char * path) {
 
 void slothe_free(slothe_model * m) {
     if (!m) return;
+    if (m->galloc) ggml_gallocr_free(m->galloc);
+    if (m->ctx_c)  ggml_free(m->ctx_c);
     if (m->buf_w) ggml_backend_buffer_free(m->buf_w);
     if (m->ctx_w) ggml_free(m->ctx_w);
     if (m->backend) ggml_backend_free(m->backend);
@@ -152,9 +188,11 @@ static ggml_tensor * slothe_block(ggml_context * ctx, const slothe_model & m, in
     snprintf(buf, sizeof(buf), "blk.%d.attn_norm.weight", il);
     ggml_tensor * h = mul_w(ctx, ggml_rms_norm(ctx, x, eps), m.get(buf));
 
-    ggml_tensor * q = slothe_lin(ctx, m, il, "attn_q", h, is_fp, hp.dim, 512); // [352,T]
-    ggml_tensor * k = slothe_lin(ctx, m, il, "attn_k", h, is_fp, hp.dim, 512); // [88,T]
-    ggml_tensor * v = slothe_lin(ctx, m, il, "attn_v", h, is_fp, hp.dim, 512); // [88,T]
+    const int padd = ((hp.dim + hp.pad_to - 1)/hp.pad_to)*hp.pad_to;
+    const int padf = ((hp.ffn + hp.pad_to - 1)/hp.pad_to)*hp.pad_to;
+    ggml_tensor * q = slothe_lin(ctx, m, il, "attn_q", h, is_fp, hp.dim, padd); // [352,T]
+    ggml_tensor * k = slothe_lin(ctx, m, il, "attn_k", h, is_fp, hp.dim, padd); // [88,T]
+    ggml_tensor * v = slothe_lin(ctx, m, il, "attn_v", h, is_fp, hp.dim, padd); // [88,T]
 
     q = ggml_reshape_3d(ctx, q, hd, nh,  T);
     k = ggml_reshape_3d(ctx, k, hd, nkv, T);
@@ -186,16 +224,16 @@ static ggml_tensor * slothe_block(ggml_context * ctx, const slothe_model & m, in
     kqv = ggml_permute(ctx, kqv, 0, 2, 1, 3);     // [hd, nh, T]
     ggml_tensor * o = ggml_cont_2d(ctx, kqv, hd * nh, T); // [352, T]
 
-    o = slothe_lin(ctx, m, il, "attn_output", o, is_fp, hp.dim, 512);
+    o = slothe_lin(ctx, m, il, "attn_output", o, is_fp, hp.dim, padd);
     x = ggml_add(ctx, x, o);
 
     // ---- ffn (pre-norm, SwiGLU) ----
     snprintf(buf, sizeof(buf), "blk.%d.ffn_norm.weight", il);
     ggml_tensor * h2 = mul_w(ctx, ggml_rms_norm(ctx, x, eps), m.get(buf));
-    ggml_tensor * g = slothe_lin(ctx, m, il, "ffn_gate", h2, is_fp, hp.dim, 512);  // [960,T]
-    ggml_tensor * u = slothe_lin(ctx, m, il, "ffn_up",   h2, is_fp, hp.dim, 512);  // [960,T]
+    ggml_tensor * g = slothe_lin(ctx, m, il, "ffn_gate", h2, is_fp, hp.dim, padd);  // [960,T]
+    ggml_tensor * u = slothe_lin(ctx, m, il, "ffn_up",   h2, is_fp, hp.dim, padd);  // [960,T]
     ggml_tensor * ff = ggml_mul(ctx, ggml_silu(ctx, g), u);
-    ff = slothe_lin(ctx, m, il, "ffn_down", ff, is_fp, hp.ffn, 1024);              // [352,T]
+    ff = slothe_lin(ctx, m, il, "ffn_down", ff, is_fp, hp.ffn, padf);              // [352,T]
     x = ggml_add(ctx, x, ff);
     return x;
 }
@@ -255,25 +293,29 @@ static ggml_cgraph * build_block_graph(ggml_context * ctx, const slothe_model & 
 
 // ---------------- public logits API ----------------
 void slothe_logits(slothe_model * m, const int32_t * syl_ids, int T, float * out_logits) {
-    size_t mem = (size_t)64*1024*1024 + (size_t)T*m->hp.n_char*8;
-    ggml_init_params ip = { mem, nullptr, true };
-    ggml_context * ctx = ggml_init(ip);
-    fwd_nodes nd;
-    ggml_cgraph * gf = build_forward_graph(ctx, *m, T, nd);
-
-    ggml_gallocr_t galloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(m->backend));
-    ggml_gallocr_alloc_graph(galloc, gf);
+    // (Re)build the graph only when T changes. Metadata-only context (no_alloc=true),
+    // so this is graph structs, not the compute buffer — the galloc owns that and is
+    // reused across calls of the same length.
+    if (m->cached_T != T || !m->gf) {
+        if (m->galloc) { ggml_gallocr_free(m->galloc); m->galloc = nullptr; }
+        if (m->ctx_c)  { ggml_free(m->ctx_c); m->ctx_c = nullptr; }
+        ggml_init_params ip = { (size_t)16*1024*1024, nullptr, /*no_alloc=*/true };
+        m->ctx_c = ggml_init(ip);
+        fwd_nodes nd;
+        m->gf = build_forward_graph(m->ctx_c, *m, T, nd);
+        m->c_syl = nd.syl_in; m->c_pos = nd.pos_in; m->c_logits = nd.logits;
+        m->galloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(m->backend));
+        ggml_gallocr_alloc_graph(m->galloc, m->gf);
+        m->cached_T = T;
+    }
 
     std::vector<int32_t> pos(T);
     for (int i = 0; i < T; ++i) pos[i] = i;
-    ggml_backend_tensor_set(nd.syl_in, syl_ids, 0, T*sizeof(int32_t));
-    ggml_backend_tensor_set(nd.pos_in, pos.data(), 0, T*sizeof(int32_t));
+    ggml_backend_tensor_set(m->c_syl, syl_ids, 0, T*sizeof(int32_t));
+    ggml_backend_tensor_set(m->c_pos, pos.data(), 0, T*sizeof(int32_t));
 
-    ggml_backend_graph_compute(m->backend, gf);
-    ggml_backend_tensor_get(nd.logits, out_logits, 0, (size_t)T*m->hp.n_char*sizeof(float));
-
-    ggml_gallocr_free(galloc);
-    ggml_free(ctx);
+    ggml_backend_graph_compute(m->backend, m->gf);
+    ggml_backend_tensor_get(m->c_logits, out_logits, 0, (size_t)T*m->hp.n_char*sizeof(float));
 }
 
 // ================= validation harness =================

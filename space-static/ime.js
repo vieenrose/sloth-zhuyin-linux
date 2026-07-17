@@ -8,14 +8,14 @@
 //  * punctuation: Shift+, Shift+. Shift+/ Shift+1 Shift+; → ，。？！：
 //  * session learning: your picks become the default for that syllable
 //  * auto zh/en: continuous DP re-segmentation of the keystream (segment.js)
-// SlothLM-E-T (25M ternary bidirectional encoder) runs via libslothe — a ggml
+// SlothLM-E-T (12M ternary 256×12 bidirectional encoder) runs via libslothe — a ggml
 // forward pass compiled to WebAssembly (enc/slothe.{js,wasm} + the GGUF). One
 // non-autoregressive pass, per-position argmax over each syllable's legal
 // char-ids. No transformers.js, no autoregression, no onnxruntime.
 import { makeSegmenter } from './segment.js?v=20260710zw';
 import { makeAssoc } from './assoc.js?v=20260711a';
 
-const ENC = './enc/';   // slothe.{js,wasm} + slothe-t-25m.gguf + syl_vocab.json + char2id.json
+const ENC = './enc/';   // slothe.{js,wasm} + slothe-t-12m-256x12.gguf + syl_vocab.json + char2id.json
 const TONES = 'ˊˇˋ˙';
 const DACHEN = {'1':['ㄅ',0],'q':['ㄆ',0],'a':['ㄇ',0],'z':['ㄈ',0],'2':['ㄉ',0],'w':['ㄊ',0],
   's':['ㄋ',0],'x':['ㄌ',0],'e':['ㄍ',0],'d':['ㄎ',0],'c':['ㄏ',0],'r':['ㄐ',0],'f':['ㄑ',0],
@@ -862,7 +862,7 @@ window.__ui = () => ({
 // (missing gguf/module, load error) surfaces as a load-error message.
 async function initEncoder(){
   try{
-    const resp=await fetch(ENC+'slothe-t-25m.gguf');
+    const resp=await fetch(ENC+'slothe-t-12m-256x12.gguf');
     if(!resp.ok) throw new Error('gguf http '+resp.status);
     // Multi-threaded build needs SharedArrayBuffer (crossOriginIsolated, set by
     // the coi-serviceworker's COOP/COEP). Fall back to single-thread otherwise.
