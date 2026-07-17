@@ -227,3 +227,9 @@ stays the default.** Lesson: KD helps the *classification* axis, hurts the
 *sequence-exactness* axis in ternary QAT — opposite of the int4 2ep ablation where
 both recipes were CE-only (no LS) and KD's +2.5 came free. Label smoothing and KD
 appear to overlap as regularizers here.
+
+**KD-anneal addendum (2026-07-18):** annealing the KD checkpoint with pure CE+LS (8ep)
+recovers 免選字 78→84 but monotonically washes out the KD gains (89/78/84 → 84/84/78 ≈
+the CE solution). No snapshot dominates shipping. **Shipping (84/84/81) vs KD (89/78/84)
+is a real Pareto frontier** — per-char vs whole-sentence is a fundamental trade in this
+recipe. Encoder training levers are exhausted; the 12M no-KD model is final.
