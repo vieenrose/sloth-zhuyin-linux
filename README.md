@@ -12,7 +12,7 @@
 [模型下載](https://huggingface.co/Luigi/sloth-ime-models)
 
 <p align="center"><img src="docs/demo-web-v17.gif" width="470" alt="網頁 demo:逐鍵打「晚上熬夜看world cup,白天去louisa上班」,整句正確、中英自動切換、每個按鍵即時反白"></p>
-<p align="center"><img src="docs/android-boox-demo-v17.gif" width="470" alt="Android 原生輸入法(BOOX e-ink):逐鍵打「晚上熬夜看world cup,白天去louisa上班」,整句正確、中英自動切換"></p>
+<p align="center"><img src="docs/android-boox-demo-v18.gif" width="470" alt="Android 原生輸入法(BOOX e-ink):逐鍵打「晚上熬夜看world cup,白天去louisa上班」,整句正確、中英自動切換"></p>
 
 ## 特色
 
