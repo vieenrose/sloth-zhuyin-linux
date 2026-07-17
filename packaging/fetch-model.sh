@@ -8,7 +8,7 @@ set -e
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$REPO_DIR/model/slothe_t_25m"
 mkdir -p "$DEST"
-URL="https://huggingface.co/Luigi/slothe-t-25m-zhuyin/resolve/main"
+URL="https://huggingface.co/Luigi/sloth-ime-models/resolve/main"
 echo "downloading slothe-t-25m.gguf (18 MB) ..."
 if command -v curl >/dev/null; then
     curl -sL "$URL/slothe-t-25m.gguf" -o "$DEST/slothe-t-25m.gguf"

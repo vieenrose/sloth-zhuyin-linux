@@ -9,7 +9,7 @@
 
 **▶ [線上試用（免安裝）](https://huggingface.co/spaces/Luigi/slothing-web)** ·
 [English](README.en.md) ·
-[模型下載](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
+[模型下載](https://huggingface.co/Luigi/sloth-ime-models)
 
 <p align="center"><img src="docs/demo-web-v16.gif" width="470" alt="網頁 demo:逐鍵打「晚上熬夜看world cup,白天去louisa上班」,整句正確、中英自動切換、每個按鍵即時反白"></p>
 <p align="center"><img src="docs/android-boox-demo-v15.gif" width="470" alt="Android 原生輸入法(BOOX e-ink):逐鍵打「晚上熬夜看world cup,白天去louisa上班」,整句正確、中英自動切換"></p>
@@ -54,7 +54,7 @@ cd sloth-zhuyin-linux
 | 有聲調逐字（同音難句） | **86%**（libchewing 71%） | 84% |
 
 12M 用約 -2 分換 **一半延遲與一半下載**;兩顆模型都在
-[HF repo](https://huggingface.co/Luigi/slothe-t-25m-zhuyin),`libslothe`
+[HF repo](https://huggingface.co/Luigi/sloth-ime-models),`libslothe`
 從 GGUF 讀超參數,換檔即換模型。
 
 天花板是微軟新注音／自然輸入法,樓板是 libchewing。量法與對照見
@@ -94,7 +94,7 @@ ggml 前向:桌面走 native daemon、Android 走 NDK arm64、瀏覽器走多執
 時自動退回單執行緒)。四前端皆已完全移除 ONNX Runtime。行為由離線契約測試、
 無頭端對端測試,與對 PyTorch 逐層／逐字的 golden 驗證把關。
 
-- 模型、GGUF 與完整重現流程:[Luigi/slothe-t-25m-zhuyin](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
+- 模型、GGUF 與完整重現流程:[Luigi/sloth-ime-models](https://huggingface.co/Luigi/sloth-ime-models)
 - 架構與設計:[`ARCHITECTURE.md`](ARCHITECTURE.md)、`model/DESIGN-E.md`
 - 四前端 UI 邏輯對照:[docs/UI-MATRIX.md](docs/UI-MATRIX.md)
 
@@ -103,7 +103,7 @@ ggml 前向:桌面走 native daemon、Android 走 NDK arm64、瀏覽器走多執
 - [x] **25M 三值上線四前端**:免選字 76 / 同音 86,共用 `libslothe`(ggml/TQ2_0)取代 ONNX Runtime
 - [x] **12M 三值(256×12)成為預設**:同準確度級距、延遲與下載减半;`libslothe` 改讀 GGUF 超參數,BOOX 2 執行緒 15.8ms 達標 ≤20ms
 - [x] **神經聯想(桌面 daemon)**:60M Q4 次詞預測模型上線 `slothd` `{"predict":…}` 口;前端 UI 接線進行中
-- [x] **v0.2.0 發佈**:`.apk`(12M 內建)+ `.deb`;雙模型權重(enc 12M/25M + dec 60M,GGUF+fp32)齊上 [HF](https://huggingface.co/Luigi/slothe-t-25m-zhuyin);README/模型卡全面改為實測數據
+- [x] **v0.2.0 發佈**:`.apk`(12M 內建)+ `.deb`;雙模型權重(enc 12M/25M + dec 60M,GGUF+fp32)齊上 [HF](https://huggingface.co/Luigi/sloth-ime-models);README/模型卡全面改為實測數據
 - [ ] **KD-on-ternary**:RoBERTa 軟標籤蒸餾進 12M 三值訓練(int4 消融 +2.5 有聲調;32ep 訓練中)——若勝 84 即免費升級
 - [ ] **字提示 v2(文件語境)**:帶字提示模型已訓練並在乾淨 held-out 驗證——文件語境確實有用(整句 **+2.4%**),但幅度小、僅長文受益,暫緩接線至四前端
 - [ ] 前端 UI 接上神經聯想(fcitx5/IBus/Android 候選列;Android 需捆 llama.cpp JNI + 60M Q4)

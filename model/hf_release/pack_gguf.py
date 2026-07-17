@@ -88,7 +88,7 @@ def main():
 
     writer = GGUFWriter(OUT, ARCH)
     writer.add_architecture()
-    writer.add_name("slothe-t-25m-zhuyin")
+    writer.add_name("slothe-t-zhuyin")
     writer.add_uint32("slothe.context_length", 512)
     writer.add_uint32("slothe.embedding_length", cfg["dim"])           # 352
     writer.add_uint32("slothe.block_count", cfg["depth"])              # 16

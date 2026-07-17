@@ -8,14 +8,14 @@ pinned: false
 license: apache-2.0
 short_description: In-browser zhuyin IME, 12M ternary model, no server
 models:
-  - Luigi/slothe-t-25m-zhuyin
+  - Luigi/sloth-ime-models
 ---
 
 # Sloth IME — a web Zhuyin (Bopomofo) input method
 
 Type Zhuyin on the on-screen Dàqiān keyboard (or your physical keyboard); a
 **12M-parameter ternary (W1.58A8)** from-scratch bidirectional encoder
-([SlothE-T 12M 256×12](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)) decodes it
+([SlothE-T 12M 256×12](https://huggingface.co/Luigi/sloth-ime-models)) decodes it
 to Traditional Chinese **entirely in your browser** via **ggml compiled to
 WebAssembly** (mainline ggml's TQ2_0 ternary kernels; ~18 MB GGUF, cached after
 first load; single-thread WASM, so it also works on iOS Safari). One forward

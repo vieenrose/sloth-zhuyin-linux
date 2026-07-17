@@ -13,7 +13,7 @@ models.
 
 **▶ [Try it now (no install)](https://huggingface.co/spaces/Luigi/slothing-web)** ·
 [中文說明](README.md) ·
-[Model](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
+[Model](https://huggingface.co/Luigi/sloth-ime-models)
 
 <p align="center"><img src="docs/demo-web-v14.gif" width="470" alt="Web demo: typing 晚上熬夜看world cup,白天在louisa key-by-key — whole sentence correct, auto zh/en, each keypress highlighted"></p>
 <p align="center"><img src="docs/android-boox-demo-v13.gif" width="470" alt="Native Android IME (BOOX e-ink): typing 晚上熬夜看world cup,白天在louisa key-by-key — whole sentence correct, auto zh/en switch"></p>
@@ -59,7 +59,7 @@ Honest held-out (500 c4-zh-TW sentences, excluded from training; 25M reference m
 | Tonal per-char (homophone-hard) | **86%** (libchewing 71%) | 84% |
 
 The 12M trades ~2 points for **half the latency and half the download**; both models
-live in the [HF repo](https://huggingface.co/Luigi/slothe-t-25m-zhuyin) and `libslothe`
+live in the [HF repo](https://huggingface.co/Luigi/sloth-ime-models) and `libslothe`
 reads hyperparameters from the GGUF, so swapping the file swaps the model.
 
 Ceiling = 微軟新注音 / 自然輸入法; floor = libchewing. Method and sourcing in
@@ -107,7 +107,7 @@ All four are now fully ONNX-Runtime-free. Behavior is held together by offline
 contract tests, a headless end-to-end test, and per-layer / per-character golden
 checks against PyTorch.
 
-- Model, GGUF + full reproduction pipeline: [Luigi/slothe-t-25m-zhuyin](https://huggingface.co/Luigi/slothe-t-25m-zhuyin)
+- Model, GGUF + full reproduction pipeline: [Luigi/sloth-ime-models](https://huggingface.co/Luigi/sloth-ime-models)
 - Architecture & design: [`ARCHITECTURE.md`](ARCHITECTURE.md), `model/DESIGN-E.md`
 - 4-frontend UI logic matrix: [docs/UI-MATRIX.md](docs/UI-MATRIX.md)
 
@@ -116,7 +116,7 @@ checks against PyTorch.
 - [x] **25M ternary shipped to all four frontends**: 76 / 86, all sharing `libslothe` (ggml/TQ2_0), replacing ONNX Runtime
 - [x] **12M ternary (256×12) is the new default**: same accuracy class, half the latency and download; `libslothe` now reads hparams from the GGUF; meets the ≤20 ms budget at 2 threads on BOOX (15.8 ms)
 - [x] **Neural next-word (desktop daemon)**: 60M Q4 predictor serves `slothd`'s `{"predict": …}` op; frontend UI wiring pending
-- [x] **v0.2.0 released**: `.apk` (12M bundled) + `.deb`; full two-model weights (enc 12M/25M + dec 60M, GGUF+fp32) on [HF](https://huggingface.co/Luigi/slothe-t-25m-zhuyin); README/model card now measured-numbers-only
+- [x] **v0.2.0 released**: `.apk` (12M bundled) + `.deb`; full two-model weights (enc 12M/25M + dec 60M, GGUF+fp32) on [HF](https://huggingface.co/Luigi/sloth-ime-models); README/model card now measured-numbers-only
 - [ ] **KD-on-ternary**: RoBERTa soft-label distillation into the 12M ternary recipe (+2.5 toned in the int4 ablation; 32ep run in progress) — a free upgrade if it beats 84
 - [ ] **Char-hints v2 (document context)**: the hinted model is trained and validated on clean held-out — document context *does* help (**+2.4%** whole-sentence), but the win is small and only for long-form, so it's deferred (not worth plumbing through all 4 frontends yet)
 - [ ] Wire neural next-word into the frontend candidate bars (fcitx5/IBus/Android; Android needs llama.cpp JNI + the 60M Q4 bundled)
