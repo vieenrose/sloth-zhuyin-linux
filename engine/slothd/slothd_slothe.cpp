@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -410,6 +411,87 @@ int main(int argc, char ** argv) {
             if (syllables.empty()) {
                 throw std::runtime_error("syllables must be non-empty");
             }
+
+            // {"syllables":[...], "phrase_at": i, "n": k} — 2-char 詞 (phrase)
+            // candidates for positions (i, i+1): per-position softmax over the
+            // phonetically-legal chars, cross-ranked by joint probability.
+            // Mirrors slothd_e.py phrases() and the web demo's buildPhrases.
+            // (Powers fcitx5/IBus ⇧1-9 phrase selection; the older Python
+            // daemon had this op but the ggml port had dropped it.)
+            if (req.contains("phrase_at")) {
+                const int at = req.at("phrase_at").get<int>();
+                const int nph = std::min(std::max(req.value("n", 6), 1), 8);
+                const int T = (int) syllables.size();
+                json phrases = json::array(), scores = json::array();
+                if (at >= 0 && at + 1 < T) {
+                    std::vector<int32_t> syl_ids(T);
+                    for (int i = 0; i < T; i++) {
+                        auto it = syl_vocab.find(syllables[i]);
+                        syl_ids[i] =
+                            (int32_t)(it == syl_vocab.end() ? 1 : it->second);
+                    }
+                    std::vector<float> logits((size_t) T * n_char);
+                    slothe_logits(model, syl_ids.data(), T, logits.data());
+                    std::vector<std::string> scratch;
+                    // top-5 (char, prob) at a position: softmax over legal cands
+                    auto topk = [&](int pos) {
+                        std::vector<std::pair<std::string, double>> r;
+                        const std::vector<std::string> & cands =
+                            syllable_candidates(table, syllables[pos], scratch);
+                        const float * row = &logits[(size_t) pos * n_char];
+                        std::vector<std::pair<double, std::string>> v;
+                        for (const auto & ch : cands) {
+                            auto it = char2id.find(ch);
+                            if (it == char2id.end()) continue;
+                            v.emplace_back(row[it->second], ch);
+                        }
+                        if (v.empty()) return r;
+                        double mx = v[0].first;
+                        for (auto & p : v) mx = std::max(mx, p.first);
+                        double Z = 0;
+                        for (auto & p : v) {
+                            p.first = std::exp(p.first - mx);
+                            Z += p.first;
+                        }
+                        for (auto & p : v) p.first /= Z;
+                        std::stable_sort(v.begin(), v.end(),
+                                         [](const std::pair<double, std::string> & a,
+                                            const std::pair<double, std::string> & b) {
+                                             return a.first > b.first;
+                                         });
+                        for (int j = 0; j < (int) v.size() && j < 5; j++)
+                            r.emplace_back(v[j].second, v[j].first);
+                        return r;
+                    };
+                    auto t0 = topk(at), t1 = topk(at + 1);
+                    std::vector<std::pair<double, std::string>> scored;
+                    for (auto & a : t0)
+                        for (auto & b : t1)
+                            scored.emplace_back(a.second * b.second,
+                                                a.first + b.first);
+                    std::sort(scored.begin(), scored.end(),
+                              [](const std::pair<double, std::string> & a,
+                                 const std::pair<double, std::string> & b) {
+                                  return a.first > b.first;
+                              });
+                    const double cut = scored.empty()
+                                           ? 0.0
+                                           : std::max(0.06, 0.15 * scored[0].first);
+                    std::unordered_set<std::string> seen;
+                    for (auto & pr : scored) {
+                        if (pr.first < cut || (int) phrases.size() >= nph) break;
+                        if (!seen.insert(pr.second).second) continue;
+                        phrases.push_back(pr.second);
+                        scores.push_back(pr.first);
+                    }
+                }
+                resp_str =
+                    json{{"sentences", phrases}, {"scores", scores}}.dump() + "\n";
+                (void) write(fd, resp_str.data(), resp_str.size());
+                close(fd);
+                continue;
+            }
+
             int n_alternatives = req.value("n", 1);
             if (n_alternatives < 1) {
                 n_alternatives = 1;

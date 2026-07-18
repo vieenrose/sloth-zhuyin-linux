@@ -441,7 +441,17 @@ public:
         if (i < 0 || i + 1 >= static_cast<int>(positions.size())) {
             return;
         }
+        // Contract: a 詞 is exactly two chars, applied to segments (i, i+1).
+        // Reject anything else (e.g. a stale daemon returning full-sentence
+        // n-best) rather than silently misapplying only the first char.
+        if (phrase.empty()) {
+            return;
+        }
         size_t c0len = utf8SeqLen(phrase[0]);
+        if (c0len >= phrase.size() ||
+            c0len + utf8SeqLen(phrase[c0len]) != phrase.size()) {
+            return;
+        }
         std::string c0 = phrase.substr(0, c0len);
         std::string c1 = phrase.substr(c0len);
         auto setSel = [this](int pos, const std::string &ch) {
